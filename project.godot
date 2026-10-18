@@ -11,7 +11,19 @@ config_version=5
 [application]
 
 config/name="New Game Project"
+run/main_scene="uid://db4nxfhy46c2b"
 config/features=PackedStringArray("4.7", "GL Compatibility")
+
+[autoload]
+
+Types="*uid://cwt283guuphhk"
+Config="*uid://lkwhlhbqf6lw"
+EventBus="*uid://dwxa8nh77hsay"
+GraphManager="*uid://dnb12cxwvhp4q"
+FloodManager="*uid://btcvpxwh7j2m7"
+RescueManager="*uid://bxbarfv64srnj"
+AudioManager="*uid://c3x1o8vkkt1a3"
+GameManager="*uid://xc7exu8bb0im"
 
 [debug]
 
