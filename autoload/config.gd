@@ -32,6 +32,7 @@ const MAX_PRIORITIZED := 2
 # --- Điểm ---
 const POINTS := {0: 10, 1: 20}
 const BONUS_RATIO := 1.5
+const REWARD_EDGE_BONUS := 2 
 
 # --- Hệ số tốc độ: SPEED_FACTOR[loại xe][trạng thái tuyến] ---
 # Loại xe: 0 TRUCK, 1 BOAT. Trạng thái tuyến: 0 DRY, 1 SHALLOW, 2 DEEP
