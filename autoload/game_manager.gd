@@ -5,7 +5,6 @@ extends Node
 
 const MAIN_SCENE := 'res://game/main.tscn'
 const ScoreSystemScript := preload('res://game/score_system.gd')
-const REWARD_EDGE_BONUS := 2  # TODO(E): nhờ A chuyển vào Config (mục 1.7: thưởng +2 hạn mức tuyến)
 
 var state: int = Types.GameState.MENU
 
@@ -92,7 +91,7 @@ func choose_reward(reward: int) -> void:
 		return
 	match reward:
 		Types.Reward.MORE_EDGES:
-			GraphManager.add_edge_limit(REWARD_EDGE_BONUS)
+			GraphManager.add_edge_limit(Config.REWARD_EDGE_BONUS)
 		Types.Reward.EXTRA_TRUCK:
 			RescueManager.add_vehicle(Types.VehicleType.TRUCK)
 		Types.Reward.EXTRA_BOAT:
