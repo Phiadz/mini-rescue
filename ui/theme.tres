@@ -1,0 +1,8 @@
+[gd_resource type="Theme" load_steps=2 format=3]
+
+[sub_resource type="SystemFont" id="SystemFont_vietnamese"]
+font_names = PackedStringArray("Segoe UI", "Noto Sans", "Arial", "DejaVu Sans")
+
+[resource]
+default_font = SubResource("SystemFont_vietnamese")
+default_font_size = 20

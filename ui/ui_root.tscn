@@ -1,3 +1,7 @@
-[gd_scene format=3 uid="uid://domflmkmqw0l4"]
+[gd_scene load_steps=2 format=3]
 
-[node name="UIRoot" type="CanvasLayer" unique_id=771854764]
+[ext_resource type="Script" path="res://ui/ui_root.gd" id="1_script"]
+
+[node name="UIRoot" type="CanvasLayer"]
+layer = 10
+script = ExtResource("1_script")
