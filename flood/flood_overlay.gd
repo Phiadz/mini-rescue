@@ -1,11 +1,13 @@
-extends Node2D
-# Chủ sở hữu: B
+class_name FloodOverlay
+extends CanvasItem
 
-# Called when the node enters the scene tree for the first time.
 func _ready() -> void:
-	pass # Replace with function body.
+	if FloodManager.has_signal("water_level_changed"):
+		FloodManager.water_level_changed.connect(func(_val): queue_redraw())
 
+func _process(_delta: float) -> void:
+	queue_redraw()
 
-# Called every frame. 'delta' is the elapsed time since the previous frame.
-func _process(delta: float) -> void:
+func _draw() -> void:
+	# Cung cấp sẵn hàm vẽ cho các module bản đồ sau này khi bạn kết nối graph
 	pass
