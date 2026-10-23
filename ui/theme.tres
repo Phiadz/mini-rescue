@@ -1,51 +1,8 @@
-[gd_resource type="Theme" format=3 uid="uid://740ytos2q0ld"]
+[gd_resource type="Theme" load_steps=2 format=3]
 
-[ext_resource type="FontFile" uid="uid://c8j6oamgggkgo" path="res://assets/fonts/BeVietnamPro-Regular.ttf" id="1_rqugq"]
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_rqugq"]
-bg_color = Color(0.26666668, 0.26666668, 0.2901961, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_6lx7k"]
-bg_color = Color(1, 0.84313726, 0, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_nmcsl"]
-bg_color = Color(0, 0.4509804, 0.9019608, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_jf26r"]
-bg_color = Color(0, 0.35686275, 0.70980394, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_p1g5k"]
-bg_color = Color(0.11764706, 0.11764706, 0.14117648, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
+[sub_resource type="SystemFont" id="SystemFont_vietnamese"]
+font_names = PackedStringArray("Segoe UI", "Noto Sans", "Arial", "DejaVu Sans")
 
 [resource]
-default_font = ExtResource("1_rqugq")
+default_font = SubResource("SystemFont_vietnamese")
 default_font_size = 20
-Button/colors/font_color = Color(1, 1, 1, 1)
-Button/colors/font_disabled_color = Color(0.6901961, 0.6901961, 0.6901961, 1)
-Button/colors/font_hover_color = Color(0.11764706, 0.11764706, 0.14117648, 1)
-Button/colors/font_outline_color = Color(1, 1, 1, 1)
-Button/styles/disabled = SubResource("StyleBoxFlat_rqugq")
-Button/styles/hover = SubResource("StyleBoxFlat_6lx7k")
-Button/styles/normal = SubResource("StyleBoxFlat_nmcsl")
-Button/styles/pressed = SubResource("StyleBoxFlat_jf26r")
-Panel/styles/panel = SubResource("StyleBoxFlat_p1g5k")
