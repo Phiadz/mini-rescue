@@ -289,7 +289,8 @@ func _ready() -> void:
 
 func reset() -> void:
 	for v in _vehicles.values():
-		v.queue_free()
+		if is_instance_valid(v):  # xe gắn vào VehicleLayer đã bị giải phóng khi chơi lại (đổi scene)
+			v.queue_free()
 	_vehicles.clear()
 	_requests.clear()
 	_hubs.clear()
