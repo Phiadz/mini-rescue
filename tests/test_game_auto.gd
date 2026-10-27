@@ -28,6 +28,7 @@ func _run() -> void:
 	await _test_lose()
 	await _test_lose_in_break()
 	await _test_pause()
+	await _test_exit_to_menu()
 	print('\nKết quả: %d đạt, %d trượt' % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
 
@@ -69,8 +70,11 @@ func _test_full_game_win() -> void:
 	_check(_last('break_started') == ['break_started', Config.BREAK_DURATION],
 			'phát break_started(BREAK_DURATION)')
 	_check(_last('reward_offered') == ['reward_offered', [0, 1, 2]], 'phát reward_offered([0, 1, 2])')
+	_check(absf(GameManager.break_left - Config.BREAK_DURATION) < 0.5,
+			'đầu lượt nghỉ, break_left xấp xỉ BREAK_DURATION (%.2f)' % GameManager.break_left)
 
 	await _wait_state(Types.GameState.PLAYING)
+	_check(GameManager.break_left == 0.0, 'đang trong đợt thì break_left bằng 0')
 	_check(_last('reward_chosen') == ['reward_chosen', Types.Reward.MORE_EDGES],
 			'hết giờ nghỉ mà chưa chọn thì tự nhận MORE_EDGES')
 	_check(_last('wave_started') == ['wave_started', 1], 'sau giờ nghỉ bắt đầu đợt 1')
@@ -164,10 +168,42 @@ func _test_pause() -> void:
 
 	await _wait_state(Types.GameState.WAVE_BREAK)
 	GameManager.pause_game()
+	var left := GameManager.break_left
+	await _wait_frames(60)
+	_check(left > 0.0 and is_equal_approx(GameManager.break_left, left),
+			'tạm dừng giữa lượt nghỉ, break_left giữ nguyên')
 	GameManager.choose_reward(Types.Reward.EXTRA_BOAT)
 	_check(_count('reward_chosen') == 0, 'không chọn được thưởng khi đang tạm dừng')
 	GameManager.resume_game()
 	_check(GameManager.state == Types.GameState.WAVE_BREAK, 'tạm dừng lúc nghỉ, tiếp tục thì về WAVE_BREAK')
+
+
+func _test_exit_to_menu() -> void:
+	print('\n== Về menu giữa ván')
+	_events.clear()
+	GameManager.restart()
+	await _wait_until(func(): return _count('wave_started') > 0)
+	await _wait_frames(30)
+	GameManager.pause_game()
+	GameManager.exit_to_menu()
+	_check(GameManager.state == Types.GameState.MENU
+			and _last('game_state_changed') == ['game_state_changed', Types.GameState.MENU],
+			'exit_to_menu: về MENU và phát game_state_changed(MENU)')
+	var t := GameManager.get_time_survived()
+	var failed := GameManager.get_failed_count()
+	await _wait_frames(120)
+	_check(get_tree().paused and is_equal_approx(GameManager.get_time_survived(), t),
+			'ở menu, ván dở đứng yên (cây scene dừng, đồng hồ không chạy)')
+	_fake_fail()
+	_check(GameManager.get_failed_count() == failed and _count('game_lost') == 0,
+			'ở menu, SOS thất bại không được tính')
+	_press(KEY_ESCAPE)
+	await _wait_frames(2)
+	_check(GameManager.state == Types.GameState.MENU, 'ở menu, phím Esc không có tác dụng')
+	_events.clear()
+	await GameManager.start_game()
+	_check(GameManager.state == Types.GameState.PLAYING and not get_tree().paused
+			and _count('game_started') == 1, 'từ menu bấm Chơi thì bắt đầu ván mới')
 
 
 func _listen() -> void:
@@ -182,6 +218,9 @@ func _listen() -> void:
 	EventBus.failed_changed.connect(func(c, m): _events.append(['failed_changed', c, m]))
 	EventBus.game_won.connect(func(st): _events.append(['game_won', st]))
 	EventBus.game_lost.connect(func(st): _events.append(['game_lost', st]))
+	# C bật sinh SOS khi nghe wave_started; tắt lại để chỉ còn SOS giả của test.
+	# RescueManager là autoload nên đã connect trước, hàm này chạy sau nó.
+	EventBus.wave_started.connect(func(_i): RescueManager.set_spawning(false))
 
 
 func _check(ok: bool, label: String) -> void:

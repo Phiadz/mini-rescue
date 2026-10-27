@@ -1,0 +1,122 @@
+[
+  {
+    "asset": "boat",
+    "svg": "assets/vector/boat.svg",
+    "scene": "assets/scenes/boat.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "hub_south",
+    "svg": "assets/vector/hub_south.svg",
+    "scene": "assets/scenes/hub_south.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "road_deep",
+    "svg": "assets/vector/road_deep.svg",
+    "scene": "assets/scenes/road_deep.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "industry",
+    "svg": "assets/vector/industry.svg",
+    "scene": "assets/scenes/industry.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "house_mint",
+    "svg": "assets/vector/house_mint.svg",
+    "scene": "assets/scenes/house_mint.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "hospital",
+    "svg": "assets/vector/hospital.svg",
+    "scene": "assets/scenes/hospital.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "tree",
+    "svg": "assets/vector/tree.svg",
+    "scene": "assets/scenes/tree.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "house_coral",
+    "svg": "assets/vector/house_coral.svg",
+    "scene": "assets/scenes/house_coral.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "harbor",
+    "svg": "assets/vector/harbor.svg",
+    "scene": "assets/scenes/harbor.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "house_gold",
+    "svg": "assets/vector/house_gold.svg",
+    "scene": "assets/scenes/house_gold.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "sos",
+    "svg": "assets/vector/sos.svg",
+    "scene": "assets/scenes/sos.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "road_shallow",
+    "svg": "assets/vector/road_shallow.svg",
+    "scene": "assets/scenes/road_shallow.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "hub_north",
+    "svg": "assets/vector/hub_north.svg",
+    "scene": "assets/scenes/hub_north.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "floating_house",
+    "svg": "assets/vector/floating_house.svg",
+    "scene": "assets/scenes/floating_house.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "truck",
+    "svg": "assets/vector/truck.svg",
+    "scene": "assets/scenes/truck.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "school",
+    "svg": "assets/vector/school.svg",
+    "scene": "assets/scenes/school.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "road_dry",
+    "svg": "assets/vector/road_dry.svg",
+    "scene": "assets/scenes/road_dry.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "house_blue",
+    "svg": "assets/vector/house_blue.svg",
+    "scene": "assets/scenes/house_blue.tscn",
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "contours",
+    "svg": "assets/vector/terrain/contours.svg",
+    "scene": null,
+    "editable": "SVG shapes; no embedded bitmap"
+  },
+  {
+    "asset": "ground",
+    "svg": "assets/vector/terrain/ground.svg",
+    "scene": null,
+    "editable": "SVG shapes; no embedded bitmap"
+  }
+]

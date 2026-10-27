@@ -19,6 +19,7 @@ var ending
 var sos: Node2D
 var flood_overlay: Node2D
 var current_view: String = "menu"
+var reward_pending: bool = false # reward offered but not chosen yet; restore its popup after pausing in a break
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -48,6 +49,7 @@ func _ready() -> void:
 	pause.connect("menu_pressed", _return_to_menu)
 	reward.connect("reward_pressed", _choose_reward)
 	ending.connect("restart_pressed", _restart)
+	ending.connect("menu_pressed", _return_to_menu)
 	ending.connect("survey_pressed", _survey)
 	EventBus.game_started.connect(_on_started)
 	EventBus.game_state_changed.connect(_on_game_state_changed)
@@ -78,9 +80,10 @@ func _show(name: String) -> void:
 func _start() -> void:
 	# Button activation is a user gesture; web browsers then allow music playback.
 	GameManager.start_game()
-	AudioManager.play_bgm(&"floodline_ambient")
+	AudioManager.play_bgm(&"game_bgm")
 
 func _on_started() -> void:
+	reward_pending = false
 	_show("hud")
 
 func _pause() -> void:
@@ -93,14 +96,9 @@ func _restart() -> void:
 	GameManager.restart()
 
 func _return_to_menu() -> void:
-	# No GameManager.exit_to_menu() is specified by the group's interface contract.
-	# Use ONLY public methods from that contract to reset the demo and freeze all timers.
-	# This is a safe demo fallback, not an E-approved production exit API.
-	GameManager.resume_game()
-	GameManager.restart()
-	GameManager.pause_game()
-	AudioManager.play_bgm(&"")
-	_show("menu")
+	# GameManager freezes the abandoned round and emits game_state_changed(MENU);
+	# _on_game_state_changed then stops the music and shows the menu.
+	GameManager.exit_to_menu()
 
 func _choose_reward(choice: int) -> void:
 	GameManager.choose_reward(choice)
@@ -115,14 +113,16 @@ func _on_game_state_changed(state: int) -> void:
 		_show("menu")
 	elif state == Types.GameState.PAUSED:
 		_show("pause")
-	elif state == Types.GameState.PLAYING and current_view == "pause":
-		_show("hud")
+	elif (state == Types.GameState.PLAYING or state == Types.GameState.WAVE_BREAK) and current_view == "pause":
+		_show("reward" if reward_pending else "hud")
 
 func _on_reward_offered(options: Array) -> void:
+	reward_pending = true
 	reward.call("set_options", options)
 	_show("reward")
 
 func _on_reward_chosen(_choice: int) -> void:
+	reward_pending = false
 	_show("hud")
 
 func _on_won(stats: Dictionary) -> void:

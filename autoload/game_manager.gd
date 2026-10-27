@@ -7,6 +7,13 @@ const MAIN_SCENE := 'res://game/main.tscn'
 const ScoreSystemScript := preload('res://game/score_system.gd')
 
 var state: int = Types.GameState.MENU
+# Số giây nghỉ còn lại (chỉ đọc), 0 khi không ở lượt nghỉ. Bảng chọn thưởng của D đọc để đếm ngược;
+# đứng yên khi tạm dừng giữa lượt nghỉ.
+var break_left: float:
+	get:
+		var in_break := state == Types.GameState.WAVE_BREAK \
+				or (state == Types.GameState.PAUSED and _prev_state == Types.GameState.WAVE_BREAK)
+		return maxf(_phase_left, 0.0) if in_break else 0.0
 
 var _prev_state: int = Types.GameState.MENU
 var _wave := 0
@@ -84,6 +91,16 @@ func resume_game() -> void:
 
 func restart() -> void:
 	start_game()  # start_game tự đặt lại mọi bộ đếm
+
+
+# Bỏ ván đang dở để về menu chính. Cây scene bị dừng để lũ, SOS, xe của ván dở đứng yên
+# phía sau menu; start_game() sẽ bỏ dừng và đặt lại mọi module.
+func exit_to_menu() -> void:
+	if state == Types.GameState.MENU:
+		return
+	_score_system.enabled = false
+	get_tree().paused = true
+	_set_state(Types.GameState.MENU)
 
 
 func choose_reward(reward: int) -> void:

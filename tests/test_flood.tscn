@@ -1,0 +1,9 @@
+[gd_scene format=3 uid="uid://dqy1yamnf068f"]
+
+[ext_resource type="Script" uid="uid://dtolbt3dowb78" path="res://tests/test_flood.gd" id="1_e0wdy"]
+
+[node name="TestFlood" type="Node2D" unique_id=862019877]
+visible = false
+script = ExtResource("1_e0wdy")
+
+[node name="Node2D" type="Node2D" parent="." unique_id=608173654]
