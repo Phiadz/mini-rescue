@@ -7,26 +7,52 @@ signal audio_pressed
 signal volume_changed(value: float)
 
 const Style = preload("res://ui/style.gd")
-const TITLE_FONT = preload("res://assets/fonts/BeVietnamPro-Bold.ttf")
+# Both images were separated from floodline_menu_art.png: the background is its right part (no baked
+# logo or buttons), the logo is the FLOODLINE title keyed onto a transparent background.
+const MENU_BG = preload("res://assets/images/floodline_menu_bg.png")
+const LOGO = preload("res://assets/images/floodline_logo.png")
 
 const SCREEN_W := 1280.0
+const LOGO_W := 360.0
+const LOGO_TOP := 34.0
 const BUTTON_W := 400.0
 const BUTTON_H := 66.0
 const BUTTON_GAP := 20.0
-const BUTTONS_TOP := 372.0
+const BUTTONS_TOP := 384.0
 
 func _ready() -> void:
-	Style.background(self, Color(0.0, 0.03, 0.09, 0.45))
+	_build_background()
 	_build_title()
 	_build_buttons()
-	Style.text(self, "LẬP KẾ HOẠCH  •  CỨU HỘ  •  CHẠY ĐUA VỚI LŨ", 0, 646, SCREEN_W, 36, 19, Style.MUTED, true)
+	Style.text(self, "LẬP KẾ HOẠCH  •  CỨU HỘ  •  CHẠY ĐUA VỚI LŨ", 0, 652, SCREEN_W, 36, 19, Style.WHITE, true)
+
+func _build_background() -> void:
+	var bg := TextureRect.new()
+	add_child(bg)
+	Style.full(bg)
+	bg.texture = MENU_BG
+	bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var shade := ColorRect.new()
+	add_child(shade)
+	Style.full(shade)
+	shade.color = Color(0.0, 0.03, 0.09, 0.42)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 func _build_title() -> void:
-	var title := Style.text(self, "FLOODLINE", 0, 112, SCREEN_W, 130, 104, Style.YELLOW, true)
-	title.add_theme_font_override("font", TITLE_FONT)
-	title.add_theme_constant_override("outline_size", 10)
-	title.add_theme_color_override("font_outline_color", Color("#0b2a4a"))
-	Style.text(self, "﹏﹏﹏   CỨU HỘ 0 GIỜ   ﹏﹏﹏", 0, 246, SCREEN_W, 48, 30, Style.CYAN, true)
+	var logo := TextureRect.new()
+	add_child(logo)
+	var size := Vector2(LOGO_W, LOGO_W * LOGO.get_height() / LOGO.get_width())
+	logo.position = Vector2((SCREEN_W - size.x) / 2.0, LOGO_TOP)
+	logo.size = size
+	logo.texture = LOGO
+	logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
+	logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var subtitle := Style.text(self, "CỨU HỘ 0 GIỜ", 0, LOGO_TOP + size.y + 6, SCREEN_W, 40, 28, Style.CYAN, true)
+	subtitle.add_theme_constant_override("outline_size", 6)
+	subtitle.add_theme_color_override("font_outline_color", Color("#06142a"))
 
 func _build_buttons() -> void:
 	var x := (SCREEN_W - BUTTON_W) / 2.0
