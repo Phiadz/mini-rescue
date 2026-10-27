@@ -86,6 +86,16 @@ func restart() -> void:
 	start_game()  # start_game tự đặt lại mọi bộ đếm
 
 
+# Bỏ ván đang dở để về menu chính. Cây scene bị dừng để lũ, SOS, xe của ván dở đứng yên
+# phía sau menu; start_game() sẽ bỏ dừng và đặt lại mọi module.
+func exit_to_menu() -> void:
+	if state == Types.GameState.MENU:
+		return
+	_score_system.enabled = false
+	get_tree().paused = true
+	_set_state(Types.GameState.MENU)
+
+
 func choose_reward(reward: int) -> void:
 	if state != Types.GameState.WAVE_BREAK or _reward_chosen:
 		return
