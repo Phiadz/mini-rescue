@@ -39,6 +39,7 @@ func load_map(path: String) -> void:
 		n.kind = int(d['kind'])
 		n.pos = Vector2(float(d['x']), float(d['y']))
 		n.elevation = float(d['elevation'])
+		n.icon = str(d.get('icon', ''))
 		_nodes[n.id] = n
 		_adj[n.id] = []
 

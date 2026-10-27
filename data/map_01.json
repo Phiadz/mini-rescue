@@ -1,14 +1,14 @@
 {
   "nodes": [
-	{"id": 0, "name": "Kho Bắc", "kind": 0, "x": 200, "y": 120, "elevation": 70},
-	{"id": 1, "name": "Kho Nam", "kind": 0, "x": 1080, "y": 600, "elevation": 60},
-	{"id": 2, "name": "Khu Bến Cảng", "kind": 1, "x": 180, "y": 360, "elevation": 10},
-	{"id": 3, "name": "Khu Chợ Cũ", "kind": 1, "x": 420, "y": 200, "elevation": 25},
-	{"id": 4, "name": "Khu Trường Học", "kind": 1, "x": 440, "y": 480, "elevation": 20},
-	{"id": 5, "name": "Bệnh viện", "kind": 1, "x": 640, "y": 330, "elevation": 40},
-	{"id": 6, "name": "Khu Công Nghiệp", "kind": 1, "x": 820, "y": 160, "elevation": 35},
-	{"id": 7, "name": "Khu Ven Sông", "kind": 1, "x": 860, "y": 420, "elevation": 15},
-	{"id": 8, "name": "Khu Đồi Xanh", "kind": 1, "x": 1060, "y": 260, "elevation": 65},
-	{"id": 9, "name": "Khu Làng Nổi", "kind": 1, "x": 700, "y": 620, "elevation": 5}
+	{"id": 0, "name": "Kho Bắc", "kind": 0, "x": 200, "y": 120, "elevation": 70, "icon": "hub_north"},
+	{"id": 1, "name": "Kho Nam", "kind": 0, "x": 1080, "y": 600, "elevation": 60, "icon": "hub_south"},
+	{"id": 2, "name": "Khu Bến Cảng", "kind": 1, "x": 180, "y": 360, "elevation": 10, "icon": "harbor"},
+	{"id": 3, "name": "Khu Chợ Cũ", "kind": 1, "x": 420, "y": 200, "elevation": 25, "icon": "house_coral"},
+	{"id": 4, "name": "Khu Trường Học", "kind": 1, "x": 440, "y": 480, "elevation": 20, "icon": "school"},
+	{"id": 5, "name": "Bệnh viện", "kind": 1, "x": 640, "y": 330, "elevation": 40, "icon": "hospital"},
+	{"id": 6, "name": "Khu Công Nghiệp", "kind": 1, "x": 820, "y": 160, "elevation": 35, "icon": "industry"},
+	{"id": 7, "name": "Khu Ven Sông", "kind": 1, "x": 860, "y": 420, "elevation": 15, "icon": "house_blue"},
+	{"id": 8, "name": "Khu Đồi Xanh", "kind": 1, "x": 1060, "y": 260, "elevation": 65, "icon": "house_mint"},
+	{"id": 9, "name": "Khu Làng Nổi", "kind": 1, "x": 700, "y": 620, "elevation": 5, "icon": "floating_house"}
   ]
 }
