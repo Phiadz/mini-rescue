@@ -1,75 +1,116 @@
 extends Control
+## Compact HUD (Vector MVP layout): one thin bar on top, stock badges under each hub on the map,
+## a small legend in the bottom-left corner and a controls hint at the bottom. Nothing covers the map
+## nodes, so map_01.json keeps the coordinates that match terrain/height_field.png.
 signal pause_pressed
 const Style = preload("res://ui/style.gd")
+
+const BAR := Rect2(250, 8, 780, 42)
+const BADGE_SIZE := Vector2(96, 26)
+const BADGE_OFFSET := 66.0 # below the hub icon and its name (NodeLayer)
+const ROAD_DRY := Color("#aeb8c4")
+const ROAD_SHALLOW := Color("#1f2b3c")
+const ROAD_SHALLOW_MARK := Color("#e9c85c")
+const ROAD_DEEP := Color("#3a8fd0")
+const ROAD_CASING := Color("#0d1726")
+
 var score_label: Label
 var fail_label: Label
 var wave_label: Label
 var time_label: Label
 var water_label: Label
 var budget_label: Label
-var stock_north: Label
-var stock_south: Label
-var water_bar: ProgressBar
 var warning_label: Label
 var warning_panel: Panel
 var warn_time: float = 0.0
 var countdown: float = 120.0
 var break_time: bool = false
 var enabled: bool = false
+var badges: Dictionary = {} # hub_id -> [food Label, medical Label]
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	Style.rect(self, 15, 10, 976, 73, Color(0.0, 0.05, 0.11, 0.94), Style.BORDER, 11)
-	Style.text(self, "★", 32, 19, 48, 48, 38, Style.YELLOW)
-	score_label = Style.text(self, "0", 80, 21, 122, 43, 27)
-	Style.text(self, "◷", 242, 25, 42, 37, 32)
-	time_label = Style.text(self, "02:00", 289, 24, 116, 40, 28)
-	wave_label = Style.text(self, "ĐỢT 1 / 3", 427, 23, 200, 41, 27, Style.WHITE, true)
-	Style.text(self, "💧", 700, 22, 45, 42, 29, Style.CYAN)
-	water_label = Style.text(self, "0%", 745, 23, 120, 40, 29, Style.CYAN)
-	var p := Style.button(self, "Ⅱ", 918, 20, 58, 52, Style.NIGHT, 28)
+	_build_top_bar()
+	var p := Style.button(self, "Ⅱ", 1216, 8, 50, 42, Style.NIGHT, 22)
 	p.mouse_filter = Control.MOUSE_FILTER_STOP
 	p.pressed.connect(func() -> void: pause_pressed.emit())
-	Style.rect(self, 1003, 10, 262, 694, Color(0.0, 0.06, 0.14, 0.96), Style.BORDER, 12)
-	Style.text(self, "HẠN MỨC TUYẾN", 1022, 21, 235, 40, 22, Style.CYAN)
-	Style.bar(self, 1021, 68, 165, 18, 0.0)
-	budget_label = Style.text(self, "0 / 10", 1186, 63, 72, 28, 21, Style.WHITE, true)
-	Style.separator(self, 100)
-	Style.text(self, "TỒN KHO", 1022, 113, 225, 33, 25)
-	stock_north = Style.text(self, "KHO BẮC   ● 6  ✚ 6", 1021, 157, 238, 38, 20, Style.YELLOW)
-	stock_south = Style.text(self, "KHO NAM   ● 6  ✚ 6", 1021, 203, 238, 38, 20, Style.YELLOW)
-	Style.rect(self, 1019, 262, 230, 1, Style.BORDER, Style.BORDER, 0)
-	Style.text(self, "CHÚ THÍCH", 1022, 280, 222, 36, 24)
-	var legend := [
-		["⌂", "Nhà dân"], ["▣", "Kho"], ["━━", "Đường khô ráo"],
-		["┄┄", "Đường ngập"], ["●", "SOS cứu hộ"], ["✚", "Trạm y tế"],
-		["", "Xe tải"], ["", "Ca-nô"]
-	]
-	for i in range(legend.size()):
-		var yy: int = 324 + i*44
-		if i < 6:
-			Style.text(self, str(legend[i][0]), 1028, yy, 72, 42, 31, Style.CYAN if i % 2 == 1 else Style.YELLOW)
-		else:
-			var vehicle_icon := TextureRect.new()
-			add_child(vehicle_icon)
-			vehicle_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-			vehicle_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-			vehicle_icon.texture = load("res://assets/icons/rescue_truck.png") if i == 6 else load("res://assets/icons/rescue_boat.png")
-			vehicle_icon.position = Vector2(1024, yy + 2)
-			vehicle_icon.size = Vector2(72, 39)
-			vehicle_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		Style.text(self, str(legend[i][1]), 1104, yy, 147, 42, 19)
-	Style.rect(self, 22, 100, 284, 52, Color(0.02,0.07,0.12,0.87), Style.BORDER, 10)
-	fail_label = Style.text(self, "THẤT BẠI: 0 / 3", 36, 106, 269, 39, 23, Style.WHITE)
-	water_bar = Style.bar(self, 780, 89, 185, 14, 0.0, Style.BLUE)
-	warning_panel = Style.rect(self, 350, 92, 407, 61, Color(0.37, 0.04, 0.04, 0.96), Style.ORANGE, 10)
-	warning_label = Style.text(self, "⚠  TUYẾN SẮP NGẬP!", 362, 98, 384, 48, 23, Style.WHITE, true)
+	_build_legend()
+	_build_hint()
+	warning_panel = Style.rect(self, 440, 58, 400, 44, Color(0.37, 0.04, 0.04, 0.96), Style.ORANGE, 10)
+	warning_label = Style.text(self, "⚠  TUYẾN SẮP NGẬP!", 440, 58, 400, 44, 21, Style.WHITE, true)
 	warning_label.visible = false
 	warning_panel.visible = false
-	Style.text(self, "F1: THƯỞNG  |  F2: THẮNG  |  F3: THUA  |  F7: CẢNH BÁO (TEST)", 20, 672, 900, 31, 16, Style.MUTED)
 	_connect_signals()
 
+func _build_top_bar() -> void:
+	Style.rect(self, BAR.position.x, BAR.position.y, BAR.size.x, BAR.size.y, Color(0.0, 0.05, 0.11, 0.9), Style.BORDER, 10)
+	var row := HBoxContainer.new()
+	add_child(row)
+	row.position = BAR.position
+	row.size = BAR.size
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 26)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_bar_label(row, "F L O O D L I N E", Style.MUTED)
+	score_label = _bar_label(row, "★ 0", Style.YELLOW)
+	wave_label = _bar_label(row, "ĐỢT 1 / 3", Style.WHITE)
+	time_label = _bar_label(row, "02:00", Style.WHITE)
+	water_label = _bar_label(row, "≈ 0%", Style.CYAN)
+	budget_label = _bar_label(row, "TUYẾN 0 / 10", Style.WHITE)
+	fail_label = _bar_label(row, "THẤT BẠI 0 / 3", Style.WHITE)
+
+func _bar_label(row: HBoxContainer, caption: String, color: Color) -> Label:
+	var l := Label.new()
+	row.add_child(l)
+	l.text = caption
+	l.add_theme_font_size_override("font_size", 18)
+	l.add_theme_color_override("font_color", color)
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+func _build_legend() -> void:
+	var box := Style.rect(self, 12, 612, 236, 70, Color(0.0, 0.05, 0.11, 0.88), Style.BORDER, 10)
+	var roads := [["Khô", ROAD_DRY, false], ["Cạn", ROAD_SHALLOW, true], ["Sâu", ROAD_DEEP, false]]
+	for i in roads.size():
+		var x: float = 14 + i * 76
+		_road_sample(box, Vector2(x, 16), roads[i][1], roads[i][2])
+		Style.text(box, roads[i][0], x + 30, 6, 44, 24, 15, Style.WHITE)
+	Style.text(box, "●", 14, 38, 14, 24, 15, Style.YELLOW)
+	Style.text(box, "Lương thực", 30, 38, 90, 24, 15, Style.WHITE)
+	Style.text(box, "✚", 126, 38, 16, 24, 15, Style.CYAN)
+	Style.text(box, "Y tế", 144, 38, 60, 24, 15, Style.WHITE)
+
+# Small road swatch drawn like EdgeView: dark casing, road colour, yellow dashes for a shallow road.
+func _road_sample(parent: Control, at: Vector2, fill: Color, dashed: bool) -> void:
+	var casing := ColorRect.new()
+	parent.add_child(casing)
+	casing.position = at - Vector2(0, 2)
+	casing.size = Vector2(26, 10)
+	casing.color = ROAD_CASING
+	casing.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var road := ColorRect.new()
+	parent.add_child(road)
+	road.position = at
+	road.size = Vector2(26, 6)
+	road.color = fill
+	road.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if dashed:
+		for k in 3:
+			var dash := ColorRect.new()
+			parent.add_child(dash)
+			dash.position = at + Vector2(1 + k * 9, 1)
+			dash.size = Vector2(6, 4)
+			dash.color = ROAD_SHALLOW_MARK
+			dash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+func _build_hint() -> void:
+	Style.rect(self, 260, 690, 760, 26, Color(0.0, 0.05, 0.11, 0.8), Style.BORDER, 8)
+	Style.text(self, "Kéo trái: nối tuyến  •  Chuột phải / Delete: xóa  •  Bấm SOS: ưu tiên (tối đa 2)  •  Space/Esc: tạm dừng",
+			260, 690, 760, 26, 14, Style.MUTED, true)
+
 func _connect_signals() -> void:
+	EventBus.game_started.connect(_build_badges)
 	EventBus.score_changed.connect(_on_score)
 	EventBus.failed_changed.connect(_on_failed)
 	EventBus.wave_started.connect(_on_wave)
@@ -78,6 +119,24 @@ func _connect_signals() -> void:
 	EventBus.edge_budget_changed.connect(_on_budget)
 	EventBus.stock_changed.connect(_on_stock)
 	EventBus.flood_warning.connect(_on_warning)
+
+# One stock badge under each hub. Positions come from the GraphManager read API; the counts are read from
+# RescueManager because C emits the first stock_changed before this HUD hears game_started.
+func _build_badges() -> void:
+	for pair in badges.values():
+		pair[0].get_parent().queue_free()
+	badges.clear()
+	for id in GraphManager.get_node_ids():
+		var n = GraphManager.get_map_node(id)
+		if n == null or n.kind != Types.NodeKind.HUB:
+			continue
+		var at: Vector2 = n.pos + Vector2(-BADGE_SIZE.x / 2.0, BADGE_OFFSET)
+		var pill := Style.rect(self, at.x, at.y, BADGE_SIZE.x, BADGE_SIZE.y, Color(0.0, 0.05, 0.11, 0.9), Style.BORDER, 13)
+		var food := Style.text(pill, "", 8, 0, 40, BADGE_SIZE.y, 15, Style.YELLOW, true)
+		var med := Style.text(pill, "", 48, 0, 40, BADGE_SIZE.y, 15, Style.CYAN, true)
+		badges[id] = [food, med]
+		for supply in [Types.SupplyType.FOOD, Types.SupplyType.MEDICAL]:
+			_on_stock(id, supply, RescueManager.get_stock(id, supply))
 
 func _process(delta: float) -> void:
 	if not enabled:
@@ -95,14 +154,15 @@ func _process(delta: float) -> void:
 		warning_panel.visible = false
 
 func _on_score(value: int) -> void:
-	score_label.text = str(value)
+	score_label.text = "★ %d" % value
 
 func _on_failed(count: int, maximum: int) -> void:
-	fail_label.text = "THẤT BẠI: %d / %d" % [count, maximum]
+	fail_label.text = "THẤT BẠI %d / %d" % [count, maximum]
+	fail_label.add_theme_color_override("font_color", Style.ORANGE if count > 0 else Style.WHITE)
 
 func _on_wave(index: int) -> void:
 	break_time = false
-	wave_label.text = "ĐỢT %d / 3" % (index + 1)
+	wave_label.text = "ĐỢT %d / %d" % [index + 1, Config.WAVE_COUNT]
 	countdown = Config.WAVE_DURATION
 
 func _on_break(seconds: float) -> void:
@@ -111,17 +171,18 @@ func _on_break(seconds: float) -> void:
 	countdown = seconds
 
 func _on_water(level: float) -> void:
-	water_label.text = "%d%%" % int(round(level))
-	water_bar.value = level
+	water_label.text = "≈ %d%%" % int(round(level))
 
 func _on_budget(used: int, limit: int) -> void:
-	budget_label.text = "%d / %d" % [used, limit]
+	budget_label.text = "TUYẾN %d / %d" % [used, limit]
 
 func _on_stock(hub_id: int, supply: int, qty: int) -> void:
-	var target := stock_north if hub_id == 0 else stock_south
-	var key := "food_%d" % hub_id if supply == 0 else "med_%d" % hub_id
-	set_meta(key, qty)
-	target.text = "KHO %s   ● %d  ✚ %d" % ["BẮC" if hub_id == 0 else "NAM", int(get_meta("food_%d" % hub_id, 6)), int(get_meta("med_%d" % hub_id, 6))]
+	if not badges.has(hub_id):
+		return
+	if supply == Types.SupplyType.FOOD:
+		badges[hub_id][0].text = "● %d" % qty
+	else:
+		badges[hub_id][1].text = "✚ %d" % qty
 
 func _on_warning(_edge_id: int, _seconds_left: float) -> void:
 	warn_time = 2.0
