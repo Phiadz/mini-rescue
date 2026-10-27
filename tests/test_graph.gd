@@ -66,7 +66,7 @@ func _run_checks() -> void:
 	_check(_log.has(['edge_added', e1]), 'phát edge_added đúng id')
 	_check(_log.has(['edge_budget_changed', 1, Config.EDGE_LIMIT_START]), 'phát edge_budget_changed(1, 10)')
 	var e := GraphManager.get_edge(e1)
-	_check(absf(e.length - 234.09) < 0.1, 'độ dài cạnh 0-3 xấp xỉ 234,1')
+	_check(absf(e.length - _d(0, 3)) < 0.1, 'độ dài cạnh 0-3 bằng khoảng cách hai node (%.1f)' % _d(0, 3))
 	_check(e.elevation == 47.5, 'độ cao cạnh 0-3 = (70 + 25) / 2 = 47,5')
 	_log.clear()
 	GraphManager.remove_edge(e1)
@@ -97,11 +97,13 @@ func _run_checks() -> void:
 	var ids := _build_example()
 	var pt := GraphManager.find_path(0, 7, Types.VehicleType.TRUCK)
 	_check(pt.found and _same(pt.node_ids, [0, 3, 5, 7]), 'xe tải 0→7 đi 0-3-5-7')
-	_check(absf(pt.cost - 6.06) < 0.02, 'chi phí xe tải xấp xỉ 6,06 giây')
+	var cost_dry := (_d(0, 3) + _d(3, 5) + _d(5, 7)) / Config.TRUCK_SPEED
+	_check(absf(pt.cost - cost_dry) < 0.02, 'chi phí xe tải xấp xỉ %.2f giây' % cost_dry)
 	GraphManager.set_edge_state(ids['3-5'], Types.EdgeState.DEEP)
 	var pt2 := GraphManager.find_path(0, 7, Types.VehicleType.TRUCK)
 	_check(pt2.found and _same(pt2.node_ids, [0, 2, 4, 5, 7]), 'cạnh 3-5 ngập sâu: xe tải đổi sang 0-2-4-5-7')
-	_check(absf(pt2.cost - 8.46) < 0.02, 'chi phí mới xấp xỉ 8,46 giây')
+	var cost_detour := (_d(0, 2) + _d(2, 4) + _d(4, 5) + _d(5, 7)) / Config.TRUCK_SPEED
+	_check(absf(pt2.cost - cost_detour) < 0.02, 'chi phí mới xấp xỉ %.2f giây' % cost_detour)
 	_check(not GraphManager.find_path(0, 7, Types.VehicleType.BOAT).found, 'ca-nô: các cạnh khác còn khô nên chưa có đường 0→7')
 	for eid in GraphManager.get_edge_ids():
 		GraphManager.set_edge_state(eid, Types.EdgeState.DEEP)
@@ -112,7 +114,8 @@ func _run_checks() -> void:
 	_build_example()
 	for eid in GraphManager.get_edge_ids():
 		GraphManager.set_edge_state(eid, Types.EdgeState.SHALLOW)
-	_check(absf(GraphManager.find_path(0, 7, Types.VehicleType.TRUCK).cost - 12.12) < 0.03, 'ngập nhẹ: xe tải chậm gấp đôi (xấp xỉ 12,12 giây)')
+	var cost_shallow := 2.0 * (_d(0, 3) + _d(3, 5) + _d(5, 7)) / Config.TRUCK_SPEED
+	_check(absf(GraphManager.find_path(0, 7, Types.VehicleType.TRUCK).cost - cost_shallow) < 0.03, 'ngập nhẹ: xe tải chậm gấp đôi (xấp xỉ %.2f giây)' % cost_shallow)
 
 	var ids3 := _build_example()
 	GraphManager.remove_edge(ids3['3-5'])
@@ -127,8 +130,14 @@ func _run_checks() -> void:
 	_check(GraphManager.get_edge_ids().is_empty() and GraphManager.get_edge_budget().limit == Config.EDGE_LIMIT_START, 'game_started: xóa hết cạnh, đặt lại hạn mức')
 	GraphManager.load_map(Config.MAP_PATH)
 	_check(GraphManager.get_node_ids().size() == 10, 'load_map gọi lại vẫn đúng 10 node')
+	_check(GraphManager.get_node_ids().all(func(id): return ResourceLoader.exists('res://assets/icons/%s.svg' % GraphManager.get_map_node(id).icon)),
+			'mỗi node có trường icon trỏ tới file icon có thật')
 
 	print('Kết quả: %d đạt, %d trượt' % [_pass, _fail])
+
+# Khoảng cách giữa hai node theo tọa độ trong map_01.json, để test không phụ thuộc con số cứng.
+func _d(a: int, b: int) -> float:
+	return GraphManager.get_map_node(a).pos.distance_to(GraphManager.get_map_node(b).pos)
 
 # ---------- thử bằng phím ----------
 func _setup_demo() -> void:
