@@ -14,7 +14,8 @@ const LOGO = preload("res://assets/images/floodline_logo.png")
 
 const SCREEN_W := 1280.0
 const LOGO_W := 360.0
-const LOGO_TOP := 34.0
+const LOGO_HEIGHT_SCALE := 0.82 # logo drawn a bit shorter than its natural aspect, looks less tall above the buttons
+const LOGO_TOP := 60.0
 const BUTTON_W := 400.0
 const BUTTON_H := 66.0
 const BUTTON_GAP := 20.0
@@ -43,12 +44,12 @@ func _build_background() -> void:
 func _build_title() -> void:
 	var logo := TextureRect.new()
 	add_child(logo)
-	var size := Vector2(LOGO_W, LOGO_W * LOGO.get_height() / LOGO.get_width())
+	var size := Vector2(LOGO_W, LOGO_W * LOGO.get_height() / LOGO.get_width() * LOGO_HEIGHT_SCALE)
 	logo.position = Vector2((SCREEN_W - size.x) / 2.0, LOGO_TOP)
 	logo.size = size
 	logo.texture = LOGO
 	logo.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
+	logo.stretch_mode = TextureRect.STRETCH_SCALE
 	logo.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var subtitle := Style.text(self, "CỨU HỘ 0 GIỜ", 0, LOGO_TOP + size.y + 6, SCREEN_W, 40, 28, Style.CYAN, true)
 	subtitle.add_theme_constant_override("outline_size", 6)
