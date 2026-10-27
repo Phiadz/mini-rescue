@@ -77,6 +77,12 @@ class SosFactory extends RefCounted:
 
 # ===== VEHICLE =====
 class Vehicle extends Node2D:
+	# Hình xe SVG của D (cùng bộ với icon tòa nhà trên bản đồ), đầu xe quay sang phải.
+	const TRUCK_ICON := preload('res://assets/icons/truck.svg')
+	const BOAT_ICON := preload('res://assets/icons/boat.svg')
+	const ICON_SIZE := Vector2(42, 28)  # giữ tỉ lệ 96 × 64 của file SVG
+	const PARK_OFFSET := 18.0  # lúc đỗ ở kho: xe tải lệch trái, ca-nô lệch phải để không chồng nhau
+
 	var id: int
 	var type: int
 	var hub_id: int
@@ -87,6 +93,7 @@ class Vehicle extends Node2D:
 	var dest := -1           # node đích của nhiệm vụ
 	var state_id: int = Types.VehicleState.IDLE
 	var _state: VehicleStateBase
+	var _facing_left := false
 
 	func set_initial_state() -> void:  # không phát tín hiệu
 		_state = IdleState.new()
@@ -136,6 +143,9 @@ class Vehicle extends Node2D:
 		var next_id: int = path.node_ids[path_index + 1]
 		var target: Vector2 = RescueManager.g().get_map_node(next_id).pos
 		var f := maxf(e.speed_factor(type), MIN_EDGE_SPEED_FACTOR)
+		if absf(target.x - position.x) > ARRIVE_EPSILON and (target.x < position.x) != _facing_left:
+			_facing_left = target.x < position.x
+			queue_redraw()
 		position = position.move_toward(target, Config.base_speed(type) * f * delta)
 		if position.distance_to(target) < ARRIVE_EPSILON:
 			position = target
@@ -190,13 +200,15 @@ class Vehicle extends Node2D:
 		RescueManager.mark_dirty()
 
 	func _draw() -> void:
-		var c := Color('#FFD700') if type == Types.VehicleType.TRUCK else Color('#FFFFFF')
-		if type == Types.VehicleType.TRUCK:
-			draw_rect(Rect2(-7, -7, 14, 14), c)
-		else:
-			draw_colored_polygon(PackedVector2Array([Vector2(0, -9), Vector2(8, 7), Vector2(-8, 7)]), c)
+		var offset := Vector2.ZERO
+		if state_id == Types.VehicleState.IDLE:
+			offset.x = -PARK_OFFSET if type == Types.VehicleType.TRUCK else PARK_OFFSET
+		var icon := TRUCK_ICON if type == Types.VehicleType.TRUCK else BOAT_ICON
+		draw_set_transform(offset, 0.0, Vector2(-1.0 if _facing_left else 1.0, 1.0))
+		draw_texture_rect(icon, Rect2(-ICON_SIZE / 2.0, ICON_SIZE), false)
+		draw_set_transform(Vector2.ZERO)
 		if state_id == Types.VehicleState.STRANDED:
-			draw_arc(Vector2.ZERO, 13.0, 0.0, TAU, 24, Color('#FF4500'), 2.0)
+			draw_arc(offset, ICON_SIZE.x / 2.0 + 4.0, 0.0, TAU, 24, Color('#FF4500'), 2.0)
 
 # ===== VEHICLE STATE (State pattern) =====
 class VehicleStateBase extends RefCounted:
