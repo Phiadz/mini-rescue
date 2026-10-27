@@ -48,6 +48,7 @@ func _ready() -> void:
 	pause.connect("menu_pressed", _return_to_menu)
 	reward.connect("reward_pressed", _choose_reward)
 	ending.connect("restart_pressed", _restart)
+	ending.connect("menu_pressed", _return_to_menu)
 	ending.connect("survey_pressed", _survey)
 	EventBus.game_started.connect(_on_started)
 	EventBus.game_state_changed.connect(_on_game_state_changed)
@@ -78,7 +79,7 @@ func _show(name: String) -> void:
 func _start() -> void:
 	# Button activation is a user gesture; web browsers then allow music playback.
 	GameManager.start_game()
-	AudioManager.play_bgm(&"floodline_ambient")
+	AudioManager.play_bgm(&"game_bgm")
 
 func _on_started() -> void:
 	_show("hud")

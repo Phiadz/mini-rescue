@@ -1,0 +1,1 @@
+Original SVG geometry authored for this FLOODLINE deliverable. CC0 1.0: you may use, edit and redistribute these new SVGs freely, including commercial use. This license covers assets/vector only. No extracted commercial game assets or embedded generated bitmaps are used. Existing assets outside this folder retain their original licenses.
