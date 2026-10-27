@@ -77,10 +77,10 @@ class SosFactory extends RefCounted:
 
 # ===== VEHICLE =====
 class Vehicle extends Node2D:
-	# Hình xe của D (cùng hình trên chú thích HUD), đầu xe quay sang phải.
-	const TRUCK_ICON := preload('res://assets/icons/rescue_truck.png')
-	const BOAT_ICON := preload('res://assets/icons/rescue_boat.png')
-	const ICON_SIZE := Vector2(44, 28)
+	# Hình xe SVG của D (cùng bộ với icon tòa nhà trên bản đồ), đầu xe quay sang phải.
+	const TRUCK_ICON := preload('res://assets/icons/truck.svg')
+	const BOAT_ICON := preload('res://assets/icons/boat.svg')
+	const ICON_SIZE := Vector2(42, 28)  # giữ tỉ lệ 96 × 64 của file SVG
 	const PARK_OFFSET := 18.0  # lúc đỗ ở kho: xe tải lệch trái, ca-nô lệch phải để không chồng nhau
 
 	var id: int
