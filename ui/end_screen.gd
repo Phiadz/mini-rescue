@@ -161,7 +161,7 @@ func set_result(is_win: bool, data: Dictionary) -> void:
     _draw_art()
     title_label.text = "CHIẾN THẮNG" if won else "THẤT BẠI"
     title_label.add_theme_color_override("font_color", C_GOLD if won else C_RED)
-    subtitle_label.text = ("Bạn đã vượt qua %d đợt lũ!" % int(stats.get("wave_reached",3))) if won else ("Đã có %d yêu cầu SOS quá hạn." % int(stats.get("failed",3)))
+    subtitle_label.text = ("Bạn đã vượt qua %d đợt lũ!" % (int(stats.get("wave_reached", Config.WAVE_COUNT - 1)) + 1)) if won else ("Đã có %d yêu cầu SOS quá hạn." % int(stats.get("failed",3)))
     replay_button.add_theme_stylebox_override("normal",_style(C_GOLD if won else Color("#e94151"),Color("#fbed95") if won else Color("#ff8c96"),12,2))
     replay_button.add_theme_stylebox_override("hover",_style(Color("#ffe983") if won else Color("#ff6874"),Color.WHITE,12,2))
     replay_button.add_theme_color_override("font_color",Color("#11223a") if won else Color.WHITE)
