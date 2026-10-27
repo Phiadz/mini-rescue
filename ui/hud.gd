@@ -106,8 +106,10 @@ func _road_sample(parent: Control, at: Vector2, fill: Color, dashed: bool) -> vo
 
 func _build_hint() -> void:
 	Style.rect(self, 260, 690, 760, 26, Color(0.0, 0.05, 0.11, 0.8), Style.BORDER, 8)
-	Style.text(self, "Kéo trái: nối tuyến  •  Chuột phải / Delete: xóa  •  Bấm SOS: ưu tiên (tối đa 2)  •  Space/Esc: tạm dừng",
+	var hint := Style.text(self, "Kéo trái: nối tuyến  •  Chuột phải / Delete: xóa  •  Bấm SOS: ưu tiên (tối đa 2)  •  Space/Esc: tạm dừng",
 			260, 690, 760, 26, 14, Style.MUTED, true)
+	hint.autowrap_mode = TextServer.AUTOWRAP_OFF # one line; with word wrap the label grew past its box
+	hint.size = Vector2(760, 26)
 
 func _connect_signals() -> void:
 	EventBus.game_started.connect(_build_badges)
