@@ -70,8 +70,11 @@ func _test_full_game_win() -> void:
 	_check(_last('break_started') == ['break_started', Config.BREAK_DURATION],
 			'phát break_started(BREAK_DURATION)')
 	_check(_last('reward_offered') == ['reward_offered', [0, 1, 2]], 'phát reward_offered([0, 1, 2])')
+	_check(absf(GameManager.break_left - Config.BREAK_DURATION) < 0.5,
+			'đầu lượt nghỉ, break_left xấp xỉ BREAK_DURATION (%.2f)' % GameManager.break_left)
 
 	await _wait_state(Types.GameState.PLAYING)
+	_check(GameManager.break_left == 0.0, 'đang trong đợt thì break_left bằng 0')
 	_check(_last('reward_chosen') == ['reward_chosen', Types.Reward.MORE_EDGES],
 			'hết giờ nghỉ mà chưa chọn thì tự nhận MORE_EDGES')
 	_check(_last('wave_started') == ['wave_started', 1], 'sau giờ nghỉ bắt đầu đợt 1')
@@ -165,6 +168,10 @@ func _test_pause() -> void:
 
 	await _wait_state(Types.GameState.WAVE_BREAK)
 	GameManager.pause_game()
+	var left := GameManager.break_left
+	await _wait_frames(60)
+	_check(left > 0.0 and is_equal_approx(GameManager.break_left, left),
+			'tạm dừng giữa lượt nghỉ, break_left giữ nguyên')
 	GameManager.choose_reward(Types.Reward.EXTRA_BOAT)
 	_check(_count('reward_chosen') == 0, 'không chọn được thưởng khi đang tạm dừng')
 	GameManager.resume_game()
