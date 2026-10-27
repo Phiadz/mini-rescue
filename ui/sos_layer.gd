@@ -45,8 +45,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	for rid in markers.keys():
 		var m: Node2D = markers[rid]
-		if m.position.distance_to(get_global_mouse_position()) < 32.0:
-			if RescueManager.prioritize(int(rid)):
-				m.set_priority(not m.prioritized)
+		if m.hit(get_global_mouse_position()):
+			# prioritize() returns the new state: true = now prioritized, false = un-prioritized or limit reached.
+			m.set_priority(RescueManager.prioritize(int(rid)))
 			get_viewport().set_input_as_handled()
 			return
