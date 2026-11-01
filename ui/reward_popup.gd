@@ -2,8 +2,8 @@ extends Control
 signal reward_pressed(reward: int)
 const Style = preload("res://ui/style.gd")
 const ICONS := ["res://assets/icons/road_dry.svg", "res://assets/icons/truck.svg", "res://assets/icons/boat.svg"]
-const TITLES := ["+2 HẠN MỨC TUYẾN", "+1 XE TẢI", "+1 CA-NÔ"]
-const DETAILS := ["Tăng 2 tuyến đường có thể xây.", "Thêm 1 xe tải vận chuyển hàng.", "Thêm 1 ca-nô cứu hộ trên nước."]
+var titles: Array = ["+%d Ô ĐƯỜNG" % Config.REWARD_EDGE_BONUS, "+1 XE TẢI", "+1 CA-NÔ"]
+var details: Array = ["Thêm %d ô đường có thể xây." % Config.REWARD_EDGE_BONUS, "Thêm 1 xe tải vận chuyển hàng.", "Thêm 1 ca-nô cứu hộ trên nước."]
 var timer_label: Label
 var options: Array = [0, 1, 2]
 var cards: Array[Button] = []
@@ -35,8 +35,8 @@ func _ready() -> void:
         icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
         icon.texture = load(ICONS[i])
         icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-        Style.text(card, TITLES[i], 184, 14, 500, 45, 27, Style.YELLOW)
-        Style.text(card, DETAILS[i], 184, 57, 500, 39, 19, Style.WHITE)
+        Style.text(card, titles[i], 184, 14, 500, 45, 27, Style.YELLOW)
+        Style.text(card, details[i], 184, 57, 500, 39, 19, Style.WHITE)
     var skip := Style.button(self, "BỎ QUA", 281, 592, 333, 64, Color("#294a70"), 23)
     skip.pressed.connect(_skip)
     var accept := Style.button(self, "XÁC NHẬN", 634, 592, 366, 64, Color("#f5bd34"), 23, Color("#152135"))
