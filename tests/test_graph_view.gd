@@ -2,8 +2,8 @@ extends Node2D
 # Scene thử bằng tay cho Graph View. Chủ sở hữu: E. Mở tests/test_graph_view.tscn rồi bấm F6.
 # Chỉ trong scene thử này E được gọi GraphManager.set_edge_state (ngoài game chỉ B được gọi).
 
-const HELP := 'Kéo chuột trái từ điểm này sang điểm khác: tạo tuyến    Chuột phải vào tuyến (hoặc rê lên tuyến rồi Delete): xóa\n' \
-		+ '1 / 2 / 3: đổi tuyến vừa tạo sang khô / ngập nhẹ / ngập sâu    R: nạp lại bản đồ (giả lập chơi lại)'
+const HELP := 'Giữ chuột trái và kéo: tô đường từng ô    Giữ chuột phải và rê (hoặc rê lên ô rồi Delete): xóa\n' \
+		+ '1 / 2 / 3: đổi đoạn vừa tô sang khô / ngập nhẹ / ngập sâu    R: nạp lại bản đồ (giả lập chơi lại)'
 
 var _label := Label.new()
 var _last_edge := -1
@@ -21,7 +21,7 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	var budget := GraphManager.get_edge_budget()
-	_label.text = '%s\nSố điểm: %d    Hạn mức tuyến: %d / %d    Tuyến vừa tạo: %d' % [
+	_label.text = '%s\nSố điểm: %d    Hạn mức ô đường: %d / %d    Cạnh vừa tạo: %d' % [
 		HELP, GraphManager.get_node_ids().size(), budget.used, budget.limit, _last_edge]
 
 
@@ -31,16 +31,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	match key.keycode:
 		KEY_1:
-			GraphManager.set_edge_state(_last_edge, Types.EdgeState.DRY)
+			_set_state(Types.EdgeState.DRY)
 		KEY_2:
-			GraphManager.set_edge_state(_last_edge, Types.EdgeState.SHALLOW)
+			_set_state(Types.EdgeState.SHALLOW)
 		KEY_3:
-			GraphManager.set_edge_state(_last_edge, Types.EdgeState.DEEP)
+			_set_state(Types.EdgeState.DEEP)
 		KEY_R:
 			_reload()
 		_:
 			return
 	get_viewport().set_input_as_handled()
+
+
+func _set_state(state: int) -> void:
+	for eid in GraphManager.get_segment_edges(_last_edge):
+		GraphManager.set_edge_state(eid, state)
 
 
 # Giống trình tự trong GameManager.start_game(): nạp bản đồ rồi mới phát game_started.
