@@ -176,13 +176,11 @@ class Vehicle extends Node2D:
 		return after != null and after.segment == e.segment
 
 	# Cạnh đang đi bị xóa: dịch về node vừa rời, đường rỗng để state tính lại.
-	# Node đó có thể đã bị xóa theo: xe đứng tại chỗ, tô lại ô thì chạy tiếp.
+	# GraphManager xóa cạnh trước rồi mới xóa ô, nên lúc này node vẫn còn.
 	func _cut() -> void:
 		if path != null and path_index < path.node_ids.size():
 			current_node = path.node_ids[path_index]
-			var n: MapNode = RescueManager.g().get_map_node(current_node)
-			if n != null:
-				position = n.pos
+			position = RescueManager.g().get_map_node(current_node).pos
 		path = PathResult.new()
 		path_index = 0
 
