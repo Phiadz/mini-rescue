@@ -37,7 +37,7 @@ func _ready() -> void:
 	_build_legend()
 	_build_hint()
 	warning_panel = Style.rect(self, 440, 58, 400, 44, Color(0.37, 0.04, 0.04, 0.96), Style.ORANGE, 10)
-	warning_label = Style.text(self, "⚠  TUYẾN SẮP NGẬP!", 440, 58, 400, 44, 21, Style.WHITE, true)
+	warning_label = Style.text(self, "⚠  ĐƯỜNG SẮP NGẬP!", 440, 58, 400, 44, 21, Style.WHITE, true)
 	warning_label.visible = false
 	warning_panel.visible = false
 	_connect_signals()
@@ -56,7 +56,7 @@ func _build_top_bar() -> void:
 	wave_label = _bar_label(row, "ĐỢT 1 / 3", Style.WHITE)
 	time_label = _bar_label(row, "02:00", Style.WHITE)
 	water_label = _bar_label(row, "≈ 0%", Style.CYAN)
-	budget_label = _bar_label(row, "TUYẾN 0 / 10", Style.WHITE)
+	budget_label = _bar_label(row, "ĐƯỜNG 0 / %d" % Config.EDGE_LIMIT_START, Style.WHITE)
 	fail_label = _bar_label(row, "THẤT BẠI 0 / 3", Style.WHITE)
 
 func _bar_label(row: HBoxContainer, caption: String, color: Color) -> Label:
@@ -81,7 +81,7 @@ func _build_legend() -> void:
 	Style.text(box, "✚", 126, 38, 16, 24, 15, Style.CYAN)
 	Style.text(box, "Y tế", 144, 38, 60, 24, 15, Style.WHITE)
 
-# Small road swatch drawn like EdgeView: dark casing, road colour, yellow dashes for a shallow road.
+# Small road swatch drawn like EdgeLayer: dark casing, road colour, yellow dashes for a shallow road.
 func _road_sample(parent: Control, at: Vector2, fill: Color, dashed: bool) -> void:
 	var casing := ColorRect.new()
 	parent.add_child(casing)
@@ -106,7 +106,7 @@ func _road_sample(parent: Control, at: Vector2, fill: Color, dashed: bool) -> vo
 
 func _build_hint() -> void:
 	Style.rect(self, 260, 690, 760, 26, Color(0.0, 0.05, 0.11, 0.8), Style.BORDER, 8)
-	var hint := Style.text(self, "Kéo trái: nối tuyến  •  Chuột phải / Delete: xóa  •  Bấm SOS: ưu tiên (tối đa 2)  •  Space/Esc: tạm dừng",
+	var hint := Style.text(self, "Kéo trái: tô đường  •  Chuột phải / Delete: xóa ô  •  Bấm SOS: ưu tiên (tối đa 2)  •  Space/Esc: tạm dừng",
 			260, 690, 760, 26, 14, Style.MUTED, true)
 	hint.autowrap_mode = TextServer.AUTOWRAP_OFF # one line; with word wrap the label grew past its box
 	hint.size = Vector2(760, 26)
@@ -176,7 +176,7 @@ func _on_water(level: float) -> void:
 	water_label.text = "≈ %d%%" % int(round(level))
 
 func _on_budget(used: int, limit: int) -> void:
-	budget_label.text = "TUYẾN %d / %d" % [used, limit]
+	budget_label.text = "ĐƯỜNG %d / %d" % [used, limit]
 
 func _on_stock(hub_id: int, supply: int, qty: int) -> void:
 	if not badges.has(hub_id):
