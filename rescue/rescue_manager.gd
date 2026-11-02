@@ -4,6 +4,7 @@ extends Node
 
 # TODO: xin A chuyển các hằng số này sang autoload/config.gd rồi đổi thành Config.X
 const HOSPITAL_ID := 5               # node Bệnh viện luôn ra SOS Y tế
+const START_VEHICLES := 2            # số xe tải, số ca-nô lúc đầu ván
 const DISPATCH_INTERVAL := 0.5       # giây giữa hai lượt điều phối
 const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết cạnh
 const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
@@ -342,22 +343,18 @@ func reset() -> void:
 	_dispatch_timer = 0.0
 	_dirty = false
 	_clock = 0.0
-	var hub_ids := []
 	for id in g().get_node_ids():
 		var n: MapNode = g().get_map_node(id)
 		if n != null and n.kind == Types.NodeKind.HUB:
-			hub_ids.append(id)
 			var h := Hub.new(id)
 			_hubs[id] = h
 			for s in h.stock:
 				EventBus.stock_changed.emit(id, s, h.stock[s])
-	hub_ids.sort()
-	# Xe khởi đầu: kho đầu (Bắc) 1 xe tải + 1 ca-nô, kho sau (Nam) 1 xe tải
-	if hub_ids.size() >= 1:
-		_make_vehicle(Types.VehicleType.TRUCK, hub_ids[0])
-		_make_vehicle(Types.VehicleType.BOAT, hub_ids[0])
-	if hub_ids.size() >= 2:
-		_make_vehicle(Types.VehicleType.TRUCK, hub_ids[1])
+	if _hubs.is_empty():
+		return
+	for i in START_VEHICLES:
+		add_vehicle(Types.VehicleType.TRUCK)
+		add_vehicle(Types.VehicleType.BOAT)
 
 func set_wave(index: int) -> void:
 	_wave = index
@@ -522,17 +519,21 @@ func _make_vehicle(type: int, hub_id: int) -> int:
 func add_vehicle(type: int) -> int:
 	if _hubs.is_empty():
 		return -1
-	var best_hub := -1
-	var best_count := 1 << 30
+	return _make_vehicle(type, _hub_for(type))
+
+
+# Xe tải về kho cao nhất vì đường quanh đó khô lâu; ca-nô về kho thấp nhất vì đường quanh đó ngập sớm.
+func _hub_for(type: int) -> int:
+	var best := -1
 	for hid in _hubs:
-		var c := 0
-		for v in _vehicles.values():
-			if v.hub_id == hid:
-				c += 1
-		if c < best_count:
-			best_count = c
-			best_hub = hid
-	return _make_vehicle(type, best_hub)
+		if best == -1:
+			best = hid
+			continue
+		var e: float = g().get_map_node(hid).elevation
+		var top: float = g().get_map_node(best).elevation
+		if (type == Types.VehicleType.TRUCK and e > top) or (type == Types.VehicleType.BOAT and e < top):
+			best = hid
+	return best
 
 func prioritize(req_id: int) -> bool:
 	if not _requests.has(req_id):

@@ -1,11 +1,11 @@
 extends Node2D
 # Chủ sở hữu: E. Vẽ các điểm của bản đồ khi nhận game_started (sau khi A đã load_map).
-# Mỗi điểm vẽ bằng icon tòa nhà của D theo trường `icon` trong map_01.json (ví dụ hub_north, hospital).
+# Mỗi điểm vẽ bằng icon tòa nhà của D theo trường `icon` trong tệp bản đồ (ví dụ hub_north, hospital).
 # Điểm chưa có icon thì vẽ hình khối, phân biệt bằng hình dạng (Tài liệu chốt 1.10): kho ▣, khu dân cư ⌂.
 
 const ICON_PATH := 'res://assets/icons/%s.svg'
-const HUB_ICON_SIZE := 72.0
-const DISTRICT_ICON_SIZE := 60.0
+const HUB_ICON_SIZE := 56.0
+const DISTRICT_ICON_SIZE := 44.0
 
 const SHAPE_COLOR := Color('#E8E8E8')
 const HUB_FILL := Color('#1E1E24')
@@ -15,12 +15,12 @@ const HUB_CORE_HALF := 4.0
 # Ngôi nhà: thân vuông và mái nhọn, tâm đặt ở vị trí của điểm.
 const HOUSE := [Vector2(-10, 11), Vector2(10, 11), Vector2(10, -2), Vector2(0, -12), Vector2(-10, -2)]
 
-const LABEL_COLOR := Color('#E8E8E8')
+const LABEL_COLOR := Color('#33485a')
 const LABEL_WIDTH := 160.0
-const LABEL_GAP := 16.0
-const LABEL_SIZE := 15
+const LABEL_GAP := 14.0
+const LABEL_SIZE := 13
 const LABEL_OUTLINE := 5
-const LABEL_OUTLINE_COLOR := Color('#1E1E24')  # màu nền, để tên vẫn đọc được khi tuyến chạy qua
+const LABEL_OUTLINE_COLOR := Color('#f4f0e7')  # màu nền, để tên vẫn đọc được khi đường chạy qua
 # Phông D chọn: có đủ dấu tiếng Việt và được đóng gói vào bản web (SystemFont không có trên web).
 const LABEL_FONT := preload('res://assets/fonts/BeVietnamPro-Regular.ttf')
 

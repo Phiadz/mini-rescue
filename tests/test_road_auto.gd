@@ -4,6 +4,7 @@ extends Node
 #   Godot_v4.7.2-stable_win64_console.exe --headless --fixed-fps 60 --path . res://tests/test_road_auto.tscn
 # Thoát với mã 0 nếu mọi kiểm tra đạt, 1 nếu có kiểm tra trượt.
 
+const FIXTURE_MAP := 'res://data/map_01.json'  # bản đồ cố định cho test
 const HUB := 0        # Kho Bắc, ô (5, 3)
 const MARKET := 3     # Khu Chợ Cũ, ô (10, 5)
 const CHAIN: Array[Vector2i] = [Vector2i(6, 3), Vector2i(7, 4), Vector2i(8, 4), Vector2i(9, 5)]
@@ -31,6 +32,7 @@ func _run() -> void:
 	await _test_vehicle_lane()
 	await _test_erase_under_vehicle()
 	await _test_finish_segment()
+	_test_saigon_map()
 	print('\nKết quả: %d đạt, %d trượt' % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
 
@@ -264,8 +266,48 @@ func _test_finish_segment() -> void:
 	_check(_rescued == 1, 'đoạn ngập sâu khi xe đang đi: xe đi hết đoạn rồi mới tính lại')
 
 
-func _fresh() -> void:
+# Bản đồ thật của game: kiểm tra dữ liệu, không phụ thuộc bản đồ cố định dùng cho các test trên.
+func _test_saigon_map() -> void:
+	print('\n== Bản đồ Sài Gòn')
 	GraphManager.load_map(Config.MAP_PATH)
+	var ids := GraphManager.get_node_ids()
+	_check(ids.size() == 17, 'có 17 điểm')
+	var hubs := ids.filter(func(i: int) -> bool: return GraphManager.get_map_node(i).kind == Types.NodeKind.HUB)
+	_check(hubs.size() == 2, 'có 2 kho')
+	_check(GraphManager.get_map_node(RescueManager.HOSPITAL_ID).icon == 'hospital', 'HOSPITAL_ID trỏ đúng bệnh viện')
+	var cells := {}
+	var centered := true
+	var icons := true
+	for i in ids:
+		var n := GraphManager.get_map_node(i)
+		var c := GraphManager.cell_of(n.pos)
+		cells[c] = true
+		centered = centered and n.pos == GraphManager.cell_center(c)
+		icons = icons and ResourceLoader.exists('res://assets/icons/%s.svg' % n.icon)
+	_check(cells.size() == ids.size(), 'không có hai điểm chung một ô')
+	_check(centered, 'mọi điểm nằm đúng tâm ô')
+	_check(icons, 'mọi điểm có icon thật')
+	_check(GraphManager._cell_elevation.size() == Config.GRID_COLS * Config.GRID_ROWS, 'có đủ độ cao cho mọi ô lưới')
+	EventBus.game_started.emit()
+	_check(_count(Types.VehicleType.TRUCK, 0) == 2 and _count(Types.VehicleType.BOAT, 1) == 2,
+			'lúc đầu ván: 2 xe tải ở kho cao, 2 ca-nô ở kho ven sông')
+	RescueManager.add_vehicle(Types.VehicleType.BOAT)
+	RescueManager.add_vehicle(Types.VehicleType.TRUCK)
+	_check(_count(Types.VehicleType.TRUCK, 0) == 3 and _count(Types.VehicleType.BOAT, 1) == 3,
+			'xe thưởng về đúng kho hợp với loại xe')
+
+
+func _count(type: int, hub: int) -> int:
+	var n := 0
+	for id in RescueManager.get_vehicle_ids():
+		var v: RescueManager.Vehicle = RescueManager._vehicles[id]
+		if v.type == type and v.hub_id == hub:
+			n += 1
+	return n
+
+
+func _fresh() -> void:
+	GraphManager.load_map(FIXTURE_MAP)
 	EventBus.game_started.emit()  # FloodManager.reset() đọc lại độ cao các ô
 
 

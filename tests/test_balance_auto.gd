@@ -6,7 +6,9 @@ extends Node
 
 const SPEED := 10.0
 const GAMES := 10
-const ROUTES := [[0, 3], [3, 5], [5, 7], [7, 1], [0, 2], [2, 4], [5, 6], [6, 8], [8, 1], [4, 9]]
+# 16 tuyến đầu nối hết 17 điểm; các tuyến sau là đường vòng, tô tới khi hết hạn mức.
+const ROUTES := [[0, 16], [16, 5], [5, 10], [10, 3], [3, 2], [3, 6], [6, 11], [11, 7], [2, 14], [7, 8], [8, 12], [12, 13],
+		[13, 1], [14, 9], [2, 4], [4, 15], [6, 14], [7, 12], [8, 10], [0, 5], [11, 13], [4, 9]]
 
 var _stats := {}
 var _won := false
@@ -25,6 +27,7 @@ func _run() -> void:
 	EventBus.game_lost.connect(func(st: Dictionary) -> void:
 		_stats = st
 		_won = false)
+	EventBus.wave_ended.connect(_print_states)
 	Engine.time_scale = SPEED
 	var wins := 0
 	var scores := 0
@@ -54,15 +57,22 @@ func _build() -> void:
 			var cell := Vector2i(Vector2(from).lerp(Vector2(to), float(i) / steps).round())
 			last = GraphManager.extend_road(last, cell)
 			if last == -1:
-				push_error('Thiếu hạn mức khi nối %d-%d' % [r[0], r[1]])
-				return
+				return  # hết hạn mức
+
+
+# Số cạnh đường theo trạng thái khi hết mỗi đợt, để so độ ngập với kỳ vọng.
+func _print_states(wave: int) -> void:
+	var count := [0, 0, 0]
+	for e in GraphManager.get_edge_ids():
+		count[GraphManager.get_edge(e).state] += 1
+	print('  hết đợt %d: nước %.0f, khô %d, ngập nhẹ %d, ngập sâu %d' % [wave + 1, FloodManager.water_level, count[0], count[1], count[2]])
 
 
 func _cell(point: int) -> Vector2i:
 	return GraphManager.cell_of(GraphManager.get_map_node(point).pos)
 
 
-# Đường dài nhất trên bản đồ: từ Kho Bắc tới Kho Nam.
+# Đường dài nhất trên bản đồ: giữa hai kho.
 func _time_find_path() -> void:
 	GraphManager.load_map(Config.MAP_PATH)
 	EventBus.game_started.emit()

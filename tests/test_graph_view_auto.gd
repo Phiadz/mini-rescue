@@ -5,6 +5,8 @@ extends Node
 # Thao tác chuột được giả lập bằng Input.parse_input_event để đi qua đúng đường nhận sự kiện thật.
 # Thoát với mã 0 nếu mọi kiểm tra đạt, 1 nếu có kiểm tra trượt.
 
+const FIXTURE_MAP := 'res://data/map_01.json'  # bản đồ cố định cho test
+
 @onready var _drawer: Node2D = $'../EdgeDrawer'
 
 var _passed := 0
@@ -16,7 +18,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	GraphManager.load_map(Config.MAP_PATH)
+	GraphManager.load_map(FIXTURE_MAP)
 	EventBus.game_started.emit()
 	await _frames(2)
 
@@ -88,7 +90,7 @@ func _run() -> void:
 	_drawer.only_in_round = false
 
 	print('\n== Chơi lại')
-	GraphManager.load_map(Config.MAP_PATH)
+	GraphManager.load_map(FIXTURE_MAP)
 	EventBus.game_started.emit()
 	await _frames(1)
 	_check(GraphManager.get_edge_ids().size() == 0 and _used() == 0, 'nạp lại bản đồ và phát game_started thì sạch đường')

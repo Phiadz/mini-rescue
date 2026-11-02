@@ -1,18 +1,18 @@
 extends Control
 ## Compact HUD (Vector MVP layout): one thin bar on top, stock badges under each hub on the map,
-## a small legend in the bottom-left corner and a controls hint at the bottom. Nothing covers the map
-## nodes, so map_01.json keeps the coordinates that match terrain/height_field.png.
+## a small legend in the bottom-left corner and a controls hint at the bottom. Nothing covers the map nodes.
 signal pause_pressed
 const Style = preload("res://ui/style.gd")
 
-const BAR := Rect2(250, 8, 780, 42)
+const BAR := Rect2(215, 8, 850, 42)
 const BADGE_SIZE := Vector2(96, 26)
-const BADGE_OFFSET := 66.0 # below the hub icon and its name (NodeLayer)
-const ROAD_DRY := Color("#aeb8c4")
-const ROAD_SHALLOW := Color("#1f2b3c")
-const ROAD_SHALLOW_MARK := Color("#e9c85c")
-const ROAD_DEEP := Color("#3a8fd0")
-const ROAD_CASING := Color("#0d1726")
+const BADGE_OFFSET := 52.0 # below the hub icon and its name (NodeLayer)
+const ROAD_DRY := Color("#fbfaf6")
+const ROAD_SHALLOW := Color("#f7e6ae")
+const ROAD_SHALLOW_MARK := Color("#b9862b")
+const ROAD_DEEP := Color("#5aa7d6")
+const ROAD_CASING := Color("#7f97a3")
+const MAP_CREDIT := "© OpenStreetMap contributors" # required by the ODbL licence
 
 var score_label: Label
 var fail_label: Label
@@ -115,6 +115,7 @@ func _build_hint() -> void:
 			260, 690, 760, 26, 14, Style.MUTED, true)
 	hint.autowrap_mode = TextServer.AUTOWRAP_OFF # one line; with word wrap the label grew past its box
 	hint.size = Vector2(760, 26)
+	Style.text(self, MAP_CREDIT, 1024, 696, 250, 20, 11, Color("#4f6b7a"), true)
 
 func _connect_signals() -> void:
 	EventBus.game_started.connect(_build_badges)
