@@ -2,6 +2,7 @@ extends Node2D
 # Chủ sở hữu: A. Kiểm tra tự động module Graph + thử bằng phím.
 # Chạy F6: xem cửa sổ Output ("Kết quả: 30 đạt, 0 trượt") và cửa sổ game.
 
+const FIXTURE_MAP := 'res://data/map_01.json'  # bản đồ cố định cho test, không đổi theo bản đồ của game
 const START := 0
 const GOAL := 7
 var _log: Array = []
@@ -38,7 +39,7 @@ func _same(a: Array, b: Array) -> bool:
 	return true
 
 func _fresh() -> void:
-	GraphManager.load_map(Config.MAP_PATH)
+	GraphManager.load_map(FIXTURE_MAP)
 	_log.clear()
 
 func _build_example() -> Dictionary:
@@ -117,7 +118,7 @@ func _run_checks() -> void:
 	GraphManager.add_edge_limit(2)
 	EventBus.game_started.emit()
 	_check(GraphManager.get_edge_ids().is_empty() and GraphManager.get_edge_budget().limit == Config.EDGE_LIMIT_START, 'game_started: xóa hết cạnh, đặt lại hạn mức')
-	GraphManager.load_map(Config.MAP_PATH)
+	GraphManager.load_map(FIXTURE_MAP)
 	_check(GraphManager.get_node_ids().size() == 10, 'load_map gọi lại vẫn đúng 10 node')
 	_check(GraphManager.get_node_ids().all(func(id): return ResourceLoader.exists('res://assets/icons/%s.svg' % GraphManager.get_map_node(id).icon)),
 			'mỗi node có trường icon trỏ tới file icon có thật')

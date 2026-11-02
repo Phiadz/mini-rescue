@@ -3,7 +3,7 @@ extends Node
 # Không đặt class_name (script autoload). Chỉ số đợt (wave index) tính từ 0.
 
 # --- Bản đồ và tuyến ---
-const MAP_PATH := 'res://data/map_01.json'
+const MAP_PATH := 'res://data/map_saigon.json'
 const EDGE_LIMIT_START := 50  # hạn mức tính theo số ô đường
 
 # --- Lưới đường: bản đồ 1280 × 720 chia ô vuông ---

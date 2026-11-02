@@ -6,9 +6,9 @@ extends Node2D
 
 const NO_CELL := Vector2i(-1, -1)
 const PICK_RADIUS := 24.0
-const DOT_COLOR := Color(1.0, 1.0, 1.0, 0.2)
+const DOT_COLOR := Color(0.2, 0.3, 0.4, 0.3)
 const DOT_RADIUS := 1.5
-const HOVER_COLOR := Color(1.0, 1.0, 1.0, 0.35)
+const HOVER_COLOR := Color(0.2, 0.3, 0.4, 0.5)
 const REJECT_COLOR := Color(1.0, 0.27, 0.0, 0.7)
 const REJECT_TIME := 0.4
 
