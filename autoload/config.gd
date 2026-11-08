@@ -27,16 +27,22 @@ const BREAK_DURATION := 15.0
 const MAX_FAILED := 3
 
 # --- Giao hàng, kho, SOS ---
+const HOSPITAL_ID := 5  # node Bệnh viện luôn ra SOS Y tế
+const START_VEHICLES := 2  # số xe tải, số ca-nô lúc đầu ván
 const DELIVERY_TIME := 1.5
+const DISPATCH_INTERVAL := 0.5  # giây giữa hai lượt điều phối
 const SOS_COOLDOWN := 20.0
 const STOCK_START := 6
 const STOCK_MAX := 10
 const STOCK_REGEN := 20.0
 const MAX_PRIORITIZED := 2
+const STRANDED_RETRY := 0.5  # giây giữa hai lần xe kẹt thử tìm đường
+const ARRIVE_EPSILON := 0.5  # sai số khi tới node (px)
 
 # --- Điểm ---
 const POINTS := {0: 10, 1: 20}
 const BONUS_RATIO := 1.5
+const BONUS_TIME_RATIO := 0.5  # còn quá nửa thời gian thì được thưởng
 const REWARD_EDGE_BONUS := 12  # số ô đường
 
 # --- Hệ số tốc độ: SPEED_FACTOR[loại xe][trạng thái tuyến] ---
@@ -45,6 +51,7 @@ const SPEED_FACTOR := {
 	0: [1.0, 0.5, 0.0],
 	1: [0.0, 0.5, 1.0],
 }
+const MIN_EDGE_SPEED_FACTOR := 0.5  # tốc độ tối thiểu khi đi hết cạnh
 
 # --- Các đợt lũ (chỉ số 0, 1, 2) ---
 const WAVES := [

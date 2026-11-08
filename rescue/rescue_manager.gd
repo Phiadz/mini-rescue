@@ -1,15 +1,6 @@
 extends Node
 # RescueManager (autoload). KHÔNG đặt class_name. Chủ sở hữu: C.
-# Bố cục: hằng số -> SOS -> HUB -> SOS FACTORY -> VEHICLE -> STATE -> VEHICLE FACTORY -> MANAGER
-
-# TODO: xin A chuyển các hằng số này sang autoload/config.gd rồi đổi thành Config.X
-const HOSPITAL_ID := 5               # node Bệnh viện luôn ra SOS Y tế
-const START_VEHICLES := 2            # số xe tải, số ca-nô lúc đầu ván
-const DISPATCH_INTERVAL := 0.5       # giây giữa hai lượt điều phối
-const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết cạnh
-const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
-const BONUS_TIME_RATIO := 0.5        # còn quá nửa thời gian thì được thưởng
-const ARRIVE_EPSILON := 0.5          # sai số khi tới node (px)
+# Bố cục: SOS -> HUB -> SOS FACTORY -> VEHICLE -> STATE -> VEHICLE FACTORY -> MANAGER
 
 # Nguồn đồ thị. null = dùng GraphManager thật. Scene thử gán đồ thị giả vào đây.
 var graph = null
@@ -63,7 +54,7 @@ class SosFactory extends RefCounted:
 		var req := SosRequest.new()
 		req.id = req_id
 		req.node_id = free_node_ids[randi() % free_node_ids.size()]
-		if req.node_id == HOSPITAL_ID:
+		if req.node_id == Config.HOSPITAL_ID:
 			req.supply = Types.SupplyType.MEDICAL
 		elif randf() < w.food_ratio:
 			req.supply = Types.SupplyType.FOOD
@@ -148,7 +139,7 @@ class Vehicle extends Node2D:
 		return false
 
 	# Đi dọc đường. Trả true khi xe đứng ở cuối đoạn (cần ra quyết định).
-	# Xe đã vào một đoạn thì đi hết đoạn đó, tốc độ tối thiểu MIN_EDGE_SPEED_FACTOR.
+	# Xe đã vào một đoạn thì đi hết đoạn đó, tốc độ tối thiểu Config.MIN_EDGE_SPEED_FACTOR.
 	func advance(delta: float) -> bool:
 		if path == null or path_index >= path.edge_ids.size():
 			return true
@@ -158,12 +149,12 @@ class Vehicle extends Node2D:
 			return true
 		var next_id: int = path.node_ids[path_index + 1]
 		var target: Vector2 = RescueManager.g().get_map_node(next_id).pos
-		var f := maxf(e.speed_factor(type), MIN_EDGE_SPEED_FACTOR)
-		if position.distance_to(target) > ARRIVE_EPSILON:
+		var f := maxf(e.speed_factor(type), Config.MIN_EDGE_SPEED_FACTOR)
+		if position.distance_to(target) > Config.ARRIVE_EPSILON:
 			heading = position.direction_to(target)
 			queue_redraw()
 		position = position.move_toward(target, Config.base_speed(type) * f * delta)
-		if position.distance_to(target) < ARRIVE_EPSILON:
+		if position.distance_to(target) < Config.ARRIVE_EPSILON:
 			position = target
 			current_node = next_id
 			path_index += 1
@@ -281,7 +272,7 @@ class StrandedState extends VehicleStateBase:
 		v.release_request()  # đang kẹt thì không giữ SOS
 	func update(v: Vehicle, delta: float) -> void:
 		_t += delta
-		if _t >= STRANDED_RETRY:
+		if _t >= Config.STRANDED_RETRY:
 			_t = 0.0
 			retry(v)
 	func retry(v: Vehicle) -> void:
@@ -350,7 +341,7 @@ func reset() -> void:
 				EventBus.stock_changed.emit(id, s, h.stock[s])
 	if _hubs.is_empty():
 		return
-	for i in START_VEHICLES:
+	for i in Config.START_VEHICLES:
 		add_vehicle(Types.VehicleType.TRUCK)
 		add_vehicle(Types.VehicleType.BOAT)
 
@@ -398,7 +389,7 @@ func _process(delta: float) -> void:
 	if _spawning:
 		_tick_spawn(delta)
 	_dispatch_timer += delta
-	if _dirty or _dispatch_timer >= DISPATCH_INTERVAL:
+	if _dirty or _dispatch_timer >= Config.DISPATCH_INTERVAL:
 		_dirty = false
 		_dispatch_timer = 0.0
 		_dispatch()
@@ -492,7 +483,7 @@ func complete_request(req: SosRequest) -> void:
 	if req == null:
 		return
 	var pts: float = Config.POINTS[req.supply]
-	if req.time_left > req.time_total * BONUS_TIME_RATIO:
+	if req.time_left > req.time_total * Config.BONUS_TIME_RATIO:
 		pts *= Config.BONUS_RATIO
 	req.state = Types.SosState.RESCUED
 	_requests.erase(req.id)

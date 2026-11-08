@@ -270,7 +270,7 @@ func _test_saigon_map() -> void:
 	_check(ids.size() == 17, 'có 17 điểm')
 	var hubs := ids.filter(func(i: int) -> bool: return GraphManager.get_map_node(i).kind == Types.NodeKind.HUB)
 	_check(hubs.size() == 2, 'có 2 kho')
-	_check(GraphManager.get_map_node(RescueManager.HOSPITAL_ID).icon == 'hospital', 'HOSPITAL_ID trỏ đúng bệnh viện')
+	_check(GraphManager.get_map_node(Config.HOSPITAL_ID).icon == 'hospital', 'HOSPITAL_ID trỏ đúng bệnh viện')
 	var cells := {}
 	var centered := true
 	var icons := true
