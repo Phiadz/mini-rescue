@@ -58,11 +58,11 @@ func _build_title() -> void:
 func _build_buttons() -> void:
 	var x := (SCREEN_W - BUTTON_W) / 2.0
 	var y := BUTTONS_TOP
-	var play := Style.button(self, "▶   CHƠI NGAY", x, y, BUTTON_W, BUTTON_H, Style.YELLOW, 30, Style.NIGHT)
+	var play := Style.button(self, "CHƠI NGAY", x, y, BUTTON_W, BUTTON_H, Style.YELLOW, 30, Style.NIGHT)
 	play.pressed.connect(func() -> void: start_pressed.emit())
 	y += BUTTON_H + BUTTON_GAP
-	var guide := Style.button(self, "▣   HƯỚNG DẪN", x, y, BUTTON_W, BUTTON_H, Style.PANEL, 27)
+	var guide := Style.button(self, "HƯỚNG DẪN", x, y, BUTTON_W, BUTTON_H, Style.PANEL, 27)
 	guide.pressed.connect(func() -> void: guide_pressed.emit())
 	y += BUTTON_H + BUTTON_GAP
-	var audio := Style.button(self, "◖))   ÂM LƯỢNG", x, y, BUTTON_W, BUTTON_H, Style.PANEL, 27)
+	var audio := Style.button(self, "ÂM LƯỢNG", x, y, BUTTON_W, BUTTON_H, Style.PANEL, 27)
 	audio.pressed.connect(func() -> void: audio_pressed.emit())

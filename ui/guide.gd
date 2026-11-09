@@ -54,7 +54,7 @@ func _ready() -> void:
 	back.pressed.connect(_on_back)
 	next_button = Style.button(self, "TIẾP THEO   ›", 944, 629, 275, 62, Style.BLUE, 24)
 	next_button.pressed.connect(_on_next)
-	start_button = Style.button(self, "▶ CHƠI NGAY", 450, 632, 380, 57, Style.YELLOW, 24, Style.NIGHT)
+	start_button = Style.button(self, "CHƠI NGAY", 450, 632, 380, 57, Style.YELLOW, 24, Style.NIGHT)
 	start_button.pressed.connect(func() -> void: start_pressed.emit())
 	_refresh()
 

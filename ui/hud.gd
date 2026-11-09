@@ -31,13 +31,13 @@ var badges: Dictionary = {} # hub_id -> [food Label, medical Label]
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_build_top_bar()
-	var p := Style.button(self, "Ⅱ", 1216, 8, 50, 42, Style.NIGHT, 22)
+	var p := Style.button(self, "II", 1216, 8, 50, 42, Style.NIGHT, 22)
 	p.mouse_filter = Control.MOUSE_FILTER_STOP
 	p.pressed.connect(func() -> void: pause_pressed.emit())
 	_build_legend()
 	_build_hint()
 	warning_panel = Style.rect(self, 440, 58, 400, 44, Color(0.37, 0.04, 0.04, 0.96), Style.ORANGE, 10)
-	warning_label = Style.text(self, "⚠  ĐƯỜNG SẮP NGẬP!", 440, 58, 400, 44, 21, Style.WHITE, true)
+	warning_label = Style.text(self, "ĐƯỜNG SẮP NGẬP!", 440, 58, 400, 44, 21, Style.WHITE, true)
 	warning_label.visible = false
 	warning_panel.visible = false
 	_connect_signals()
@@ -52,7 +52,7 @@ func _build_top_bar() -> void:
 	row.add_theme_constant_override("separation", 26)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_bar_label(row, "F L O O D L I N E", Style.MUTED)
-	score_label = _bar_label(row, "★ 0", Style.YELLOW)
+	score_label = _bar_label(row, "ĐIỂM 0", Style.YELLOW)
 	wave_label = _bar_label(row, "ĐỢT 1 / 3", Style.WHITE)
 	time_label = _bar_label(row, "02:00", Style.WHITE)
 	water_label = _bar_label(row, "≈ 0%", Style.CYAN)
@@ -76,10 +76,10 @@ func _build_legend() -> void:
 		var x: float = 14 + i * 76
 		_road_sample(box, Vector2(x, 16), roads[i][1], roads[i][2])
 		Style.text(box, roads[i][0], x + 30, 6, 44, 24, 15, Style.WHITE)
-	Style.text(box, "●", 14, 38, 14, 24, 15, Style.YELLOW)
-	Style.text(box, "Lương thực", 30, 38, 90, 24, 15, Style.WHITE)
-	Style.text(box, "✚", 126, 38, 16, 24, 15, Style.CYAN)
-	Style.text(box, "Y tế", 144, 38, 60, 24, 15, Style.WHITE)
+	Style.text(box, "LT", 14, 38, 24, 24, 15, Style.YELLOW)
+	Style.text(box, "Lương thực", 40, 38, 84, 24, 15, Style.WHITE)
+	Style.text(box, "YT", 130, 38, 24, 24, 15, Style.CYAN)
+	Style.text(box, "Y tế", 158, 38, 60, 24, 15, Style.WHITE)
 
 # Small road swatch drawn like EdgeLayer: dark casing, road colour, yellow dashes for a shallow road.
 func _road_sample(parent: Control, at: Vector2, fill: Color, dashed: bool) -> void:
@@ -156,7 +156,7 @@ func _process(delta: float) -> void:
 		warning_panel.visible = false
 
 func _on_score(value: int) -> void:
-	score_label.text = "★ %d" % value
+	score_label.text = "ĐIỂM %d" % value
 
 func _on_failed(count: int, maximum: int) -> void:
 	fail_label.text = "THẤT BẠI %d / %d" % [count, maximum]
@@ -182,9 +182,9 @@ func _on_stock(hub_id: int, supply: int, qty: int) -> void:
 	if not badges.has(hub_id):
 		return
 	if supply == Types.SupplyType.FOOD:
-		badges[hub_id][0].text = "● %d" % qty
+		badges[hub_id][0].text = "LT %d" % qty
 	else:
-		badges[hub_id][1].text = "✚ %d" % qty
+		badges[hub_id][1].text = "YT %d" % qty
 
 func _on_warning(_edge_id: int, _seconds_left: float) -> void:
 	warn_time = 2.0
