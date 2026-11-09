@@ -7,7 +7,8 @@ extends Node
 signal edge_added(edge_id: int)
 signal edge_removed(edge_id: int)
 signal edge_state_changed(edge_id: int, state: int)
-signal edge_budget_changed(used: int, limit: int)
+signal edge_budget_changed(used: int, limit: int)  # tính theo số ô đường
+signal road_changed  # vừa tô hoặc xóa ô, độ cao các đoạn đã tính lại
 
 # --- Module B (Flood) ---
 signal water_level_changed(level: float)

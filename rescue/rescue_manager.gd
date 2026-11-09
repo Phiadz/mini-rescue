@@ -80,8 +80,10 @@ class Vehicle extends Node2D:
 	# Hình xe SVG của D (cùng bộ với icon tòa nhà trên bản đồ), đầu xe quay sang phải.
 	const TRUCK_ICON := preload('res://assets/icons/truck.svg')
 	const BOAT_ICON := preload('res://assets/icons/boat.svg')
-	const ICON_SIZE := Vector2(42, 28)  # giữ tỉ lệ 96 × 64 của file SVG
+	const ICON_SIZE := Vector2(24, 16)  # giữ tỉ lệ 96 × 64 của file SVG
 	const PARK_OFFSET := 18.0  # lúc đỗ ở kho: xe tải lệch trái, ca-nô lệch phải để không chồng nhau
+	const LANE_OFFSET := 7.0   # xe chạy lệch sang phải hướng đi, mỗi chiều một làn
+	const LANE_SWITCH := 0.15  # giây để đổi làn ở chỗ rẽ
 
 	var id: int
 	var type: int
@@ -92,8 +94,9 @@ class Vehicle extends Node2D:
 	var current_node := -1   # node xe vừa rời hoặc đang đứng
 	var dest := -1           # node đích của nhiệm vụ
 	var state_id: int = Types.VehicleState.IDLE
+	var heading := Vector2.RIGHT  # hướng đang chạy
 	var _state: VehicleStateBase
-	var _facing_left := false
+	var _lane := Vector2.ZERO     # độ lệch làn khi vẽ; position vẫn nằm giữa đường
 
 	func set_initial_state() -> void:  # không phát tín hiệu
 		_state = IdleState.new()
@@ -111,6 +114,18 @@ class Vehicle extends Node2D:
 	func _process(delta: float) -> void:
 		if _state:
 			_state.update(self, delta)
+		_update_lane(delta)
+
+	func _update_lane(delta: float) -> void:
+		var want := Vector2.ZERO
+		if state_id != Types.VehicleState.IDLE:
+			want = heading.rotated(PI / 2.0) * LANE_OFFSET
+		if _lane != want:
+			_lane = _lane.move_toward(want, LANE_OFFSET * 2.0 / LANE_SWITCH * delta)
+			queue_redraw()
+
+	func lane_offset() -> Vector2:
+		return _lane
 
 	func retry_if_stranded() -> void:
 		if state_id == Types.VehicleState.STRANDED and _state:
@@ -131,8 +146,8 @@ class Vehicle extends Node2D:
 			return true
 		return false
 
-	# Đi dọc đường. Trả true khi xe đang đứng tại một node (cần ra quyết định).
-	# Xe đã vào một cạnh thì đi hết cạnh đó, tốc độ tối thiểu MIN_EDGE_SPEED_FACTOR.
+	# Đi dọc đường. Trả true khi xe đứng ở cuối đoạn (cần ra quyết định).
+	# Xe đã vào một đoạn thì đi hết đoạn đó, tốc độ tối thiểu MIN_EDGE_SPEED_FACTOR.
 	func advance(delta: float) -> bool:
 		if path == null or path_index >= path.edge_ids.size():
 			return true
@@ -143,18 +158,25 @@ class Vehicle extends Node2D:
 		var next_id: int = path.node_ids[path_index + 1]
 		var target: Vector2 = RescueManager.g().get_map_node(next_id).pos
 		var f := maxf(e.speed_factor(type), MIN_EDGE_SPEED_FACTOR)
-		if absf(target.x - position.x) > ARRIVE_EPSILON and (target.x < position.x) != _facing_left:
-			_facing_left = target.x < position.x
+		if position.distance_to(target) > ARRIVE_EPSILON:
+			heading = position.direction_to(target)
 			queue_redraw()
 		position = position.move_toward(target, Config.base_speed(type) * f * delta)
 		if position.distance_to(target) < ARRIVE_EPSILON:
 			position = target
 			current_node = next_id
 			path_index += 1
-			return true
+			return not _next_edge_same_segment(e)
 		return false
 
+	func _next_edge_same_segment(e: Edge) -> bool:
+		if path_index >= path.edge_ids.size():
+			return false
+		var after: Edge = RescueManager.g().get_edge(path.edge_ids[path_index])
+		return after != null and after.segment == e.segment
+
 	# Cạnh đang đi bị xóa: dịch về node vừa rời, đường rỗng để state tính lại.
+	# GraphManager xóa cạnh trước rồi mới xóa ô, nên lúc này node vẫn còn.
 	func _cut() -> void:
 		if path != null and path_index < path.node_ids.size():
 			current_node = path.node_ids[path_index]
@@ -196,15 +218,18 @@ class Vehicle extends Node2D:
 		position = RescueManager.g().get_map_node(hub_id).pos
 		current_node = hub_id
 		path = null
+		heading = Vector2.RIGHT
+		_lane = Vector2.ZERO
 		change_state(IdleState.new(), Types.VehicleState.IDLE)
 		RescueManager.mark_dirty()
 
 	func _draw() -> void:
-		var offset := Vector2.ZERO
+		var offset := _lane
 		if state_id == Types.VehicleState.IDLE:
 			offset.x = -PARK_OFFSET if type == Types.VehicleType.TRUCK else PARK_OFFSET
 		var icon := TRUCK_ICON if type == Types.VehicleType.TRUCK else BOAT_ICON
-		draw_set_transform(offset, 0.0, Vector2(-1.0 if _facing_left else 1.0, 1.0))
+		var left := heading.x < 0.0  # lật hình để xe không chổng ngược khi đi sang trái
+		draw_set_transform(offset, heading.angle() + (PI if left else 0.0), Vector2(-1.0 if left else 1.0, 1.0))
 		draw_texture_rect(icon, Rect2(-ICON_SIZE / 2.0, ICON_SIZE), false)
 		draw_set_transform(Vector2.ZERO)
 		if state_id == Types.VehicleState.STRANDED:

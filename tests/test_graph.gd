@@ -1,6 +1,6 @@
 extends Node2D
 # Chủ sở hữu: A. Kiểm tra tự động module Graph + thử bằng phím.
-# Chạy F6: xem cửa sổ Output ("Kết quả: 33 đạt, 0 trượt") và cửa sổ game.
+# Chạy F6: xem cửa sổ Output ("Kết quả: 30 đạt, 0 trượt") và cửa sổ game.
 
 const START := 0
 const GOAL := 7
@@ -64,7 +64,7 @@ func _run_checks() -> void:
 	_check(GraphManager.add_edge(2, 2) == -1, 'add_edge nối node với chính nó trả -1')
 	_check(GraphManager.add_edge(0, 99) == -1, 'add_edge node không tồn tại trả -1')
 	_check(_log.has(['edge_added', e1]), 'phát edge_added đúng id')
-	_check(_log.has(['edge_budget_changed', 1, Config.EDGE_LIMIT_START]), 'phát edge_budget_changed(1, 10)')
+	_check(_log.has(['edge_budget_changed', 0, Config.EDGE_LIMIT_START]), 'phát edge_budget_changed (nối hai điểm không tốn ô đường)')
 	var e := GraphManager.get_edge(e1)
 	_check(absf(e.length - _d(0, 3)) < 0.1, 'độ dài cạnh 0-3 bằng khoảng cách hai node (%.1f)' % _d(0, 3))
 	_check(e.elevation == 47.5, 'độ cao cạnh 0-3 = (70 + 25) / 2 = 47,5')
@@ -73,18 +73,7 @@ func _run_checks() -> void:
 	_check(GraphManager.get_edge(e1) == null, 'remove_edge: cạnh biến mất')
 	_check(_log.size() == 2 and _log[0] == ['edge_removed', e1] and _log[1] == ['edge_budget_changed', 0, Config.EDGE_LIMIT_START], 'phát edge_removed rồi edge_budget_changed')
 	_check(GraphManager.get_edges_of(0).is_empty(), 'danh sách kề của node 0 đã sạch')
-
-	_fresh()
-	var made := 0
-	for p in [[0, 3], [0, 2], [2, 4], [3, 5], [4, 5], [5, 7], [3, 6], [6, 8], [5, 6], [7, 1]]:
-		if GraphManager.add_edge(p[0], p[1]) >= 0:
-			made += 1
-	_check(made == Config.EDGE_LIMIT_START, 'tạo được đúng 10 cạnh (hạn mức)')
-	_check(GraphManager.add_edge(8, 1) == -1, 'vượt hạn mức trả -1')
-	GraphManager.add_edge_limit(2)
-	_check(GraphManager.add_edge(8, 1) >= 0, 'sau add_edge_limit(2) tạo thêm được')
-	var b := GraphManager.get_edge_budget()
-	_check(b.used == 11 and b.limit == 12, 'get_edge_budget = 11/12')
+	# Hạn mức tính theo ô đường: kiểm tra trong tests/test_road_auto.gd.
 
 	_fresh()
 	var s1 := GraphManager.add_edge(0, 3)

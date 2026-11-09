@@ -12,6 +12,7 @@ func _ready() -> void:
 		EventBus.wave_started.connect(start_wave)
 		EventBus.wave_ended.connect(_on_wave_ended)
 		EventBus.edge_added.connect(_on_edge_added)
+		EventBus.road_changed.connect(_on_road_changed)
 
 func reset() -> void:
 	water_level = 0.0
@@ -69,6 +70,11 @@ func _on_edge_added(edge_id: int) -> void:
 	if e != null:
 		GraphManager.set_edge_state(edge_id, compute_state(e.elevation))
 
+# Tô hoặc xóa ô làm độ cao các đoạn đổi, kể cả lúc nước đang đứng yên.
+func _on_road_changed() -> void:
+	for eid in GraphManager.get_edge_ids():
+		GraphManager.set_edge_state(eid, compute_state(GraphManager.get_edge(eid).elevation))
+
 func compute_state(edge_elevation: float) -> int:
 	var d := water_level - edge_elevation
 	if d < 0.0:
@@ -82,7 +88,7 @@ func _check_warning(e) -> void:
 		return
 	var threshold: float = e.elevation if e.state == 0 else (e.elevation + Config.SHALLOW_MAX)
 	var seconds_left: float = (threshold - water_level) / _rate
-	var key := Vector2i(e.id, e.state + 1)
+	var key := Vector2i(e.segment, e.state + 1)  # cả đoạn ngập cùng lúc nên chỉ cảnh báo một lần
 	if seconds_left <= Config.WARNING_SECONDS and not _warned.has(key):
 		_warned[key] = true
 		if has_node("/root/EventBus"):

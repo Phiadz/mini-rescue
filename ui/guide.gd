@@ -18,13 +18,13 @@ var next_button: Button
 var start_button: Button
 
 const ITEMS := [
-	["Kéo nối tuyến đường", "Giữ chuột trái ở một điểm, kéo đến điểm khác để nối tuyến."],
+	["Kéo để xây đường", "Giữ chuột trái và kéo qua từng ô để tô đường; chuột phải để xóa ô."],
 	["SOS (yêu cầu cứu hộ)", "Lương thực: hình tròn. Y tế: dấu cộng trắng."],
 	["Nước lũ làm ngập đường", "Đường khô chuyển sang ngập nhẹ, rồi ngập sâu khi nước dâng."],
-	["Ca-nô đi đường ngập sâu", "Ca-nô đi được tuyến ngập nhẹ và sâu; không đi đường khô."],
+	["Ca-nô đi đường ngập sâu", "Ca-nô đi được đường ngập nhẹ và sâu; không đi đường khô."],
 	["Ưu tiên yêu cầu SOS", "Bấm vào SOS đang chờ để ưu tiên, tối đa 2 yêu cầu cùng lúc."],
-	["Lũ dâng theo 3 đợt", "Lũ tăng qua 3 đợt. Nếu đường bị chặn, hãy nối tuyến khác."],
-	["Cứu hộ tự tìm đường", "Xe và ca-nô tự tìm đường trên các tuyến đã nối; không lái trực tiếp."],
+	["Lũ dâng theo 3 đợt", "Lũ tăng qua 3 đợt. Nếu đường bị chặn, hãy xây đường khác."],
+	["Cứu hộ tự tìm đường", "Xe và ca-nô tự tìm đường trên các đường đã xây; không lái trực tiếp."],
 	["Thắng và thua", "Thắng: qua đợt 3. Thua: tích lũy 3 SOS thất bại."]
 ]
 
@@ -54,7 +54,7 @@ func _ready() -> void:
 	back.pressed.connect(_on_back)
 	next_button = Style.button(self, "TIẾP THEO   ›", 944, 629, 275, 62, Style.BLUE, 24)
 	next_button.pressed.connect(_on_next)
-	start_button = Style.button(self, "▶ CHƠI NGAY", 450, 632, 380, 57, Style.YELLOW, 24, Style.NIGHT)
+	start_button = Style.button(self, "CHƠI NGAY", 450, 632, 380, 57, Style.YELLOW, 24, Style.NIGHT)
 	start_button.pressed.connect(func() -> void: start_pressed.emit())
 	_refresh()
 

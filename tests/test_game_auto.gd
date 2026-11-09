@@ -88,6 +88,7 @@ func _test_full_game_win() -> void:
 
 	await _wait_state(Types.GameState.WON)
 	_check(_count('game_won') == 1 and _count('game_lost') == 0, 'hết đợt 2 thì game_won đúng 1 lần')
+	_check(get_tree().paused, 'thắng thì cây scene dừng, lũ và SOS không chạy tiếp')
 	var stats: Dictionary = _last('game_won')[1]
 	_check(stats.size() == STATS_KEYS.size() and STATS_KEYS.all(func(k): return stats.has(k)),
 			'stats có đúng 6 khóa %s' % str(STATS_KEYS))
@@ -112,13 +113,16 @@ func _test_lose() -> void:
 	print('\n== Thua khi đủ MAX_FAILED lần thất bại')
 	_events.clear()
 	GameManager.restart()
+	_check(get_tree().paused, 'đang đổi scene khi chơi lại thì cây scene dừng')
 	await _wait_until(func(): return _count('wave_started') > 0)
+	_check(not get_tree().paused, 'vào ván mới thì cây scene chạy lại')
 	_check(GameManager.get_score() == 0 and GameManager.get_failed_count() == 0
 			and GameManager.get_current_wave() == 0 and GameManager.get_time_survived() < 0.5,
 			'restart đặt lại mọi bộ đếm')
 	for i in Config.MAX_FAILED:
 		_fake_fail()
 	_check(GameManager.state == Types.GameState.LOST, 'đủ %d thất bại thì LOST' % Config.MAX_FAILED)
+	_check(get_tree().paused, 'thua thì cây scene dừng, lũ và SOS không chạy tiếp')
 	_check(_count('game_lost') == 1 and _count('game_won') == 0, 'phát game_lost đúng 1 lần')
 	var stats: Dictionary = _last('game_lost')[1]
 	_check(stats['stars'] == 0 and stats['failed'] == Config.MAX_FAILED, 'thua thì 0 sao')

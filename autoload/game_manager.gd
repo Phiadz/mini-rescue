@@ -64,12 +64,13 @@ func start_game() -> void:
 		return  # bấm Chơi hai lần liên tiếp
 	_starting = true
 	_reset_counters()
-	get_tree().paused = false
+	get_tree().paused = true  # xe ván cũ bị giải phóng cùng scene, C không được chạy tới khi reset xong
 	get_tree().change_scene_to_file(MAIN_SCENE)
 	await get_tree().process_frame
 	await get_tree().process_frame  # chờ scene sẵn sàng
 	GraphManager.load_map(Config.MAP_PATH)  # 1. nạp bản đồ
 	EventBus.game_started.emit()  # 2. các module tự reset, NodeLayer vẽ node
+	get_tree().paused = false
 	_score_system.enabled = true
 	_set_state(Types.GameState.PLAYING)
 	_begin_wave(0)  # 3. B và C bắt đầu khi nghe wave_started(0)
@@ -162,6 +163,7 @@ func _end_break() -> void:
 
 func _finish(won: bool) -> void:
 	_score_system.enabled = false  # thắng/thua chỉ phát một lần, SOS sau đó bị bỏ qua
+	get_tree().paused = true  # lũ, SOS, xe dừng hẳn phía sau màn kết thúc
 	_set_state(Types.GameState.WON if won else Types.GameState.LOST)
 	var stats := {
 		'score': _score_system.score,

@@ -62,7 +62,7 @@ func _ready() -> void:
     var labels: Array[String] = ["SOS đã cứu", "Dân được cứu", "Thời gian"]
     for i in range(3):
         var y: float = 13.0 + float(i)*55.0
-        var symbol: String = ["◎", "●", "◷"][i]
+        var symbol: String = ["", "", ""][i]
         _label(stats_box,symbol,Vector2(17,y+1),Vector2(36,45),27,C_LIGHT,true)
         stat_names.append(_label(stats_box,labels[i],Vector2(61,y+5),Vector2(282,40),21,C_WHITE,false))
         stat_values.append(_label(stats_box,"0",Vector2(353,y+1),Vector2(144,44),26,C_GOLD,true))
@@ -73,8 +73,8 @@ func _ready() -> void:
             line.color = Color("#295071")
             line.mouse_filter = Control.MOUSE_FILTER_IGNORE
             stats_box.add_child(line)
-    _action(frame,"⌂  VỀ MENU",Vector2(37,489),Vector2(245,67),false,func() -> void: menu_pressed.emit())
-    replay_button = _action(frame,"⟳  CHƠI LẠI",Vector2(311,489),Vector2(244,67),true,func() -> void: restart_pressed.emit())
+    _action(frame,"VỀ MENU",Vector2(37,489),Vector2(245,67),false,func() -> void: menu_pressed.emit())
+    replay_button = _action(frame,"CHƠI LẠI",Vector2(311,489),Vector2(244,67),true,func() -> void: restart_pressed.emit())
     set_result(won,stats)
 
 func _style(bg: Color, border: Color, radius: int, line_width: int) -> StyleBoxFlat:
@@ -123,7 +123,7 @@ func _draw_art() -> void:
         child.queue_free()
     if won:
         # A trophy constructed from UI shapes (not a flattened background image).
-        var halo: Label = _label(outcome_art,"✦   ✧     ✦",Vector2(-40,4),Vector2(280,90),31,C_GOLD,true)
+        var halo: Label = _label(outcome_art,"",Vector2(-40,4),Vector2(280,90),31,C_GOLD,true)
         halo.modulate.a = 0.9
         var trophy := TextureRect.new()
         trophy.texture = preload("res://assets/icons/result_trophy.svg")
@@ -133,7 +133,7 @@ func _draw_art() -> void:
         trophy.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
         trophy.mouse_filter = Control.MOUSE_FILTER_IGNORE
         outcome_art.add_child(trophy)
-        _label(outcome_art,"✦         ✦",Vector2(-21,96),Vector2(242,38),23,C_GOLD,true)
+        _label(outcome_art,"",Vector2(-21,96),Vector2(242,38),23,C_GOLD,true)
     else:
         var danger := _label(outcome_art,"!",Vector2(71,3),Vector2(69,69),54,C_RED,true)
         var circle := Panel.new()

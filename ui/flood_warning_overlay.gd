@@ -1,10 +1,11 @@
 extends Node2D
 ## Person D's visual-only feedback. No flood simulation or game rules here.
-## A sends flood_warning(edge_id, seconds_left); D reads endpoint positions.
+## B sends flood_warning(edge_id, seconds_left) once per road segment; D flashes the whole segment.
 const MARK_COLOR := Color("#FF4500")
 const OUTLINE := Color("#FFD700")
 const WARNING_LIFETIME := 2.0
-var active: Dictionary = {} # edge id -> {start, end, seconds, ttl}
+const SECTIONS := 3 # dashes on each short edge of the segment
+var active: Dictionary = {} # edge id -> {links, seconds, ttl}
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_PAUSABLE
@@ -20,20 +21,16 @@ func _position_for(node_id: int) -> Vector2:
 	return node_data.get("pos")
 
 func _on_flood_warning(edge_id: int, seconds_left: float) -> void:
-	if not GraphManager.has_method("get_edge"):
+	var links: Array = []
+	for id in GraphManager.get_segment_edges(edge_id):
+		var edge := GraphManager.get_edge(id)
+		var pa := _position_for(edge.node_a)
+		var pb := _position_for(edge.node_b)
+		if pa.x >= 0.0 and pb.x >= 0.0:
+			links.append([pa, pb])
+	if links.is_empty():
 		return
-	var edge_data: Variant = GraphManager.get_edge(edge_id)
-	if edge_data == null:
-		return
-	var node_a: int = int(edge_data.get("node_a", -1)) if edge_data is Dictionary else int(edge_data.get("node_a"))
-	var node_b: int = int(edge_data.get("node_b", -1)) if edge_data is Dictionary else int(edge_data.get("node_b"))
-	if node_a < 0 or node_b < 0:
-		return
-	var pa := _position_for(node_a)
-	var pb := _position_for(node_b)
-	if pa.x < 0.0 or pb.x < 0.0:
-		return
-	active[edge_id] = {"start": pa, "end": pb, "seconds": seconds_left, "ttl": WARNING_LIFETIME}
+	active[edge_id] = {"links": links, "seconds": seconds_left, "ttl": WARNING_LIFETIME}
 	queue_redraw()
 
 func clear_warnings() -> void:
@@ -55,18 +52,19 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	var flash: float = 0.6 + 0.4 * absf(sin(Time.get_ticks_msec() * 0.013))
 	for item in active.values():
-		var a: Vector2 = item["start"]
-		var b: Vector2 = item["end"]
-		var middle: Vector2 = (a + b) * 0.5
-		# Orange dashes with yellow end markers; readable without relying on colour alone.
-		var sections := 14
-		for segment in range(sections):
-			if segment % 2 == 0:
-				var va: Vector2 = a.lerp(b, float(segment)/float(sections))
-				var vb: Vector2 = a.lerp(b, float(segment+1)/float(sections))
-				draw_line(va, vb, Color(MARK_COLOR, flash), 9.0, true)
-		draw_arc(a, 16.0, 0.0, TAU, 28, OUTLINE, 3.0, true)
-		draw_arc(b, 16.0, 0.0, TAU, 28, OUTLINE, 3.0, true)
+		var links: Array = item["links"]
+		# Orange dashes along the segment and one marker; readable without relying on colour alone.
+		for link in links:
+			var a: Vector2 = link[0]
+			var b: Vector2 = link[1]
+			for section in range(SECTIONS):
+				if section % 2 == 0:
+					var va: Vector2 = a.lerp(b, float(section)/float(SECTIONS))
+					var vb: Vector2 = a.lerp(b, float(section+1)/float(SECTIONS))
+					draw_line(va, vb, Color(MARK_COLOR, flash), 9.0, true)
+		var centre: Array = links[links.size() / 2]
+		var middle: Vector2 = (centre[0] + centre[1]) * 0.5
+		draw_arc(middle, 16.0, 0.0, TAU, 28, OUTLINE, 3.0, true)
 		draw_circle(middle, 13.0, Color(MARK_COLOR, flash))
 		# The HUD already shows the long warning; here show a compact road-local icon.
 		var cross_a := middle + Vector2(-5, -6)
