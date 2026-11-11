@@ -10,6 +10,7 @@ var road_rects: Array[ColorRect] = []
 var road_labels: Array[Label] = []
 
 var road_elevations: Array[float] = [10.0, 25.0, 50.0, 87.5]
+var _wave := -1  # đợt đang chạy hoặc vừa xong, -1 là chưa bắt đầu (FloodManager không lưu chỉ số đợt)
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(Color(0.08, 0.1, 0.14))
@@ -28,41 +29,35 @@ func _process(_delta: float) -> void:
 		return
 	
 	var cur_w = FloodManager.water_level
-	var wave_idx = FloodManager.current_wave
+	var wave_idx = _wave
 	
 	# Hiển thị index + 1 chuẩn theo Quy tắc 8
 	var state_desc = ""
-	if FloodManager.is_rising:
-		state_desc = "ĐANG DÂNG ĐỢT %d (%.0fm)..." % [wave_idx + 1, FloodManager.wave_levels[wave_idx]]
+	if FloodManager._rising:
+		state_desc = "ĐANG DÂNG ĐỢT %d (%.0f)..." % [wave_idx + 1, _peak(wave_idx)]
 	else:
 		if wave_idx == -1 or cur_w == 0.0:
-			state_desc = "BAN ĐẦU (0m) - ĐANG DỪNG"
-		elif wave_idx == 0 and cur_w >= 30.0:
-			state_desc = "ĐÃ ĐẠT ĐỢT 1 (30m) - ĐANG DỪNG"
-		elif wave_idx == 1 and cur_w >= 60.0:
-			state_desc = "ĐÃ ĐẠT ĐỢT 2 (60m) - ĐANG DỪNG"
-		elif wave_idx == 2 and cur_w >= 100.0:
-			state_desc = "ĐÃ ĐẠT ĐỈNH ĐỢT 3 (100m) - ĐANG DỪNG"
+			state_desc = "BAN ĐẦU (0) - ĐANG DỪNG"
+		elif wave_idx >= 0 and cur_w >= _peak(wave_idx) - 0.01:
+			state_desc = "ĐÃ ĐẠT ĐỢT %d (%.0f) - ĐANG DỪNG" % [wave_idx + 1, _peak(wave_idx)]
 		else:
-			state_desc = "TẠM DỪNG Ở %.1fm (Bấm Space để dâng tiếp)" % cur_w
+			state_desc = "TẠM DỪNG Ở %.1f (Bấm Space để dâng tiếp)" % cur_w
 
-	lbl_info.text = "Mực nước: %5.2f m  |  Tốc độ: %.1fx  |  Trạng thái: %s" % [cur_w, Engine.time_scale, state_desc]
+	lbl_info.text = "Mực nước: %5.2f  |  Tốc độ: %.1fx  |  Trạng thái: %s" % [cur_w, Engine.time_scale, state_desc]
 	
 	# Cập nhật nhãn nút phím R theo đúng chỉ số cộng 1 (Quy tắc 8)
 	if btn_next_wave != null:
-		if FloodManager.is_rising:
-			btn_next_wave.text = "🌊 Đang dâng Đợt %d (%.0fm)..." % [wave_idx + 1, FloodManager.wave_levels[wave_idx]]
+		if FloodManager._rising:
+			btn_next_wave.text = "Đang dâng đợt %d (%.0f)..." % [wave_idx + 1, _peak(wave_idx)]
 		elif wave_idx == -1 or cur_w == 0.0:
-			btn_next_wave.text = "🌊 [R] Bấm để dâng lên ĐỢT 1 (30m)"
-		elif wave_idx == 0:
-			btn_next_wave.text = "🌊 [R] Đang ở Đợt 1. Bấm để dâng lên ĐỢT 2 (60m)"
-		elif wave_idx == 1:
-			btn_next_wave.text = "🌊 [R] Đang ở Đợt 2. Bấm để dâng lên ĐỢT 3 (100m)"
+			btn_next_wave.text = "[R] Dâng lên ĐỢT 1 (%.0f)" % _peak(0)
+		elif wave_idx < Config.WAVES.size() - 1:
+			btn_next_wave.text = "[R] Đang ở đợt %d. Dâng lên ĐỢT %d (%.0f)" % [wave_idx + 1, wave_idx + 2, _peak(wave_idx + 1)]
 		else:
-			btn_next_wave.text = "🔄 [R] Đã ngập đỉnh Đợt 3. Bấm để ĐẶT LẠI VỀ 0m"
+			btn_next_wave.text = "[R] Đã ngập đỉnh Đợt 3. Bấm để ĐẶT LẠI VỀ 0"
 
 	if btn_pause != null:
-		btn_pause.text = "⏸ [Space] Tạm Dừng" if FloodManager.is_rising else "▶ [Space] Dâng Tiếp"
+		btn_pause.text = "[Space] Tạm Dừng" if FloodManager._rising else "[Space] Dâng Tiếp"
 
 	# Cập nhật chiều cao bể nước
 	var max_h = 400.0
@@ -76,15 +71,15 @@ func _process(_delta: float) -> void:
 		var state = FloodManager.compute_state(elev)
 		if state == Types.EdgeState.DRY:
 			road_rects[i].color = Color(0.18, 0.8, 0.44)
-			road_labels[i].text = "Đoạn %d (Cao độ %4.1fm) ➔ KHÔ RÁO (DRY)" % [i + 1, elev]
+			road_labels[i].text = "Đoạn %d (cao độ %4.1f) KHÔ RÁO (DRY)" % [i + 1, elev]
 			road_labels[i].modulate = Color(0.18, 0.8, 0.44)
 		elif state == Types.EdgeState.SHALLOW:
 			road_rects[i].color = Color(0.95, 0.61, 0.07)
-			road_labels[i].text = "Đoạn %d (Cao độ %4.1fm) ➔ NGẬP NÔNG (SHALLOW)" % [i + 1, elev]
+			road_labels[i].text = "Đoạn %d (cao độ %4.1f) NGẬP NÔNG (SHALLOW)" % [i + 1, elev]
 			road_labels[i].modulate = Color(0.95, 0.61, 0.07)
 		else:
 			road_rects[i].color = Color(0.91, 0.3, 0.24)
-			road_labels[i].text = "Đoạn %d (Cao độ %4.1fm) ➔ NGẬP SÂU (DEEP)" % [i + 1, elev]
+			road_labels[i].text = "Đoạn %d (cao độ %4.1f) NGẬP SÂU (DEEP)" % [i + 1, elev]
 			road_labels[i].modulate = Color(0.91, 0.3, 0.24)
 
 # BẢNG TEST BIÊN BẮT BUỘC 5.2
@@ -105,9 +100,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.is_pressed() and not event.is_echo():
 		match event.keycode:
 			KEY_R:
-				FloodManager.next_wave()
+				_next_wave()
 			KEY_SPACE:
-				FloodManager.toggle_pause()
+				_toggle_pause()
 			KEY_T:
 				Engine.time_scale = 10.0 if Engine.time_scale == 1.0 else 1.0
 
@@ -143,26 +138,16 @@ func _build_ui() -> void:
 	canvas.add_child(tank_water)
 
 	# Vạch mốc hiển thị ĐỢT 1, ĐỢT 2, ĐỢT 3 chuẩn Quy tắc 8
-	var marks = [
-		{"m": 100, "txt": "ĐỢT 3 (100m Đỉnh)"},
-		{"m": 60,  "txt": "ĐỢT 2 (60m)"},
-		{"m": 30,  "txt": "ĐỢT 1 (30m)"},
-		{"m": 0,   "txt": "0m (Ban đầu)"}
-	]
+	var marks = [{"m": 0.0, "txt": "0 (ban đầu)"}]
+	for i in Config.WAVES.size():
+		marks.append({"m": _peak(i), "txt": "ĐỢT %d (%.0f)" % [i + 1, _peak(i)]})
 	for item in marks:
 		var mark_y = 520 - (float(item.m) / 100.0) * 400.0
 		var lbl_m = Label.new()
 		lbl_m.position = Vector2(248, mark_y - 10)
-		lbl_m.text = "➔ %s" % item.txt
+		lbl_m.text = "%s" % item.txt
 		lbl_m.add_theme_font_size_override("font_size", 13)
-		if item.m == 100:
-			lbl_m.modulate = Color(0.95, 0.3, 0.3)
-		elif item.m == 60:
-			lbl_m.modulate = Color(0.95, 0.65, 0.1)
-		elif item.m == 30:
-			lbl_m.modulate = Color(0.3, 0.8, 1.0)
-		else:
-			lbl_m.modulate = Color(0.6, 0.7, 0.8)
+		lbl_m.modulate = Color(0.6, 0.8, 1.0)
 		canvas.add_child(lbl_m)
 
 	# 4 đoạn đường
@@ -192,19 +177,19 @@ func _build_ui() -> void:
 	pnl_title.modulate = Color(0.4, 0.8, 1.0)
 	canvas.add_child(pnl_title)
 
-	btn_next_wave = _make_button("🌊 [R] Bấm để dâng lên ĐỢT 1 (30m)", Vector2(440, 465), Vector2(480, 50))
+	btn_next_wave = _make_button("[R] Bấm để dâng lên ĐỢT 1", Vector2(440, 465), Vector2(480, 50))
 	btn_next_wave.modulate = Color(0.3, 0.85, 1.0)
 	btn_next_wave.add_theme_font_size_override("font_size", 16)
-	btn_next_wave.pressed.connect(func(): FloodManager.next_wave())
+	btn_next_wave.pressed.connect(func(): _next_wave())
 
-	btn_pause = _make_button("⏸ [Space] Tạm Dừng", Vector2(440, 530), Vector2(230, 42))
-	btn_pause.pressed.connect(func(): FloodManager.toggle_pause())
+	btn_pause = _make_button("[Space] Tạm Dừng", Vector2(440, 530), Vector2(230, 42))
+	btn_pause.pressed.connect(func(): _toggle_pause())
 
-	btn_speed = _make_button("⏩ [T] Tua Nhanh x10", Vector2(685, 530), Vector2(235, 42))
+	btn_speed = _make_button("[T] Tua Nhanh x10", Vector2(685, 530), Vector2(235, 42))
 	btn_speed.pressed.connect(func(): Engine.time_scale = 10.0 if Engine.time_scale == 1.0 else 1.0)
 
-	var btn_reset = _make_button("🔄 Đặt Lại Về 0m", Vector2(935, 465), Vector2(170, 50))
-	btn_reset.pressed.connect(func(): FloodManager.reset_flood())
+	var btn_reset = _make_button("Đặt lại về 0", Vector2(935, 465), Vector2(170, 50))
+	btn_reset.pressed.connect(func(): FloodManager.reset_flood(); _wave = -1)
 
 func _make_button(text_str: String, pos: Vector2, btn_size: Vector2) -> Button:
 	var b = Button.new()
@@ -214,3 +199,27 @@ func _make_button(text_str: String, pos: Vector2, btn_size: Vector2) -> Button:
 	b.add_theme_font_size_override("font_size", 14)
 	canvas.add_child(b)
 	return b
+
+
+# Mực nước đạt được khi hết đợt i (cộng dồn water_delta trong Config.WAVES).
+func _peak(i: int) -> float:
+	var s := 0.0
+	for k in range(i + 1):
+		s += Config.WAVES[k].water_delta
+	return s
+
+# R: dâng đợt kế tiếp; hết 3 đợt thì đặt lại về 0.
+func _next_wave() -> void:
+	if _wave >= Config.WAVES.size() - 1:
+		FloodManager.reset_flood()
+		_wave = -1
+		return
+	_wave += 1
+	FloodManager.start_wave(_wave)
+
+# Space: tạm dừng hoặc dâng tiếp đợt hiện tại.
+func _toggle_pause() -> void:
+	if FloodManager._rising:
+		FloodManager.stop_rising()
+	elif _wave >= 0:
+		FloodManager.start_wave(_wave)
