@@ -96,6 +96,10 @@ func _test_full_game_win() -> void:
 	_check(GraphManager.get_edge_budget().limit == limit_before + 2 * Config.REWARD_EDGE_BONUS, 'hạn mức ô đường tăng 2 lần')
 	_check(_count('reward_chosen') == 3, 'phát reward_chosen cho mỗi món mua được')
 	_check(GameManager.get_score() == 30, 'mua hàng không trừ điểm')
+	var shop := load('res://ui/reward_popup.gd')
+	_check(shop.money_text(0) == '0 đồng' and shop.money_text(60) == '600 triệu' and shop.money_text(100) == '1 tỷ'
+			and shop.money_text(135) == '1,35 tỷ' and shop.money_text(150) == '1,5 tỷ',
+			'quỹ hiển thị bằng tiền: 600 triệu, 1 tỷ, 1,35 tỷ, 1,5 tỷ')
 
 	await _wait_state(Types.GameState.WON)
 	_check(_count('game_won') == 1 and _count('game_lost') == 0, 'hết đợt 2 thì game_won đúng 1 lần')

@@ -25,9 +25,9 @@ func _ready() -> void:
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	Style.rect(self, 235, 35, 810, 652, Color("#0c2035"), Style.CYAN, 20)
 	Style.text(self, "CỬA HÀNG CỨU TRỢ", 305, 98, 670, 52, 38, Style.YELLOW, true)
-	Style.text(self, "Mỗi SOS cứu được cộng vào quỹ. Mua bao nhiêu tùy ý, quỹ thừa giữ sang lần sau.", 285, 150, 710, 36, 17, Style.WHITE, true)
-	Style.rect(self, 290, 50, 190, 42, Color("#112b45"), Style.YELLOW, 12)
-	funds_label = Style.text(self, "QUỸ 0", 295, 50, 180, 42, 24, Style.YELLOW, true)
+	Style.text(self, "Mỗi SOS cứu được, nhà nước và nhà hảo tâm cấp thêm kinh phí cứu trợ.", 285, 150, 710, 36, 17, Style.WHITE, true)
+	Style.rect(self, 290, 50, 230, 42, Color("#112b45"), Style.YELLOW, 12)
+	funds_label = Style.text(self, "QUỸ 0", 295, 50, 220, 42, 22, Style.YELLOW, true)
 	Style.rect(self, 836, 50, 154, 42, Color("#112b45"), Style.YELLOW, 12)
 	timer_label = Style.text(self, "15s", 845, 50, 136, 42, 25, Style.YELLOW, true)
 	for i in range(3):
@@ -47,11 +47,23 @@ func _ready() -> void:
 		Style.text(card, titles[i], 170, 14, 360, 45, 27, Style.YELLOW)
 		Style.text(card, details[i], 170, 54, 360, 28, 19, Style.WHITE)
 		count_labels.append(Style.text(card, "", 170, 82, 360, 26, 15, Style.MUTED))
-		price_labels.append(Style.text(card, "", 540, 20, 160, 70, 34, Style.YELLOW, true))
+		price_labels.append(Style.text(card, "", 520, 20, 190, 70, 30, Style.YELLOW, true))
 	var done := Style.button(self, "XONG", 450, 592, 380, 64, Color("#f5bd34"), 23, Color("#152135"))
 	done.focus_mode = Control.FOCUS_NONE
 	done.pressed.connect(func() -> void: done_pressed.emit())
 	refresh()
+
+
+# Đổi đơn vị quỹ sang tiền Việt: dưới 1 tỷ ghi "600 triệu", từ 1 tỷ ghi "1,35 tỷ" (dấu phẩy thập phân, bỏ số 0 thừa).
+static func money_text(units: int) -> String:
+	var vnd: int = units * Config.FUND_UNIT_VND
+	if vnd >= 1000000000:
+		var s := "%.2f" % (vnd / 1000000000.0)
+		s = s.rstrip("0").rstrip(".")
+		return s.replace(".", ",") + " tỷ"
+	if vnd >= 1000000:
+		return "%d triệu" % (vnd / 1000000)
+	return "0 đồng" if vnd == 0 else "%d đồng" % vnd
 
 
 func set_options(new_options: Array) -> void:
@@ -71,14 +83,14 @@ func refresh() -> void:
 	if cards.is_empty():
 		return
 	var funds: int = GameManager.get_funds()
-	funds_label.text = "QUỸ %d" % funds
+	funds_label.text = "QUỸ " + money_text(funds)
 	for i in range(cards.size()):
 		var has_item := i < options.size()
 		var price: int = GameManager.get_price(int(options[i])) if has_item else 0
 		var can_buy := has_item and funds >= price
 		cards[i].disabled = not can_buy
 		cards[i].modulate.a = 1.0 if can_buy else 0.45
-		price_labels[i].text = str(price) if has_item else ""
+		price_labels[i].text = money_text(price) if has_item else ""
 		var bought: int = GameManager.get_bought_count(int(options[i])) if has_item else 0
 		count_labels[i].text = ("Đã mua %d lần trong ván" % bought) if bought > 0 else ""
 		var outline := Style.YELLOW if can_buy else Style.BORDER

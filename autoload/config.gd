@@ -49,6 +49,7 @@ const REWARD_EDGE_BONUS := 12  # số ô đường
 # Mỗi SOS cứu được cộng vào quỹ đúng bằng số điểm nhận được; mua hàng chỉ trừ quỹ, không trừ điểm.
 # Khóa là Types.Reward: 0 MORE_EDGES (+REWARD_EDGE_BONUS ô đường), 1 EXTRA_TRUCK, 2 EXTRA_BOAT.
 const SHOP_PRICES := {0: 60, 1: 100, 2: 80}
+const FUND_UNIT_VND := 10000000  # mỗi đơn vị quỹ hiển thị là 10 triệu đồng (chỉ để hiển thị)
 const SHOP_PRICE_GROWTH := 1.5  # mỗi lần mua cùng một món trong ván, giá món đó nhân thêm (làm tròn 5)
 
 # --- Hệ số tốc độ: SPEED_FACTOR[loại xe][trạng thái tuyến] ---
