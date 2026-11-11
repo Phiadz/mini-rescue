@@ -54,7 +54,7 @@ const WAVES := [
 ]
 
 # --- Khảo sát: E điền link Google Form sau ---
-var SURVEY_URL := ''
+var SURVEY_URL := 'https://docs.google.com/forms/d/e/1FAIpQLSdjOjb0RipPcebnFNh5uKQh2SgIuu_9ysoWz64FoBmw0bJSZQ/viewform'
 
 func base_speed(vehicle_type: int) -> float:
 	return TRUCK_SPEED if vehicle_type == 0 else BOAT_SPEED
