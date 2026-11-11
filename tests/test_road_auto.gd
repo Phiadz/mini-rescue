@@ -161,40 +161,42 @@ func _test_remove() -> void:
 
 
 func _test_flood() -> void:
-	print('\n== Lũ theo đoạn')
+	print('\n== Lũ theo đoạn (lũ lan theo ô)')
 	_fresh()
 	var ids := _chain()
 	var edges := GraphManager.get_edge_ids()
-	var elev: float = GraphManager.get_edge(edges[0]).elevation
-	FloodManager.water_level = elev + 1.0
+	var wet: Vector2i = CHAIN[3]
+	FloodManager.set_cell_level(wet, GraphManager.cell_elevation(wet) + 2.0)  # chỉ một ô ngập 2
 	FloodManager._update_edges()
 	_check(edges.all(func(e: int) -> bool: return GraphManager.get_edge(e).state == Types.EdgeState.SHALLOW),
-			'nước vượt độ cao đoạn thì cả đoạn ngập nhẹ cùng lúc')
+			'một ô trong đoạn ngập thì cả đoạn ngập nhẹ cùng lúc')
 
 	_fresh()
 	ids = _chain()
-	edges = GraphManager.get_edge_ids()
-	elev = GraphManager.get_edge(edges[0]).elevation
-	_warnings = 0
-	FloodManager._rate = 1.0
-	FloodManager.water_level = elev - 1.0
+	var seg_cells: Array[Vector2i] = [_cell(HUB), _cell(MARKET)]
+	seg_cells.append_array(CHAIN)
+	for c in seg_cells:  # cả đoạn sâu 14: SHALLOW
+		FloodManager.set_cell_level(c, GraphManager.cell_elevation(c) + Config.SHALLOW_MAX - 1.0)
 	FloodManager._update_edges()
+	_warnings = 0
+	for k in 3:  # mọi ô dâng 0,25 mỗi 0,25 giây: còn chưa tới 5 giây là trung bình tới 15
+		FloodManager._prev = FloodManager._level.duplicate()
+		for c in seg_cells:
+			FloodManager.set_cell_level(c, GraphManager.cell_elevation(c) + Config.SHALLOW_MAX - 1.0 + 0.25 * (k + 1))
+		FloodManager._last_dt = 0.25
+		FloodManager._update_edges()
 	_check(_warnings == 1, 'mỗi đoạn chỉ cảnh báo một lần (%d)' % _warnings)
 
 	_fresh()
 	ids = _chain()
-	GraphManager.extend_road(ids[1], Vector2i(7, 5))
+	FloodManager.set_cell_level(wet, GraphManager.cell_elevation(wet) + 2.0)
+	FloodManager._update_edges()
 	var near: int = GraphManager.get_edges_of(HUB)[0]
 	var far: int = GraphManager.get_edges_of(MARKET)[0]
-	var high: float = GraphManager.get_edge(near).elevation
-	var low: float = GraphManager.get_edge(far).elevation
-	GraphManager.remove_road(Vector2i(7, 5))
-	FloodManager.water_level = (high + low) / 2.0
-	FloodManager._update_edges()
 	var merged: int = GraphManager.get_edge(near).state
-	GraphManager.extend_road(ids[1], Vector2i(7, 5))
-	_check(GraphManager.get_edge(near).state == Types.EdgeState.DRY
-			and GraphManager.get_edge(far).state == Types.EdgeState.SHALLOW and merged != -1,
+	GraphManager.extend_road(ids[1], Vector2i(7, 5))  # tạo ngã ba, tách đoạn
+	_check(merged == Types.EdgeState.SHALLOW and GraphManager.get_edge(near).state == Types.EdgeState.DRY
+			and GraphManager.get_edge(far).state == Types.EdgeState.SHALLOW,
 			'tách đoạn lúc nước đứng yên thì trạng thái cập nhật ngay')
 
 	_fresh()
@@ -261,9 +263,8 @@ func _test_finish_segment() -> void:
 
 
 func _fresh() -> void:
-	FloodManager.water_level = 0.0
 	GraphManager.load_map(Config.MAP_PATH)
-	EventBus.game_started.emit()
+	EventBus.game_started.emit()  # FloodManager.reset() đọc lại độ cao các ô
 
 
 # Kho Bắc → 4 ô → Chợ Cũ, trả về mã nút của 4 ô.

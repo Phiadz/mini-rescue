@@ -105,6 +105,11 @@ func cell_of(p: Vector2) -> Vector2i:
 func cell_center(cell: Vector2i) -> Vector2:
 	return (Vector2(cell) + Vector2(0.5, 0.5)) * float(Config.CELL_SIZE)
 
+# Độ cao nền của ô (khóa "grid" trong bản đồ), 0 nếu bản đồ không có lưới độ cao.
+func cell_elevation(cell: Vector2i) -> float:
+	var i := _cell_index(cell)
+	return float(_cell_elevation[i]) if _in_grid(cell) and i < _cell_elevation.size() else 0.0
+
 # Nút ô đường tại ô, hoặc -1 nếu ô chưa tô.
 func road_at(cell: Vector2i) -> int:
 	var id := _road_id(cell)

@@ -29,6 +29,7 @@ func _run() -> void:
 	await _test_lose_in_break()
 	await _test_pause()
 	await _test_exit_to_menu()
+	await _test_speed()
 	print('\nKết quả: %d đạt, %d trượt' % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
 
@@ -180,6 +181,37 @@ func _test_pause() -> void:
 	_check(_count('reward_chosen') == 0, 'không chọn được thưởng khi đang tạm dừng')
 	GameManager.resume_game()
 	_check(GameManager.state == Types.GameState.WAVE_BREAK, 'tạm dừng lúc nghỉ, tiếp tục thì về WAVE_BREAK')
+
+
+# Tua nhanh: F hoặc nút HUD đổi vòng 1 -> 2 -> 3 -> 1; về x1 khi hết ván hoặc về menu; ngoài ván không đổi.
+func _test_speed() -> void:
+	print('
+== Tua nhanh')
+	GameManager.exit_to_menu()
+	Engine.time_scale = 1.0
+	_check(GameManager.state == Types.GameState.MENU and GameManager.cycle_speed() == 1 and Engine.time_scale == 1.0, 'ở MENU không tua được')
+	await GameManager.start_game()
+	_check(GameManager.cycle_speed() == 2 and Engine.time_scale == 2.0, 'lần 1: x2')
+	_check(GameManager.cycle_speed() == 3 and Engine.time_scale == 3.0, 'lần 2: x3')
+	_check(GameManager.cycle_speed() == 1 and Engine.time_scale == 1.0, 'lần 3: quay về x1')
+	GameManager.cycle_speed()
+	var key := InputEventKey.new()
+	key.keycode = KEY_F
+	key.pressed = true
+	Input.parse_input_event(key)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check(GameManager.game_speed == 3, 'phím F đổi tốc độ (%d)' % GameManager.game_speed)
+	GameManager.pause_game()
+	_check(GameManager.cycle_speed() == 3, 'đang tạm dừng thì không đổi tốc độ')
+	GameManager.resume_game()
+	GameManager._finish(false)
+	_check(GameManager.game_speed == 1 and Engine.time_scale == 1.0, 'hết ván thì về x1')
+	await GameManager.start_game()
+	GameManager.cycle_speed()
+	GameManager.exit_to_menu()
+	_check(GameManager.game_speed == 1 and Engine.time_scale == 1.0, 'về menu thì về x1')
+	Engine.time_scale = SPEED
 
 
 func _test_exit_to_menu() -> void:

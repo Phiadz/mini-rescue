@@ -27,6 +27,7 @@ var countdown: float = 120.0
 var break_time: bool = false
 var enabled: bool = false
 var badges: Dictionary = {} # hub_id -> [food Label, medical Label]
+var speed_button: Button
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -34,6 +35,10 @@ func _ready() -> void:
 	var p := Style.button(self, "II", 1216, 8, 50, 42, Style.NIGHT, 22)
 	p.mouse_filter = Control.MOUSE_FILTER_STOP
 	p.pressed.connect(func() -> void: pause_pressed.emit())
+	speed_button = Style.button(self, "x1", 1160, 8, 50, 42, Style.NIGHT, 20)
+	speed_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	speed_button.focus_mode = Control.FOCUS_NONE  # để Space không bấm nhầm nút này
+	speed_button.pressed.connect(func() -> void: GameManager.cycle_speed())
 	_build_legend()
 	_build_hint()
 	warning_panel = Style.rect(self, 440, 58, 400, 44, Color(0.37, 0.04, 0.04, 0.96), Style.ORANGE, 10)
@@ -106,7 +111,7 @@ func _road_sample(parent: Control, at: Vector2, fill: Color, dashed: bool) -> vo
 
 func _build_hint() -> void:
 	Style.rect(self, 260, 690, 760, 26, Color(0.0, 0.05, 0.11, 0.8), Style.BORDER, 8)
-	var hint := Style.text(self, "Kéo trái: tô đường  •  Chuột phải / Delete: xóa ô  •  Bấm SOS: ưu tiên (tối đa 2)  •  Space/Esc: tạm dừng",
+	var hint := Style.text(self, "Kéo trái: tô đường  •  Chuột phải / Delete: xóa ô  •  Bấm SOS: ưu tiên  •  Space: tạm dừng  •  F: tua nhanh",
 			260, 690, 760, 26, 14, Style.MUTED, true)
 	hint.autowrap_mode = TextServer.AUTOWRAP_OFF # one line; with word wrap the label grew past its box
 	hint.size = Vector2(760, 26)
@@ -141,6 +146,9 @@ func _build_badges() -> void:
 			_on_stock(id, supply, RescueManager.get_stock(id, supply))
 
 func _process(delta: float) -> void:
+	var speed_text := "x%d" % GameManager.game_speed
+	if speed_button.text != speed_text:
+		speed_button.text = speed_text
 	if not enabled:
 		return
 	if countdown > 0.0:

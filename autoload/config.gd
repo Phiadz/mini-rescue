@@ -19,6 +19,12 @@ const BOAT_SPEED := 90.0
 const SHALLOW_MAX := 15.0
 const FLOOD_TICK := 0.25
 const WARNING_SECONDS := 5.0
+# Lũ lan theo ô: ô có độ cao tới SEA_MAX_ELEVATION là biển, mặt nước biển dâng theo WAVES.
+# Mỗi FLOOD_TICK, ô kề một ô đã ngập ít nhất FLOOD_SPILL_DEPTH thì mặt nước dâng dần về phía ô đó,
+# nhanh nhất FLOOD_SPREAD_RATE đơn vị độ cao mỗi giây, không vượt mặt nước của ô nguồn.
+const SEA_MAX_ELEVATION := 1.0
+const FLOOD_SPILL_DEPTH := 1.0
+const FLOOD_SPREAD_RATE := 3.0
 
 # --- Đợt và ván chơi ---
 const WAVE_COUNT := 3

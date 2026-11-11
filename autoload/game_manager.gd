@@ -4,6 +4,7 @@ extends Node
 # Chỉ số đợt (wave index) tính từ 0.
 
 const MAIN_SCENE := 'res://game/main.tscn'
+const SPEEDS: Array[int] = [1, 2, 3]  # tua nhanh: phím F hoặc nút trên HUD
 const ScoreSystemScript := preload('res://game/score_system.gd')
 
 var state: int = Types.GameState.MENU
@@ -22,6 +23,9 @@ var _time_survived := 0.0
 var _reward_chosen := false
 var _starting := false
 var _score_system := ScoreSystemScript.new()
+# Tốc độ người chơi chọn (1, 2, 3). Chỉ đặt lại Engine.time_scale khi người chơi đã từng tua,
+# để các test tự đặt time_scale không bị ghi đè.
+var game_speed := 1
 
 
 func _ready() -> void:
@@ -48,6 +52,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if key == null or not key.pressed or key.echo:
 		return
+	if key.keycode == KEY_F:
+		if _in_round():
+			cycle_speed()
+			get_viewport().set_input_as_handled()
+		return
 	if key.keycode != KEY_SPACE and key.keycode != KEY_ESCAPE:
 		return
 	if state == Types.GameState.PAUSED:
@@ -63,6 +72,7 @@ func start_game() -> void:
 	if _starting:
 		return  # bấm Chơi hai lần liên tiếp
 	_starting = true
+	_reset_speed()
 	_reset_counters()
 	get_tree().paused = true  # xe ván cũ bị giải phóng cùng scene, C không được chạy tới khi reset xong
 	get_tree().change_scene_to_file(MAIN_SCENE)
@@ -100,6 +110,7 @@ func exit_to_menu() -> void:
 	if state == Types.GameState.MENU:
 		return
 	_score_system.enabled = false
+	_reset_speed()
 	get_tree().paused = true
 	_set_state(Types.GameState.MENU)
 
@@ -164,6 +175,7 @@ func _end_break() -> void:
 func _finish(won: bool) -> void:
 	_score_system.enabled = false  # thắng/thua chỉ phát một lần, SOS sau đó bị bỏ qua
 	get_tree().paused = true  # lũ, SOS, xe dừng hẳn phía sau màn kết thúc
+	_reset_speed()
 	_set_state(Types.GameState.WON if won else Types.GameState.LOST)
 	var stats := {
 		'score': _score_system.score,
@@ -177,6 +189,21 @@ func _finish(won: bool) -> void:
 		EventBus.game_won.emit(stats)
 	else:
 		EventBus.game_lost.emit(stats)
+
+
+# Đổi vòng tốc độ 1 -> 2 -> 3 -> 1, chỉ trong ván (PLAYING hoặc WAVE_BREAK). Trả về tốc độ mới.
+func cycle_speed() -> int:
+	if not _in_round():
+		return game_speed
+	game_speed = SPEEDS[(SPEEDS.find(game_speed) + 1) % SPEEDS.size()]
+	Engine.time_scale = float(game_speed)
+	return game_speed
+
+
+func _reset_speed() -> void:
+	if game_speed != 1:
+		game_speed = 1
+		Engine.time_scale = 1.0
 
 
 func _set_state(s: int) -> void:
