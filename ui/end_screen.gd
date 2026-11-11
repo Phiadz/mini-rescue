@@ -22,6 +22,8 @@ var subtitle_label: Label
 var stat_values: Array[Label] = []
 var stat_names: Array[Label] = []
 var replay_button: Button
+var menu_button: Button
+var survey_button: Button
 var heading: Label
 
 func _ready() -> void:
@@ -59,21 +61,29 @@ func _ready() -> void:
     stats_box.size = Vector2(518,178)
     stats_box.add_theme_stylebox_override("panel", _style(Color("#07172c"), Color("#2d5982"), 11, 1))
     frame.add_child(stats_box)
-    var labels: Array[String] = ["SOS đã cứu", "Dân được cứu", "Thời gian"]
-    for i in range(3):
-        var y: float = 13.0 + float(i)*55.0
-        var symbol: String = ["", "", ""][i]
-        _label(stats_box,symbol,Vector2(17,y+1),Vector2(36,45),27,C_LIGHT,true)
-        stat_names.append(_label(stats_box,labels[i],Vector2(61,y+5),Vector2(282,40),21,C_WHITE,false))
-        stat_values.append(_label(stats_box,"0",Vector2(353,y+1),Vector2(144,44),26,C_GOLD,true))
-        if i < 2:
+    # Sáu chỉ số từ stats của game_won / game_lost: hai cột, ba hàng.
+    var labels: Array[String] = ["Điểm", "Số sao", "SOS đã cứu", "SOS thất bại", "Thời gian", "Đợt đạt tới"]
+    for i in range(6):
+        var col: int = i % 2
+        var y: float = 13.0 + floorf(i / 2.0)*55.0
+        var x: float = float(col)*259.0
+        stat_names.append(_label(stats_box,labels[i],Vector2(x+18,y+5),Vector2(140,40),19,C_WHITE,false))
+        stat_values.append(_label(stats_box,"0",Vector2(x+150,y+1),Vector2(100,44),24,C_GOLD,true))
+        if i < 4 and col == 0:
             var line := ColorRect.new()
             line.position = Vector2(20,y+51)
             line.size = Vector2(477,1)
             line.color = Color("#295071")
             line.mouse_filter = Control.MOUSE_FILTER_IGNORE
             stats_box.add_child(line)
-    _action(frame,"VỀ MENU",Vector2(37,489),Vector2(245,67),false,func() -> void: menu_pressed.emit())
+    var divider := ColorRect.new()
+    divider.position = Vector2(259,14)
+    divider.size = Vector2(1,150)
+    divider.color = Color("#295071")
+    divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    stats_box.add_child(divider)
+    menu_button = _action(frame,"VỀ MENU",Vector2(37,489),Vector2(245,67),false,func() -> void: menu_pressed.emit())
+    survey_button = _action(frame,"KHẢO SÁT",Vector2(216,489),Vector2(160,67),false,func() -> void: survey_pressed.emit())
     replay_button = _action(frame,"CHƠI LẠI",Vector2(311,489),Vector2(244,67),true,func() -> void: restart_pressed.emit())
     set_result(won,stats)
 
@@ -159,19 +169,35 @@ func set_result(is_win: bool, data: Dictionary) -> void:
     if not is_node_ready():
         return
     _draw_art()
+    _layout_buttons()
     title_label.text = "CHIẾN THẮNG" if won else "THẤT BẠI"
     title_label.add_theme_color_override("font_color", C_GOLD if won else C_RED)
     subtitle_label.text = ("Bạn đã vượt qua %d đợt lũ!" % (int(stats.get("wave_reached", Config.WAVE_COUNT - 1)) + 1)) if won else ("Đã có %d yêu cầu SOS quá hạn." % int(stats.get("failed",3)))
     replay_button.add_theme_stylebox_override("normal",_style(C_GOLD if won else Color("#e94151"),Color("#fbed95") if won else Color("#ff8c96"),12,2))
     replay_button.add_theme_stylebox_override("hover",_style(Color("#ffe983") if won else Color("#ff6874"),Color.WHITE,12,2))
     replay_button.add_theme_color_override("font_color",Color("#11223a") if won else Color.WHITE)
-    var rescued: int = int(stats.get("saved",0))
-    var people: int = int(stats.get("people_saved",rescued*3))
     var sec: int = maxi(0,int(stats.get("time_survived",0)))
-    stat_values[0].text = str(rescued)
-    stat_values[1].text = str(people)
-    stat_values[2].text = "%02d:%02d" % [int(sec/60),sec%60]
+    var stars: int = int(stats.get("stars",0))
+    stat_values[0].text = str(int(stats.get("score",0)))
+    stat_values[1].text = ("%d / 3" % stars) if won else "-"
+    stat_values[2].text = str(int(stats.get("saved",0)))
+    stat_values[3].text = "%d / %d" % [int(stats.get("failed",0)), Config.MAX_FAILED]
+    stat_values[4].text = "%02d:%02d" % [int(sec/60),sec%60]
+    stat_values[5].text = "%d / %d" % [int(stats.get("wave_reached",0)) + 1, Config.WAVE_COUNT]
     for value in stat_values:
         value.add_theme_color_override("font_color",C_GOLD if won else C_LIGHT)
     if not won:
-        stat_values[0].add_theme_color_override("font_color",C_RED)
+        stat_values[3].add_theme_color_override("font_color",C_RED)
+
+# Nút Khảo sát chỉ hiện khi đã có Config.SURVEY_URL (FR-24); khi đó ba nút chia đều hàng dưới.
+func _layout_buttons() -> void:
+    var has_survey: bool = not Config.SURVEY_URL.is_empty()
+    survey_button.visible = has_survey
+    if has_survey:
+        menu_button.size = Vector2(160,67)
+        replay_button.position = Vector2(395,489)
+        replay_button.size = Vector2(160,67)
+    else:
+        menu_button.size = Vector2(245,67)
+        replay_button.position = Vector2(311,489)
+        replay_button.size = Vector2(244,67)
