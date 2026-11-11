@@ -21,8 +21,8 @@ var _wet_cells := 0
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST  # height_field mã hóa 16 bit, không được nội suy
-	_prev_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGH)
-	_next_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGH)
+	_prev_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBH)
+	_next_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBH)
 	_prev_tex = ImageTexture.create_from_image(_prev_img)
 	_next_tex = ImageTexture.create_from_image(_next_img)
 	var mat := ShaderMaterial.new()
@@ -62,6 +62,34 @@ func wet_cell_count() -> int:
 	return _wet_cells
 
 
+# Kênh B: mức phủ lũ lên sông, biển. Ô đất: mức ngập của nó. Ô sông, biển: mức ngập lớn nhất của 8 ô xung quanh,
+# lan thêm 2 ô vào trong, để chỗ bờ đã ngập thì mặt lũ phủ liền qua sông, không lộ viền bờ của nền.
+func _sea_cover() -> Dictionary:
+	var cover := {}
+	for y in Config.GRID_ROWS:
+		for x in Config.GRID_COLS:
+			var c := Vector2i(x, y)
+			if not FloodManager.is_sea(c):
+				cover[c] = clampf(FloodManager.depth_at(c) / Config.FLOOD_SPILL_DEPTH, 0.0, 1.0)
+	for pass_i in 3:
+		var next := cover.duplicate()
+		for y in Config.GRID_ROWS:
+			for x in Config.GRID_COLS:
+				var c := Vector2i(x, y)
+				if not FloodManager.is_sea(c):
+					continue
+				var best: float = cover.get(c, 0.0)
+				for dy in [-1, 0, 1]:
+					for dx in [-1, 0, 1]:
+						var n := c + Vector2i(dx, dy)
+						if (pass_i == 0 and FloodManager.is_sea(n)) or not cover.has(n):
+							continue
+						best = maxf(best, cover[n])
+				next[c] = best
+		cover = next
+	return cover
+
+
 # Ảnh nhịp sau thành ảnh nhịp trước; dựng ảnh nhịp sau từ FloodManager.
 # Ô ướt: R = mặt nước, G = độ ướt (độ sâu / FLOOD_SPILL_DEPTH). Ô khô sát nước: R = mặt nước cao nhất
 # của ô kề để nội suy không kéo mặt nước tụt xuống ở mép, G = 0.
@@ -77,17 +105,19 @@ func _refresh() -> void:
 				surface[c] = GraphManager.cell_elevation(c) + d
 				if not FloodManager.is_sea(c):
 					wet += 1
+	var cover := _sea_cover()
 	for y in Config.GRID_ROWS:
 		for x in Config.GRID_COLS:
 			var c := Vector2i(x, y)
+			var b: float = cover.get(c, 0.0)
 			if surface.has(c):
 				var g := 1.0 if FloodManager.is_sea(c) else clampf(FloodManager.depth_at(c) / Config.FLOOD_SPILL_DEPTH, 0.0, 1.0)
-				_next_img.set_pixel(x, y, Color(surface[c], g, 0.0))
+				_next_img.set_pixel(x, y, Color(surface[c], g, b))
 				continue
 			var best := 0.0
 			for d in FloodManager.NEIGHBORS:
 				best = maxf(best, surface.get(c + d, 0.0))
-			_next_img.set_pixel(x, y, Color(best, 0.0, 0.0))
+			_next_img.set_pixel(x, y, Color(best, 0.0, b))
 	_wet_cells = wet
 	_prev_tex.update(_prev_img)
 	_next_tex.update(_next_img)

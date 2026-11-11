@@ -1,9 +1,10 @@
 shader_type canvas_item;
 // Lớp nước của FloodOverlay. Vẽ trên một hình chữ nhật phủ cả bản đồ, TEXTURE là height_field.png.
-// - field_prev, field_next: ảnh 32 × 18 (mỗi điểm ảnh là một ô), kênh R = mặt nước, G = độ ướt 0..1.
+// - field_prev, field_next: ảnh 32 × 18 (mỗi điểm ảnh là một ô), kênh R = mặt nước, G = độ ướt 0..1,
+//   B = mức phủ lũ lên sông, biển (cao khi đất quanh đó đã ngập).
 //   Lọc tuyến tính nên giữa các ô được làm mịn; `blend` trộn dần từ nhịp lũ trước sang nhịp lũ sau.
 // - So mặt nước với độ cao từng điểm ảnh của height_field nên bờ nước chạy theo đường đồng mức.
-// - Bỏ qua điểm ảnh là biển (nền đã vẽ biển).
+// - Điểm ảnh sông, biển: giữ hình nền khi đất quanh còn khô; phủ lũ khi đất quanh đã ngập để không lộ viền bờ.
 
 uniform sampler2D field_prev : filter_linear, repeat_disable;
 uniform sampler2D field_next : filter_linear, repeat_disable;
@@ -31,7 +32,7 @@ float vnoise(vec2 p) {
 
 void fragment() {
 	vec2 uv = UV;
-	vec2 f = mix(texture(field_prev, uv).rg, texture(field_next, uv).rg, blend);
+	vec3 f = mix(texture(field_prev, uv).rgb, texture(field_next, uv).rgb, blend);
 	vec4 hc = texture(TEXTURE, uv);  // height_field: R byte cao, G byte thấp, thang 0–100
 	float hf = (floor(hc.r * 255.0 + 0.5) * 256.0 + floor(hc.g * 255.0 + 0.5)) / 65535.0 * 100.0;
 	float t = clamp((hf - h0) / hscale, 0.0, 100.0);
@@ -41,11 +42,13 @@ void fragment() {
 	float reach = smoothstep(0.42, 0.58, f.g + n * 0.3);
 	float wet = smoothstep(0.0, 0.5, depth + n * 0.4);
 	float land = smoothstep(sea_max, sea_max + 1.5, t);
-	float a = reach * wet * land;
+	float over_sea = (1.0 - land) * smoothstep(0.35, 0.65, f.b + n * 0.3);
+	float a = max(reach * wet * land, over_sea);
 	if (a < 0.01) {
 		discard;
 	}
 	vec3 col = mix(shallow_color.rgb, deep_color.rgb, smoothstep(0.0, shallow_max, depth));
+	col *= mix(1.0, 0.92, 1.0 - land);  // sông dưới lũ tối hơn một chút để vẫn lần ra dòng sông
 	// Gợn sóng nhẹ.
 	float ripple = vnoise(uv * vec2(160.0, 90.0) + vec2(TIME * 0.35, TIME * 0.2));
 	col += (ripple - 0.5) * 0.06;
