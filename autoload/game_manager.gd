@@ -20,7 +20,7 @@ var _prev_state: int = Types.GameState.MENU
 var _wave := 0
 var _phase_left := 0.0
 var _time_survived := 0.0
-var _reward_chosen := false
+var _bought := {}  # Types.Reward -> số lần đã mua trong ván
 var _starting := false
 var _score_system := ScoreSystemScript.new()
 # Tốc độ người chơi chọn (1, 2, 3). Chỉ đặt lại Engine.time_scale khi người chơi đã từng tua,
@@ -115,9 +115,13 @@ func exit_to_menu() -> void:
 	_set_state(Types.GameState.MENU)
 
 
-func choose_reward(reward: int) -> void:
-	if state != Types.GameState.WAVE_BREAK or _reward_chosen:
-		return
+# Mua một món ở cửa hàng cứu trợ (chỉ trong lượt nghỉ, khi đủ quỹ). Mua được nhiều món, mỗi lần mua
+# cùng món thì giá tăng (Config.SHOP_PRICE_GROWTH). Trả true nếu mua được. Giữ tên cũ để UI của D không đổi.
+func choose_reward(reward: int) -> bool:
+	if state != Types.GameState.WAVE_BREAK or not Config.SHOP_PRICES.has(reward):
+		return false
+	if not _score_system.spend(get_price(reward)):
+		return false
 	match reward:
 		Types.Reward.MORE_EDGES:
 			GraphManager.add_edge_limit(Config.REWARD_EDGE_BONUS)
@@ -125,10 +129,24 @@ func choose_reward(reward: int) -> void:
 			RescueManager.add_vehicle(Types.VehicleType.TRUCK)
 		Types.Reward.EXTRA_BOAT:
 			RescueManager.add_vehicle(Types.VehicleType.BOAT)
-		_:
-			return
-	_reward_chosen = true
+	_bought[reward] = int(_bought.get(reward, 0)) + 1
 	EventBus.reward_chosen.emit(reward)
+	return true
+
+
+# Giá hiện tại của một món: giá gốc × SHOP_PRICE_GROWTH^(số lần đã mua món đó trong ván), làm tròn 5.
+func get_price(reward: int) -> int:
+	var base: float = float(Config.SHOP_PRICES.get(reward, 0))
+	return int(round(base * pow(Config.SHOP_PRICE_GROWTH, int(_bought.get(reward, 0))) / 5.0)) * 5
+
+
+func get_funds() -> int:
+	return _score_system.funds
+
+
+# Số lần đã mua một món trong ván (cửa hàng hiển thị).
+func get_bought_count(reward: int) -> int:
+	return int(_bought.get(reward, 0))
 
 
 func get_score() -> int:
@@ -160,14 +178,11 @@ func _end_wave() -> void:
 		return
 	_set_state(Types.GameState.WAVE_BREAK)
 	_phase_left = Config.BREAK_DURATION
-	_reward_chosen = false
 	EventBus.break_started.emit(Config.BREAK_DURATION)
 	EventBus.reward_offered.emit(Types.Reward.values())
 
 
 func _end_break() -> void:
-	if not _reward_chosen:
-		choose_reward(Types.Reward.MORE_EDGES)  # hết giờ nghỉ mà chưa chọn
 	_set_state(Types.GameState.PLAYING)
 	_begin_wave(_wave + 1)
 
@@ -221,6 +236,6 @@ func _reset_counters() -> void:
 	_wave = 0
 	_phase_left = 0.0
 	_time_survived = 0.0
-	_reward_chosen = false
+	_bought.clear()
 	_score_system.enabled = false
 	_score_system.reset()

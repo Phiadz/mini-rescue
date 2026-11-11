@@ -53,6 +53,7 @@ func _ready() -> void:
 	pause.connect("restart_pressed", _restart)
 	pause.connect("menu_pressed", _return_to_menu)
 	reward.connect("reward_pressed", _choose_reward)
+	reward.connect("done_pressed", _close_shop)
 	ending.connect("restart_pressed", _restart)
 	ending.connect("menu_pressed", _return_to_menu)
 	ending.connect("survey_pressed", _survey)
@@ -60,6 +61,7 @@ func _ready() -> void:
 	EventBus.game_state_changed.connect(_on_game_state_changed)
 	EventBus.reward_offered.connect(_on_reward_offered)
 	EventBus.reward_chosen.connect(_on_reward_chosen)
+	EventBus.wave_started.connect(func(_index: int) -> void: _close_shop())  # hết giờ nghỉ thì đóng cửa hàng
 	EventBus.game_won.connect(_on_won)
 	EventBus.game_lost.connect(_on_lost)
 	_show("menu")
@@ -127,9 +129,14 @@ func _on_reward_offered(options: Array) -> void:
 	reward.call("set_options", options)
 	_show("reward")
 
+# Mua xong một món thì cửa hàng vẫn mở để mua tiếp, chỉ cập nhật quỹ và giá.
 func _on_reward_chosen(_choice: int) -> void:
+	reward.call("refresh")
+
+func _close_shop() -> void:
 	reward_pending = false
-	_show("hud")
+	if current_view == "reward":
+		_show("hud")
 
 func _on_won(stats: Dictionary) -> void:
 	AudioManager.play_bgm(&"")

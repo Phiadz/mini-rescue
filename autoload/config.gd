@@ -45,6 +45,12 @@ const POINTS := {0: 10, 1: 20}
 const BONUS_RATIO := 1.5
 const REWARD_EDGE_BONUS := 12  # số ô đường
 
+# --- Cửa hàng cứu trợ (mở trong lượt nghỉ giữa hai đợt) ---
+# Mỗi SOS cứu được cộng vào quỹ đúng bằng số điểm nhận được; mua hàng chỉ trừ quỹ, không trừ điểm.
+# Khóa là Types.Reward: 0 MORE_EDGES (+REWARD_EDGE_BONUS ô đường), 1 EXTRA_TRUCK, 2 EXTRA_BOAT.
+const SHOP_PRICES := {0: 60, 1: 100, 2: 80}
+const SHOP_PRICE_GROWTH := 1.5  # mỗi lần mua cùng một món trong ván, giá món đó nhân thêm (làm tròn 5)
+
 # --- Hệ số tốc độ: SPEED_FACTOR[loại xe][trạng thái tuyến] ---
 # Loại xe: 0 TRUCK, 1 BOAT. Trạng thái tuyến: 0 DRY, 1 SHALLOW, 2 DEEP
 const SPEED_FACTOR := {
