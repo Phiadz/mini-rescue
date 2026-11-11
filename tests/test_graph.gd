@@ -93,7 +93,8 @@ func _run_checks() -> void:
 	_check(pt2.found and _same(pt2.node_ids, [0, 2, 4, 5, 7]), 'cạnh 3-5 ngập sâu: xe tải đổi sang 0-2-4-5-7')
 	var cost_detour := (_d(0, 2) + _d(2, 4) + _d(4, 5) + _d(5, 7)) / Config.TRUCK_SPEED
 	_check(absf(pt2.cost - cost_detour) < 0.02, 'chi phí mới xấp xỉ %.2f giây' % cost_detour)
-	_check(not GraphManager.find_path(0, 7, Types.VehicleType.BOAT).found, 'ca-nô: các cạnh khác còn khô nên chưa có đường 0→7')
+	var pboat := GraphManager.find_path(0, 7, Types.VehicleType.BOAT)
+	_check(pboat.found and pboat.cost > pt2.cost, 'ca-nô đi được đường khô nhưng chậm hơn xe tải (%.1f so với %.1f giây)' % [pboat.cost, pt2.cost])
 	for eid in GraphManager.get_edge_ids():
 		GraphManager.set_edge_state(eid, Types.EdgeState.DEEP)
 	_check(not GraphManager.find_path(0, 7, Types.VehicleType.TRUCK).found, 'mọi cạnh ngập sâu: xe tải không có đường')

@@ -157,7 +157,9 @@ class Vehicle extends Node2D:
 			return true
 		var next_id: int = path.node_ids[path_index + 1]
 		var target: Vector2 = RescueManager.g().get_map_node(next_id).pos
-		var f := maxf(e.speed_factor(type), MIN_EDGE_SPEED_FACTOR)
+		var f := e.speed_factor(type)
+		if f <= 0.0:
+			f = MIN_EDGE_SPEED_FACTOR  # cạnh vừa thành không đi được: đi nốt với tốc độ tối thiểu
 		if position.distance_to(target) > ARRIVE_EPSILON:
 			heading = position.direction_to(target)
 			queue_redraw()

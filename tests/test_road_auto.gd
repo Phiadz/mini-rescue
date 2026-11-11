@@ -168,8 +168,13 @@ func _test_flood() -> void:
 	var wet: Vector2i = CHAIN[3]
 	FloodManager.set_cell_level(wet, GraphManager.cell_elevation(wet) + 2.0)  # chỉ một ô ngập 2
 	FloodManager._update_edges()
-	_check(edges.all(func(e: int) -> bool: return GraphManager.get_edge(e).state == Types.EdgeState.SHALLOW),
-			'một ô trong đoạn ngập thì cả đoạn ngập nhẹ cùng lúc')
+	var touching := edges.filter(func(e: int) -> bool:
+		var ed = GraphManager.get_edge(e)
+		return GraphManager.cell_of(GraphManager.get_map_node(ed.node_a).pos) == wet or GraphManager.cell_of(GraphManager.get_map_node(ed.node_b).pos) == wet)
+	_check(touching.size() == 2 and touching.all(func(e: int) -> bool: return GraphManager.get_edge(e).state == Types.EdgeState.SHALLOW),
+			'hai cạnh chạm ô ngập thì ngập nhẹ')
+	_check(edges.filter(func(e: int) -> bool: return not touching.has(e)).all(func(e: int) -> bool: return GraphManager.get_edge(e).state == Types.EdgeState.DRY),
+			'các cạnh còn lại trong đoạn vẫn khô')
 
 	_fresh()
 	ids = _chain()
@@ -189,15 +194,12 @@ func _test_flood() -> void:
 
 	_fresh()
 	ids = _chain()
-	FloodManager.set_cell_level(wet, GraphManager.cell_elevation(wet) + 2.0)
-	FloodManager._update_edges()
-	var near: int = GraphManager.get_edges_of(HUB)[0]
-	var far: int = GraphManager.get_edges_of(MARKET)[0]
-	var merged: int = GraphManager.get_edge(near).state
-	GraphManager.extend_road(ids[1], Vector2i(7, 5))  # tạo ngã ba, tách đoạn
-	_check(merged == Types.EdgeState.SHALLOW and GraphManager.get_edge(near).state == Types.EdgeState.DRY
-			and GraphManager.get_edge(far).state == Types.EdgeState.SHALLOW,
-			'tách đoạn lúc nước đứng yên thì trạng thái cập nhật ngay')
+	var branch := Vector2i(7, 5)
+	FloodManager.set_cell_level(branch, GraphManager.cell_elevation(branch) + 20.0)  # ô sắp tô đang ngập sâu 20
+	var bid := GraphManager.extend_road(ids[1], branch)
+	var new_edge: int = GraphManager.get_edges_of(bid)[0]
+	_check(GraphManager.get_edge(new_edge).state == Types.EdgeState.SHALLOW,
+			'tô ô ngập lúc nước đứng yên: cạnh mới nhận trạng thái ngay (trung bình hai ô 10, ngập nhẹ)')
 
 	_fresh()
 	_chain()

@@ -6,7 +6,7 @@ extends Node
 #   nếu mặt nước ô nguồn cao hơn nền ô kề. Mặt nước ô kề dâng dần về mặt nước ô nguồn, nhanh nhất
 #   FLOOD_SPREAD_RATE mỗi giây. Nước không rút (giữ luật một chiều DRY -> SHALLOW -> DEEP).
 # - Vùng trũng bị đồi chắn không ngập dù thấp hơn mực biển; vùng xa biển ngập muộn hơn vùng gần biển.
-# - Cả đoạn đường ngập chung: trạng thái đoạn lấy theo độ sâu trung bình các ô trong đoạn.
+# - Mỗi cạnh đường ngập theo độ sâu trung bình của hai ô nó nối, nên đường đổi màu đúng chỗ nước phủ.
 
 const NEIGHBORS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 const DRY_EPSILON := 0.05  # sâu dưới mức này coi như khô (tránh sai số số thực)
@@ -169,33 +169,27 @@ func _spread(dt: float) -> void:
 			_level[i] = minf(source, _level[i] + step_max)
 
 
-# Gom cạnh theo đoạn. Trạng thái chung của đoạn lấy theo độ sâu trung bình các ô trong đoạn
-# (giống luật cũ dùng độ cao trung bình), rồi phát cảnh báo trước 5 giây.
+# Mỗi cạnh ngập theo nước tại chính hai ô nó nối (độ sâu trung bình hai ô), nên đường đổi màu đúng chỗ
+# nước phủ. Cảnh báo trước 5 giây vẫn gom theo đoạn: mỗi đoạn chỉ cảnh báo một lần cho mỗi mức ngập.
 func _update_edges() -> void:
 	if not has_node("/root/GraphManager"):
 		return
-	var segs := {}  # khóa đoạn -> {edges, cells}
 	for eid in GraphManager.get_edge_ids():
 		var e = GraphManager.get_edge(eid)
 		if e == null:
 			continue
-		var key: int = e.segment if e.segment >= 0 else -1 - eid
-		if not segs.has(key):
-			segs[key] = {edges = [], cells = {}}
-		var s: Dictionary = segs[key]
-		s.edges.append(eid)
+		var cells: Array = []
 		for node_id in [e.node_a, e.node_b]:
 			var n = GraphManager.get_map_node(node_id)
 			if n != null:
-				s.cells[_index(GraphManager.cell_of(n.pos))] = true
-	for key in segs:
-		var s: Dictionary = segs[key]
-		var cells: Array = s.cells.keys().filter(func(i: int) -> bool: return i >= 0)
+				var i := _index(GraphManager.cell_of(n.pos))
+				if i >= 0 and not cells.has(i):
+					cells.append(i)
 		var state := state_for_depth(_mean_depth(cells))
-		for eid in s.edges:
-			if GraphManager.get_edge(eid).state != state:
-				GraphManager.set_edge_state(eid, state)
-		_check_warning(key, s.edges, cells, state)
+		if e.state != state:
+			GraphManager.set_edge_state(eid, state)
+		var key: int = e.segment if e.segment >= 0 else -1 - eid
+		_check_warning(key, [eid], cells, state)
 
 
 func _mean_depth(cells: Array) -> float:
@@ -207,8 +201,9 @@ func _mean_depth(cells: Array) -> float:
 	return total / cells.size()
 
 
-# Số giây tới khi đoạn sang trạng thái kế tiếp. Sang SHALLOW: ngay khi ô đầu tiên của đoạn bắt đầu ngập.
+# Số giây tới khi cạnh sang trạng thái kế tiếp. Sang SHALLOW: ngay khi một trong các ô bắt đầu ngập.
 # Sang DEEP: khi độ sâu trung bình tới SHALLOW_MAX, theo tốc độ dâng trung bình của các ô.
+# Khóa cảnh báo theo đoạn (key), nên cả đoạn chỉ cảnh báo một lần cho mỗi mức.
 func _check_warning(key: int, edges: Array, cells: Array, state: int) -> void:
 	if state >= Types.EdgeState.DEEP or _last_dt <= 0.0 or cells.is_empty():
 		return

@@ -49,7 +49,7 @@ const REWARD_EDGE_BONUS := 12  # số ô đường
 # Loại xe: 0 TRUCK, 1 BOAT. Trạng thái tuyến: 0 DRY, 1 SHALLOW, 2 DEEP
 const SPEED_FACTOR := {
 	0: [1.0, 0.5, 0.0],
-	1: [0.0, 0.5, 1.0],
+	1: [0.25, 0.5, 1.0],  # ca-nô đi được đường khô ở 25% tốc độ (kéo bằng rơ-moóc ra chỗ ngập)
 }
 
 # --- Các đợt lũ (chỉ số 0, 1, 2) ---

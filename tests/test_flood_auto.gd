@@ -158,7 +158,7 @@ func _test_no_recede() -> void:
 
 
 func _test_edges_follow_deepest() -> void:
-	print('\n== Cả đoạn ngập theo ô sâu nhất')
+	print('\n== Cạnh ngập theo độ sâu trung bình hai ô')
 	_fresh()
 	var eid := GraphManager.add_edge(2, 4)  # Bến Cảng – Trường Học
 	var c2 := GraphManager.cell_of(GraphManager.get_map_node(2).pos)
@@ -167,10 +167,10 @@ func _test_edges_follow_deepest() -> void:
 	var high := c4 if low == c2 else c2
 	FloodManager.set_cell_level(low, GraphManager.cell_elevation(low) + 20.0)
 	FloodManager._update_edges()
-	_check(GraphManager.get_edge(eid).state == Types.EdgeState.SHALLOW, 'một đầu sâu 20, đầu kia khô: trung bình 10, cả đoạn SHALLOW')
+	_check(GraphManager.get_edge(eid).state == Types.EdgeState.SHALLOW, 'một đầu sâu 20, đầu kia khô: trung bình 10, SHALLOW')
 	FloodManager.set_cell_level(low, GraphManager.cell_elevation(low) + 30.0)
 	FloodManager._update_edges()
-	_check(GraphManager.get_edge(eid).state == Types.EdgeState.DEEP, 'một đầu sâu 30, đầu kia khô: trung bình 15, cả đoạn DEEP')
+	_check(GraphManager.get_edge(eid).state == Types.EdgeState.DEEP, 'một đầu sâu 30, đầu kia khô: trung bình 15, DEEP')
 	_check(FloodManager.depth_at(high) < FloodManager.DRY_EPSILON, 'đầu kia vẫn khô')
 	_fresh()
 	eid = GraphManager.add_edge(2, 4)
