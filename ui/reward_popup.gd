@@ -44,31 +44,31 @@ func _ready() -> void:
     _refresh_selection()
 
 func set_options(new_options: Array) -> void:
-    options = new_options.duplicate()
-    selected = 0
-    if not cards.is_empty():
-        _refresh_selection()
+	options = new_options.duplicate()
+	selected = 0
+	if not cards.is_empty():
+		_refresh_selection()
 
 func _process(_delta: float) -> void:
-    if timer_label != null:
-        timer_label.text = "%ds" % ceili(maxf(0.0, GameManager.break_left))
+	if timer_label != null:
+		timer_label.text = "%ds" % ceili(maxf(0.0, GameManager.break_left))
 
 func _select(idx: int) -> void:
-    if idx >= options.size(): return
-    selected = idx
-    _refresh_selection()
+	if idx >= options.size(): return
+	selected = idx
+	_refresh_selection()
 
 func _refresh_selection() -> void:
-    for i in range(cards.size()):
-        cards[i].disabled = i >= options.size()
-        var outline := Style.YELLOW if i == selected else Style.BORDER
-        cards[i].add_theme_stylebox_override("normal", Style.rounded(Color("#174064") if i == selected else Color("#133451"), outline, 14, 3 if i == selected else 2))
-        cards[i].add_theme_stylebox_override("hover", Style.rounded(Color("#205078"), Style.CYAN, 14, 3))
+	for i in range(cards.size()):
+		cards[i].disabled = i >= options.size()
+		var outline := Style.YELLOW if i == selected else Style.BORDER
+		cards[i].add_theme_stylebox_override("normal", Style.rounded(Color("#174064") if i == selected else Color("#133451"), outline, 14, 3 if i == selected else 2))
+		cards[i].add_theme_stylebox_override("hover", Style.rounded(Color("#205078"), Style.CYAN, 14, 3))
 
 func _confirm() -> void:
-    if selected < options.size():
-        reward_pressed.emit(int(options[selected]))
+	if selected < options.size():
+		reward_pressed.emit(int(options[selected]))
 
 func _skip() -> void:
-    if not options.is_empty():
-        reward_pressed.emit(int(options[0]))
+	if not options.is_empty():
+		reward_pressed.emit(int(options[0]))
