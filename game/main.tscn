@@ -3,15 +3,26 @@
 [ext_resource type="Script" uid="uid://j365d5ju0hlk" path="res://flood/flood_overlay.gd" id="1_wjctj"]
 [ext_resource type="Script" uid="uid://bhynmvb60aqxr" path="res://graph/edge_layer.gd" id="2_xkbyp"]
 [ext_resource type="Script" uid="uid://duolryho4ws3e" path="res://graph/node_layer.gd" id="3_lx3aj"]
-[ext_resource type="Script" uid="uid://bi8lo5g8itp71" path="res://ui/sos_layer.gd" id="4_itumj"]
 [ext_resource type="Script" uid="uid://demptuxsi5fj2" path="res://rescue/vehicle_layer.gd" id="5_dp3pf"]
 [ext_resource type="Script" uid="uid://cnqjhjdglh30g" path="res://graph/edge_drawer.gd" id="6_ioaqv"]
-[ext_resource type="PackedScene" uid="uid://domflmkmqw0l4" path="res://ui/ui_root.tscn" id="7_li27q"]
+[ext_resource type="PackedScene" path="res://ui/ui_root.tscn" id="7_li27q"]
+[ext_resource type="Texture2D" path="res://assets/icons/terrain/terrain_colored.png" id="8_ground"]
+[ext_resource type="Texture2D" path="res://assets/icons/terrain/contours.svg" id="9_contours"]
 
 [node name="Main" type="Node2D" unique_id=822342320]
-position = Vector2(1, -2)
 
 [node name="World" type="Node2D" parent="." unique_id=965707166]
+
+[node name="Terrain" type="Node2D" parent="World"]
+
+[node name="Ground" type="Sprite2D" parent="World/Terrain"]
+texture = ExtResource("8_ground")
+centered = false
+
+[node name="Contours" type="Sprite2D" parent="World/Terrain"]
+modulate = Color(1, 1, 1, 0.35)
+texture = ExtResource("9_contours")
+centered = false
 
 [node name="FloodOverlay" type="Node2D" parent="World" unique_id=114862677]
 script = ExtResource("1_wjctj")
@@ -21,9 +32,6 @@ script = ExtResource("2_xkbyp")
 
 [node name="NodeLayer" type="Node2D" parent="World" unique_id=1215602115]
 script = ExtResource("3_lx3aj")
-
-[node name="SosLayer" type="Node2D" parent="World" unique_id=248207720]
-script = ExtResource("4_itumj")
 
 [node name="VehicleLayer" type="Node2D" parent="World" unique_id=240963486]
 script = ExtResource("5_dp3pf")

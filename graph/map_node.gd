@@ -5,3 +5,4 @@ var name: String
 var pos: Vector2
 var kind: int = 0          # Types.NodeKind: 0 HUB, 1 DISTRICT
 var elevation: float = 0.0 # thang 0-100
+var icon: String = ''      # tên icon trong res://assets/icons/ (không đuôi), NodeLayer của E vẽ; rỗng thì vẽ hình khối

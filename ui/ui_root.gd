@@ -6,6 +6,7 @@ const HUD = preload("res://ui/hud.tscn")
 const PauseMenu = preload("res://ui/pause_menu.tscn")
 const RewardPopup = preload("res://ui/reward_popup.tscn")
 const EndScreen = preload("res://ui/end_screen.tscn")
+const AudioSettings = preload("res://ui/audio_settings.tscn")
 const SosLayer = preload("res://ui/sos_layer.gd")
 const FloodWarningOverlay = preload("res://ui/flood_warning_overlay.gd")
 const UITheme = preload("res://ui/theme.tres")
@@ -16,6 +17,7 @@ var hud
 var pause
 var reward
 var ending
+var audio
 var sos: Node2D
 var flood_overlay: Node2D
 var current_view: String = "menu"
@@ -29,6 +31,7 @@ func _ready() -> void:
 	pause = _mount(PauseMenu)
 	reward = _mount(RewardPopup)
 	ending = _mount(EndScreen)
+	audio = _mount(AudioSettings)
 	flood_overlay = Node2D.new()
 	flood_overlay.set_script(FloodWarningOverlay)
 	add_child(flood_overlay)
@@ -40,6 +43,8 @@ func _ready() -> void:
 	# Match the graph coordinate space: 1280×720, unchanged.
 	menu.connect("start_pressed", _start)
 	menu.connect("guide_pressed", func() -> void: _show("guide"))
+	menu.connect("audio_pressed", func() -> void: _show("audio"))
+	audio.connect("back_pressed", func() -> void: _show("menu"))
 	menu.connect("volume_changed", func(value: float) -> void: AudioManager.set_volume(&"Master", value))
 	guide.connect("back_pressed", func() -> void: _show("menu"))
 	guide.connect("start_pressed", _start)
@@ -73,6 +78,7 @@ func _show(name: String) -> void:
 	pause.visible = name == "pause"
 	reward.visible = name == "reward"
 	ending.visible = name == "end"
+	audio.visible = name == "audio"
 	sos.visible = name in ["hud", "pause", "reward"]
 	flood_overlay.visible = name in ["hud", "pause", "reward"]
 	hud.set("enabled", name == "hud" or name == "reward")

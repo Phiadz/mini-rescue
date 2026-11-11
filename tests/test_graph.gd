@@ -1,6 +1,6 @@
 extends Node2D
 # Chủ sở hữu: A. Kiểm tra tự động module Graph + thử bằng phím.
-# Chạy F6: xem cửa sổ Output ("Kết quả: 33 đạt, 0 trượt") và cửa sổ game.
+# Chạy F6: xem cửa sổ Output ("Kết quả: 30 đạt, 0 trượt") và cửa sổ game.
 
 const START := 0
 const GOAL := 7
@@ -64,27 +64,16 @@ func _run_checks() -> void:
 	_check(GraphManager.add_edge(2, 2) == -1, 'add_edge nối node với chính nó trả -1')
 	_check(GraphManager.add_edge(0, 99) == -1, 'add_edge node không tồn tại trả -1')
 	_check(_log.has(['edge_added', e1]), 'phát edge_added đúng id')
-	_check(_log.has(['edge_budget_changed', 1, Config.EDGE_LIMIT_START]), 'phát edge_budget_changed(1, 10)')
+	_check(_log.has(['edge_budget_changed', 0, Config.EDGE_LIMIT_START]), 'phát edge_budget_changed (nối hai điểm không tốn ô đường)')
 	var e := GraphManager.get_edge(e1)
-	_check(absf(e.length - 234.09) < 0.1, 'độ dài cạnh 0-3 xấp xỉ 234,1')
+	_check(absf(e.length - _d(0, 3)) < 0.1, 'độ dài cạnh 0-3 bằng khoảng cách hai node (%.1f)' % _d(0, 3))
 	_check(e.elevation == 47.5, 'độ cao cạnh 0-3 = (70 + 25) / 2 = 47,5')
 	_log.clear()
 	GraphManager.remove_edge(e1)
 	_check(GraphManager.get_edge(e1) == null, 'remove_edge: cạnh biến mất')
 	_check(_log.size() == 2 and _log[0] == ['edge_removed', e1] and _log[1] == ['edge_budget_changed', 0, Config.EDGE_LIMIT_START], 'phát edge_removed rồi edge_budget_changed')
 	_check(GraphManager.get_edges_of(0).is_empty(), 'danh sách kề của node 0 đã sạch')
-
-	_fresh()
-	var made := 0
-	for p in [[0, 3], [0, 2], [2, 4], [3, 5], [4, 5], [5, 7], [3, 6], [6, 8], [5, 6], [7, 1]]:
-		if GraphManager.add_edge(p[0], p[1]) >= 0:
-			made += 1
-	_check(made == Config.EDGE_LIMIT_START, 'tạo được đúng 10 cạnh (hạn mức)')
-	_check(GraphManager.add_edge(8, 1) == -1, 'vượt hạn mức trả -1')
-	GraphManager.add_edge_limit(2)
-	_check(GraphManager.add_edge(8, 1) >= 0, 'sau add_edge_limit(2) tạo thêm được')
-	var b := GraphManager.get_edge_budget()
-	_check(b.used == 11 and b.limit == 12, 'get_edge_budget = 11/12')
+	# Hạn mức tính theo ô đường: kiểm tra trong tests/test_road_auto.gd.
 
 	_fresh()
 	var s1 := GraphManager.add_edge(0, 3)
@@ -97,11 +86,13 @@ func _run_checks() -> void:
 	var ids := _build_example()
 	var pt := GraphManager.find_path(0, 7, Types.VehicleType.TRUCK)
 	_check(pt.found and _same(pt.node_ids, [0, 3, 5, 7]), 'xe tải 0→7 đi 0-3-5-7')
-	_check(absf(pt.cost - 6.06) < 0.02, 'chi phí xe tải xấp xỉ 6,06 giây')
+	var cost_dry := (_d(0, 3) + _d(3, 5) + _d(5, 7)) / Config.TRUCK_SPEED
+	_check(absf(pt.cost - cost_dry) < 0.02, 'chi phí xe tải xấp xỉ %.2f giây' % cost_dry)
 	GraphManager.set_edge_state(ids['3-5'], Types.EdgeState.DEEP)
 	var pt2 := GraphManager.find_path(0, 7, Types.VehicleType.TRUCK)
 	_check(pt2.found and _same(pt2.node_ids, [0, 2, 4, 5, 7]), 'cạnh 3-5 ngập sâu: xe tải đổi sang 0-2-4-5-7')
-	_check(absf(pt2.cost - 8.46) < 0.02, 'chi phí mới xấp xỉ 8,46 giây')
+	var cost_detour := (_d(0, 2) + _d(2, 4) + _d(4, 5) + _d(5, 7)) / Config.TRUCK_SPEED
+	_check(absf(pt2.cost - cost_detour) < 0.02, 'chi phí mới xấp xỉ %.2f giây' % cost_detour)
 	_check(not GraphManager.find_path(0, 7, Types.VehicleType.BOAT).found, 'ca-nô: các cạnh khác còn khô nên chưa có đường 0→7')
 	for eid in GraphManager.get_edge_ids():
 		GraphManager.set_edge_state(eid, Types.EdgeState.DEEP)
@@ -112,7 +103,8 @@ func _run_checks() -> void:
 	_build_example()
 	for eid in GraphManager.get_edge_ids():
 		GraphManager.set_edge_state(eid, Types.EdgeState.SHALLOW)
-	_check(absf(GraphManager.find_path(0, 7, Types.VehicleType.TRUCK).cost - 12.12) < 0.03, 'ngập nhẹ: xe tải chậm gấp đôi (xấp xỉ 12,12 giây)')
+	var cost_shallow := 2.0 * (_d(0, 3) + _d(3, 5) + _d(5, 7)) / Config.TRUCK_SPEED
+	_check(absf(GraphManager.find_path(0, 7, Types.VehicleType.TRUCK).cost - cost_shallow) < 0.03, 'ngập nhẹ: xe tải chậm gấp đôi (xấp xỉ %.2f giây)' % cost_shallow)
 
 	var ids3 := _build_example()
 	GraphManager.remove_edge(ids3['3-5'])
@@ -127,8 +119,14 @@ func _run_checks() -> void:
 	_check(GraphManager.get_edge_ids().is_empty() and GraphManager.get_edge_budget().limit == Config.EDGE_LIMIT_START, 'game_started: xóa hết cạnh, đặt lại hạn mức')
 	GraphManager.load_map(Config.MAP_PATH)
 	_check(GraphManager.get_node_ids().size() == 10, 'load_map gọi lại vẫn đúng 10 node')
+	_check(GraphManager.get_node_ids().all(func(id): return ResourceLoader.exists('res://assets/icons/%s.svg' % GraphManager.get_map_node(id).icon)),
+			'mỗi node có trường icon trỏ tới file icon có thật')
 
 	print('Kết quả: %d đạt, %d trượt' % [_pass, _fail])
+
+# Khoảng cách giữa hai node theo tọa độ trong map_01.json, để test không phụ thuộc con số cứng.
+func _d(a: int, b: int) -> float:
+	return GraphManager.get_map_node(a).pos.distance_to(GraphManager.get_map_node(b).pos)
 
 # ---------- thử bằng phím ----------
 func _setup_demo() -> void:

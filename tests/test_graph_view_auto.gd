@@ -1,11 +1,10 @@
 extends Node
-# Test tự động cho Graph View (NodeLayer, EdgeLayer, EdgeView, EdgeDrawer). Chủ sở hữu: E.
+# Test tự động cho Graph View (NodeLayer, EdgeLayer, EdgeDrawer). Chủ sở hữu: E.
 # Chạy headless (từ thư mục project):
 #   Godot_v4.7.2-stable_win64_console.exe --headless --path . res://tests/test_graph_view_auto.tscn
 # Thao tác chuột được giả lập bằng Input.parse_input_event để đi qua đúng đường nhận sự kiện thật.
 # Thoát với mã 0 nếu mọi kiểm tra đạt, 1 nếu có kiểm tra trượt.
 
-@onready var _edges: Node2D = $'../EdgeLayer'
 @onready var _drawer: Node2D = $'../EdgeDrawer'
 
 var _passed := 0
@@ -20,85 +19,92 @@ func _run() -> void:
 	GraphManager.load_map(Config.MAP_PATH)
 	EventBus.game_started.emit()
 	await _frames(2)
-	var limit: int = GraphManager.get_edge_budget().limit
 
 	print('\n== Bản đồ')
 	_check(GraphManager.get_node_ids().size() == 10, 'nạp đủ 10 điểm')
 
-	print('\n== Kéo thả tạo tuyến')
+	print('\n== Tô đường')
 	await _drag(_pos(0), _pos(3))
-	_check(GraphManager.get_edge_ids().size() == 1, 'kéo từ Kho Bắc sang Khu Chợ Cũ tạo 1 tuyến')
-	_check(_views().size() == 1 and _views()[0].edge_id == GraphManager.get_edge_ids()[0],
-			'EdgeLayer có đúng 1 EdgeView cho tuyến đó')
+	_check(GraphManager.find_path(0, 3, Types.VehicleType.TRUCK).found, 'lia nhanh từ Kho Bắc sang Chợ Cũ vẫn ra đường liền')
+	_check(_used() == 4, 'tô đúng 4 ô giữa hai điểm (%d)' % _used())
 	await _drag(_pos(3) + Vector2(15, 5), _pos(5) + Vector2(-10, 12))
-	_check(GraphManager.get_edge_ids().size() == 2, 'thả lệch tâm nhưng trong bán kính chọn vẫn tạo tuyến')
-	await _drag(Vector2(600, 500), _pos(4))
-	_check(GraphManager.get_edge_ids().size() == 2, 'bắt đầu kéo ở chỗ trống thì không tạo tuyến')
-	await _drag(_pos(4), Vector2(560, 560))
-	_check(GraphManager.get_edge_ids().size() == 2, 'thả ở chỗ trống thì không tạo tuyến')
+	_check(GraphManager.find_path(3, 5, Types.VehicleType.TRUCK).found, 'bấm và thả lệch tâm trong bán kính chọn vẫn nối vào điểm')
+	var used := _used()
+	await _drag(_at(15, 12), _at(17, 12))
+	_check(_used() == used + 3 and GraphManager.road_at(Vector2i(16, 12)) != -1, 'bắt đầu từ ô trống vẫn tô được')
+	await _drag(_at(15, 13), _at(17, 13))
+	_check(GraphManager.get_edges_of(GraphManager.road_at(Vector2i(16, 13))).size() == 2, 'hai đường sát nhau không tự nối')
+	await _drag(_at(16, 12), _at(16, 11))
+	_check(GraphManager.get_edges_of(GraphManager.road_at(Vector2i(16, 12))).size() == 3, 'kéo từ đường có sẵn tạo ngã rẽ')
+	used = _used()
+	await _drag(_at(15, 12), _at(17, 12))
+	_check(_used() == used, 'kéo lại trên đường có sẵn không tốn hạn mức')
 	await _drag(_pos(4), _pos(4) + Vector2(5, 0))
-	_check(GraphManager.get_edge_ids().size() == 2, 'thả lại đúng điểm xuất phát thì không tạo tuyến')
-	await _drag(_pos(3), _pos(0))
-	_check(GraphManager.get_edge_ids().size() == 2, 'nối lại hai điểm đã có tuyến thì bị từ chối')
-	_check(_drawer._reject_left > 0.0, 'tuyến bị từ chối được nháy đỏ')
+	_check(_used() == used, 'bấm rồi thả ngay tại một điểm không tô gì')
 
-	print('\n== Xóa tuyến')
-	var e0 := GraphManager.get_edge(GraphManager.get_edge_ids()[0])
-	await _click(_pos(e0.node_a).lerp(_pos(e0.node_b), 0.5), MOUSE_BUTTON_RIGHT)
-	await _frames(1)
-	_check(GraphManager.get_edge_ids().size() == 1 and _views().size() == 1,
-			'chuột phải vào giữa tuyến thì xóa tuyến và EdgeView')
-	var e1 := GraphManager.get_edge(GraphManager.get_edge_ids()[0])
-	await _click(_pos(e1.node_a).lerp(_pos(e1.node_b), 0.5) + Vector2(0, 30), MOUSE_BUTTON_RIGHT)
-	_check(GraphManager.get_edge_ids().size() == 1, 'chuột phải xa tuyến thì không xóa')
-	await _move(_pos(e1.node_a).lerp(_pos(e1.node_b), 0.3))
-	_check(_drawer._hover_edge == e1.id, 'rê chuột lên tuyến thì tuyến được chọn')
+	print('\n== Xóa ô')
+	await _click(_at(16, 11), MOUSE_BUTTON_RIGHT)
+	_check(GraphManager.road_at(Vector2i(16, 11)) == -1 and _used() == used - 1, 'chuột phải vào ô thì xóa ô, hoàn hạn mức')
+	used = _used()
+	await _click(_at(25, 2), MOUSE_BUTTON_RIGHT)
+	_check(_used() == used, 'chuột phải vào ô trống không làm gì')
+	await _button(_at(15, 13), MOUSE_BUTTON_RIGHT, true)
+	await _move(_at(17, 13))
+	await _button(_at(17, 13), MOUSE_BUTTON_RIGHT, false)
+	_check(_used() == used - 3, 'giữ chuột phải và rê thì xóa cả dãy ô')
+	await _move(_at(16, 12))
+	_check(_drawer._hover_cell == Vector2i(16, 12), 'rê chuột lên ô thì ô được chọn')
 	await _key(KEY_DELETE)
-	await _frames(1)
-	_check(GraphManager.get_edge_ids().size() == 0 and _views().size() == 0, 'nhấn Delete xóa tuyến đang chọn')
+	_check(GraphManager.road_at(Vector2i(16, 12)) == -1, 'nhấn Delete xóa ô đang chọn')
 
-	print('\n== Hạn mức tuyến')
-	var pairs := [[0, 2], [0, 3], [2, 3], [2, 4], [3, 4], [3, 5], [4, 5], [5, 6], [5, 7], [6, 8],
-			[7, 8], [1, 7], [1, 9], [4, 9]]
-	for p in pairs:
-		await _drag(_pos(p[0]), _pos(p[1]))
-	_check(GraphManager.get_edge_ids().size() == limit and _views().size() == limit,
-			'kéo %d lần chỉ tạo đúng %d tuyến (hạn mức)' % [pairs.size(), limit])
+	print('\n== Hạn mức')
+	await _drag(_at(0, 16), _at(31, 16))
+	await _drag(_at(0, 17), _at(31, 17))
+	var limit: int = GraphManager.get_edge_budget().limit
+	_check(_used() == limit, 'tô dài bị dừng đúng ở hạn mức %d ô' % limit)
+	_check(_drawer._reject_left > 0.0, 'ô bị từ chối được nháy đỏ')
 
-	print('\n== Trạng thái tuyến')
+	print('\n== Trạng thái đường')
 	var eid: int = GraphManager.get_edge_ids()[0]
 	for s in [Types.EdgeState.SHALLOW, Types.EdgeState.DEEP, Types.EdgeState.DRY]:
 		GraphManager.set_edge_state(eid, s)
 		await _frames(1)
-	_check(GraphManager.get_edge(eid).state == Types.EdgeState.DRY, 'đổi trạng thái tuyến qua 3 kiểu nét không lỗi')
+	_check(GraphManager.get_edge(eid).state == Types.EdgeState.DRY, 'đổi trạng thái đường qua 3 kiểu vẽ không lỗi')
 
 	print('\n== Chặn thao tác ngoài lúc chơi')
+	GraphManager.add_edge_limit(5)
+	var road := GraphManager.cell_center(Vector2i(0, 16))
 	get_tree().paused = true
-	var before := GraphManager.get_edge_ids().size()
-	var victim := GraphManager.get_edge(eid)
-	await _click(_pos(victim.node_a).lerp(_pos(victim.node_b), 0.5), MOUSE_BUTTON_RIGHT)
-	_check(GraphManager.get_edge_ids().size() == before, 'khi tạm dừng, chuột phải không xóa tuyến')
+	await _drag(_at(25, 2), _at(27, 2))
+	_check(GraphManager.road_at(Vector2i(26, 2)) == -1, 'khi tạm dừng, không tô được')
+	await _click(road, MOUSE_BUTTON_RIGHT)
+	_check(GraphManager.road_at(Vector2i(0, 16)) != -1, 'khi tạm dừng, chuột phải không xóa')
 	get_tree().paused = false
 	_drawer.only_in_round = true  # GameManager đang ở MENU
-	await _click(_pos(victim.node_a).lerp(_pos(victim.node_b), 0.5), MOUSE_BUTTON_RIGHT)
-	_check(GraphManager.get_edge_ids().size() == before, 'ở menu (không trong ván), chuột phải không xóa tuyến')
+	await _drag(_at(25, 2), _at(27, 2))
+	_check(GraphManager.road_at(Vector2i(26, 2)) == -1, 'ở menu (không trong ván), không tô được')
+	await _click(road, MOUSE_BUTTON_RIGHT)
+	_check(GraphManager.road_at(Vector2i(0, 16)) != -1, 'ở menu (không trong ván), chuột phải không xóa')
 	_drawer.only_in_round = false
 
 	print('\n== Chơi lại')
 	GraphManager.load_map(Config.MAP_PATH)
 	EventBus.game_started.emit()
 	await _frames(1)
-	_check(GraphManager.get_edge_ids().size() == 0 and _views().size() == 0,
-			'nạp lại bản đồ và phát game_started thì xóa hết EdgeView')
+	_check(GraphManager.get_edge_ids().size() == 0 and _used() == 0, 'nạp lại bản đồ và phát game_started thì sạch đường')
 	await _drag(_pos(0), _pos(2))
-	_check(_views().size() == 1, 'ván mới vẫn tạo tuyến bình thường')
+	_check(GraphManager.find_path(0, 2, Types.VehicleType.TRUCK).found, 'ván mới vẫn tô đường bình thường')
 
 	print('\nKết quả: %d đạt, %d trượt' % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
 
 
-func _views() -> Array:
-	return _edges.get_children().filter(func(c): return not c.is_queued_for_deletion())
+func _used() -> int:
+	return GraphManager.get_edge_budget().used
+
+
+func _at(x: int, y: int) -> Vector2:
+	return GraphManager.cell_center(Vector2i(x, y))
 
 
 func _pos(id: int) -> Vector2:

@@ -4,7 +4,12 @@ extends Node
 
 # --- Bản đồ và tuyến ---
 const MAP_PATH := 'res://data/map_01.json'
-const EDGE_LIMIT_START := 10
+const EDGE_LIMIT_START := 50  # hạn mức tính theo số ô đường
+
+# --- Lưới đường: bản đồ 1280 × 720 chia ô vuông ---
+const CELL_SIZE := 40
+const GRID_COLS := 32
+const GRID_ROWS := 18
 
 # --- Tốc độ phương tiện (px/giây) ---
 const TRUCK_SPEED := 120.0
@@ -32,7 +37,7 @@ const MAX_PRIORITIZED := 2
 # --- Điểm ---
 const POINTS := {0: 10, 1: 20}
 const BONUS_RATIO := 1.5
-const REWARD_EDGE_BONUS := 2 
+const REWARD_EDGE_BONUS := 12  # số ô đường
 
 # --- Hệ số tốc độ: SPEED_FACTOR[loại xe][trạng thái tuyến] ---
 # Loại xe: 0 TRUCK, 1 BOAT. Trạng thái tuyến: 0 DRY, 1 SHALLOW, 2 DEEP
