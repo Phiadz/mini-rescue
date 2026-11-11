@@ -5,6 +5,7 @@ extends Node
 # Thoát với mã 0 nếu mọi kiểm tra đạt, 1 nếu có kiểm tra trượt.
 
 const TICK := 0.25
+const FIXTURE_MAP := 'res://data/map_01.json'  # bản đồ cố định có vùng biển, không đổi theo bản đồ của game
 
 var _passed := 0
 var _failed := 0
@@ -27,13 +28,14 @@ func _run() -> void:
 	_test_warning_once()
 	_test_warning_dry()
 	_test_overlay()
+	_test_saigon_rivers()
 	FloodManager.reset()
 	print('\nKết quả: %d đạt, %d trượt' % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
 
 
 func _fresh() -> void:
-	GraphManager.load_map(Config.MAP_PATH)
+	GraphManager.load_map(FIXTURE_MAP)
 	FloodManager.reset()
 	_warnings.clear()
 
@@ -236,6 +238,27 @@ func _test_overlay() -> void:
 	_check(not ids.has(0) and not ids.has(1), 'hai kho trên cao không ngập ở mực 12')
 	remove_child(ov)
 	ov.free()
+
+
+# Bản đồ Sài Gòn: sông (grid.water) là nguồn nước; đường trên ô sông là cầu, chỉ ngập khi mực nước vượt mặt cầu.
+func _test_saigon_rivers() -> void:
+	print('
+== Sông Sài Gòn và cầu')
+	GraphManager.load_map('res://data/map_saigon.json')
+	FloodManager.reset()
+	var rivers := _all_cells().filter(func(c: Vector2i) -> bool: return GraphManager.cell_is_water(c))
+	_check(rivers.size() > 50, 'bản đồ có sông (%d ô)' % rivers.size())
+	_check(rivers.all(func(c: Vector2i) -> bool: return FloodManager.is_sea(c)), 'ô sông là nguồn nước')
+	var deck := GraphManager.cell_elevation(rivers[0])
+	FloodManager.water_level = 25.0
+	_settle()
+	_check(rivers.all(func(c: Vector2i) -> bool: return FloodManager.depth_at(c) < FloodManager.DRY_EPSILON),
+			'mực 25: cầu (mặt cầu %.0f) chưa ngập' % deck)
+	_check(_wet_land().size() > 0, 'mực 25: nước đã tràn từ sông lên ô đất thấp (%d ô)' % _wet_land().size())
+	FloodManager.water_level = 40.0
+	_settle()
+	_check(absf(FloodManager.depth_at(rivers[0]) - (40.0 - deck)) < 0.01, 'mực 40: cầu ngập %.0f' % (40.0 - deck))
+	GraphManager.load_map(FIXTURE_MAP)
 
 
 func _check(ok: bool, label: String) -> void:

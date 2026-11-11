@@ -11,6 +11,8 @@ var _limit := 0
 var _points: Array[int] = []    # các điểm trên bản đồ, theo thứ tự trong json
 var _point_cells := {}          # ô -> id điểm
 var _cell_elevation: Array = [] # độ cao từng ô, khóa "grid" của bản đồ
+var _cell_water: Array = []     # 1 nếu ô là sông (grid.water), bản đồ không có thì rỗng
+var _terrain: Dictionary = {}   # khóa "terrain" của bản đồ: ảnh độ cao và màu nước cho FloodOverlay
 var _roads := 0                 # số ô đường đã tô
 var _segments := {}             # id đoạn -> Array các id cạnh
 
@@ -48,6 +50,8 @@ func load_map(path: String) -> void:
 		push_error('GraphManager: không đọc được bản đồ ' + path)
 		return
 	_cell_elevation = data.get('grid', {}).get('elevation', [])
+	_cell_water = data.get('grid', {}).get('water', [])
+	_terrain = data.get('terrain', {})
 	for d in data['nodes']:
 		var n := MapNode.new()
 		n.id = int(d['id'])
@@ -109,6 +113,15 @@ func cell_center(cell: Vector2i) -> Vector2:
 func cell_elevation(cell: Vector2i) -> float:
 	var i := _cell_index(cell)
 	return float(_cell_elevation[i]) if _in_grid(cell) and i < _cell_elevation.size() else 0.0
+
+# Ô nằm trên sông (nguồn nước của lũ; đường tô lên đó là cầu, cao bằng độ cao ô).
+func cell_is_water(cell: Vector2i) -> bool:
+	var i := _cell_index(cell)
+	return _in_grid(cell) and i < _cell_water.size() and int(_cell_water[i]) == 1
+
+# Ảnh độ cao chi tiết và màu nước của bản đồ (rỗng nếu bản đồ không khai báo).
+func get_terrain() -> Dictionary:
+	return _terrain
 
 # Nút ô đường tại ô, hoặc -1 nếu ô chưa tô.
 func road_at(cell: Vector2i) -> int:

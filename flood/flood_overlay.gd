@@ -7,7 +7,8 @@ extends Node2D
 ## - giữ ảnh nhịp trước và nhịp sau, trộn dần trong khoảng FLOOD_TICK để nước lan liên tục.
 ## Nằm dưới EdgeLayer và NodeLayer trong main.tscn nên đường, điểm và xe vẫn vẽ đè lên trên.
 
-const HEIGHT_FIELD := preload('res://assets/icons/terrain/height_field.png')
+const HEIGHT_FIELD := preload('res://assets/icons/terrain/height_field.png')  # mặc định (map_01)
+const DEFAULT_COLORS := {shallow = Color(0.165, 0.549, 0.753), deep = Color(0.102, 0.396, 0.592), foam = Color(0.78, 0.93, 1.0)}
 const WATER_SHADER := preload('res://flood/water.gdshader')
 const MAP_SIZE := Vector2(1280, 720)
 
@@ -17,6 +18,7 @@ var _prev_tex: ImageTexture
 var _next_tex: ImageTexture
 var _since_tick := 0.0
 var _wet_cells := 0
+var _height_tex: Texture2D = HEIGHT_FIELD
 
 
 func _ready() -> void:
@@ -34,6 +36,7 @@ func _ready() -> void:
 	material = mat
 	EventBus.water_level_changed.connect(func(_l: float) -> void: _refresh())
 	EventBus.game_started.connect(func() -> void:
+		_apply_terrain()
 		_refresh()
 		_refresh())  # hai lần để ảnh trước và sau giống nhau, không trộn từ ván cũ
 
@@ -44,7 +47,17 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
-	draw_texture_rect(HEIGHT_FIELD, Rect2(Vector2.ZERO, MAP_SIZE), false)
+	draw_texture_rect(_height_tex, Rect2(Vector2.ZERO, MAP_SIZE), false)
+
+
+# Ảnh độ cao và màu nước theo khóa "terrain" của bản đồ; bản đồ không khai báo thì dùng mặc định của map_01.
+func _apply_terrain() -> void:
+	var t: Dictionary = GraphManager.get_terrain()
+	_height_tex = load(t["height"]) if t.has("height") else HEIGHT_FIELD
+	var mat := material as ShaderMaterial
+	for key in ["shallow", "deep", "foam"]:
+		mat.set_shader_parameter(key + "_color", Color(t[key]) if t.has(key) else DEFAULT_COLORS[key])
+	queue_redraw()
 
 
 ## Các kho và khu dân cư có ô đang ngập.
@@ -74,7 +87,7 @@ func _refresh() -> void:
 			var c := Vector2i(x, y)
 			var d := FloodManager.depth_at(c)
 			if FloodManager.is_sea(c) or d >= FloodManager.DRY_EPSILON:
-				surface[c] = GraphManager.cell_elevation(c) + d
+				surface[c] = FloodManager.surface_at(c)
 				if not FloodManager.is_sea(c):
 					wet += 1
 	for y in Config.GRID_ROWS:

@@ -1,6 +1,6 @@
 extends Node
 # Autoload: FloodManager (module B). Lũ lan theo ô trên lưới 32 × 18.
-# - Ô có độ cao tới Config.SEA_MAX_ELEVATION là biển. Mặt nước biển (water_level) dâng theo đợt như trước:
+# - Ô có độ cao tới Config.SEA_MAX_ELEVATION, hoặc ô sông (grid.water), là nguồn nước. Mặt nước biển (water_level) dâng theo đợt như trước:
 #   tốc độ = WAVES[i].water_delta / WAVE_DURATION, đứng yên trong lượt nghỉ.
 # - Mỗi FLOOD_TICK, nước tràn từ một ô đã ngập (sâu ít nhất FLOOD_SPILL_DEPTH, hoặc là biển) sang 4 ô kề
 #   nếu mặt nước ô nguồn cao hơn nền ô kề. Mặt nước ô kề dâng dần về mặt nước ô nguồn, nhanh nhất
@@ -16,7 +16,8 @@ var _rate := 0.0
 var _rising := false
 var _accum := 0.0
 var _warned := {}
-var _ground := PackedFloat32Array()  # độ cao nền từng ô
+var _ground := PackedFloat32Array()  # nền để nước lan: ô sông là 0 (lòng sông)
+var _deck := PackedFloat32Array()    # mặt đường để tính độ sâu ngập: bằng nền, riêng ô sông là mặt cầu
 var _level := PackedFloat32Array()   # mặt nước từng ô, luôn >= nền
 var _prev := PackedFloat32Array()    # mặt nước ở lần cập nhật trước, để ước lượng tốc độ dâng
 var _sea := PackedByteArray()        # 1 nếu ô là biển
@@ -42,11 +43,14 @@ func reset() -> void:
 	_warned.clear()
 	var n := Config.GRID_COLS * Config.GRID_ROWS
 	_ground.resize(n)
+	_deck.resize(n)
 	_sea.resize(n)
 	for i in n:
 		var g := GraphManager.cell_elevation(_cell(i)) if has_node("/root/GraphManager") else 50.0
-		_ground[i] = g
-		_sea[i] = 1 if g <= Config.SEA_MAX_ELEVATION else 0
+		var river := has_node("/root/GraphManager") and GraphManager.cell_is_water(_cell(i))
+		_deck[i] = g
+		_ground[i] = 0.0 if river else g
+		_sea[i] = 1 if river or g <= Config.SEA_MAX_ELEVATION else 0
 	_level = _ground.duplicate()
 	_prev = _level.duplicate()
 	if has_node("/root/EventBus"):
@@ -79,7 +83,13 @@ func get_water_level() -> float:
 
 func depth_at(cell: Vector2i) -> float:
 	var i := _index(cell)
-	return maxf(0.0, _level[i] - _ground[i]) if i >= 0 else 0.0
+	return maxf(0.0, _level[i] - _deck[i]) if i >= 0 else 0.0
+
+
+# Mặt nước của ô (ô khô thì bằng nền). FloodOverlay dùng để vẽ.
+func surface_at(cell: Vector2i) -> float:
+	var i := _index(cell)
+	return _level[i] if i >= 0 else 0.0
 
 
 func is_sea(cell: Vector2i) -> bool:
@@ -197,7 +207,7 @@ func _mean_depth(cells: Array) -> float:
 		return 0.0
 	var total := 0.0
 	for i in cells:
-		total += maxf(0.0, _level[i] - _ground[i])
+		total += maxf(0.0, _level[i] - _deck[i])
 	return total / cells.size()
 
 
@@ -232,8 +242,8 @@ func _eta(i: int, threshold: float) -> float:
 	var eta := INF
 	var rise := (_level[i] - _prev[i]) / _last_dt
 	if rise > 0.0:
-		eta = (_ground[i] + threshold - _level[i]) / rise
-	if _level[i] - _ground[i] >= DRY_EPSILON:
+		eta = (_deck[i] + threshold - _level[i]) / rise
+	if _level[i] - _deck[i] >= DRY_EPSILON:
 		return eta
 	var c := _cell(i)
 	for d in NEIGHBORS:
@@ -241,12 +251,12 @@ func _eta(i: int, threshold: float) -> float:
 		if j < 0:
 			continue
 		var spills := _sea[j] == 1 or _level[j] - _ground[j] >= Config.FLOOD_SPILL_DEPTH
-		if spills and _level[j] > _ground[i]:
+		if spills and _level[j] > _deck[i]:
 			eta = minf(eta, Config.FLOOD_TICK)
 			continue
 		var rise_j := (_level[j] - _prev[j]) / _last_dt
 		if rise_j > 0.0 and (_sea[j] == 1 or _level[j] > _ground[j]):
-			eta = minf(eta, (_ground[i] - _level[j]) / rise_j + Config.FLOOD_TICK)
+			eta = minf(eta, (_deck[i] - _level[j]) / rise_j + Config.FLOOD_TICK)
 	return eta
 
 
