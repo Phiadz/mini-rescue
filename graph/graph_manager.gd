@@ -12,6 +12,7 @@ var _points: Array[int] = []    # các điểm trên bản đồ, theo thứ t�
 var _point_cells := {}          # ô -> id điểm
 var _cell_elevation: Array = [] # độ cao từng ô, khóa "grid" của bản đồ
 var _cell_water: Array = []     # 1 nếu ô là sông (grid.water), bản đồ không có thì rỗng
+var _stages: Array = []         # khóa "stages": vùng camera theo đợt (GameManager dùng)
 var _terrain: Dictionary = {}   # khóa "terrain" của bản đồ: ảnh độ cao và màu nước cho FloodOverlay
 var _roads := 0                 # số ô đường đã tô
 var _segments := {}             # id đoạn -> Array các id cạnh
@@ -52,6 +53,7 @@ func load_map(path: String) -> void:
 	_cell_elevation = data.get('grid', {}).get('elevation', [])
 	_cell_water = data.get('grid', {}).get('water', [])
 	_terrain = data.get('terrain', {})
+	_stages = data.get('stages', [])
 	for d in data['nodes']:
 		var n := MapNode.new()
 		n.id = int(d['id'])
@@ -118,6 +120,10 @@ func cell_elevation(cell: Vector2i) -> float:
 func cell_is_water(cell: Vector2i) -> bool:
 	var i := _cell_index(cell)
 	return _in_grid(cell) and i < _cell_water.size() and int(_cell_water[i]) == 1
+
+# Các vùng chơi theo đợt [{center: [x, y], zoom}], rỗng nếu bản đồ không khai báo.
+func get_stages() -> Array:
+	return _stages
 
 # Ảnh độ cao chi tiết và màu nước của bản đồ (rỗng nếu bản đồ không khai báo).
 func get_terrain() -> Dictionary:

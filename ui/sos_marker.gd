@@ -39,7 +39,7 @@ func _draw() -> void:
 ## True when p (same coordinates as position) is on the bubble. Only the bubble is clickable, so a
 ## press on the building itself still reaches the route drawer (dragging a new route from this district).
 func hit(p: Vector2) -> bool:
-	return p.distance_to(position + BUBBLE_OFFSET) < BUBBLE_HIT_RADIUS
+	return p.distance_to(position + BUBBLE_OFFSET * scale) < BUBBLE_HIT_RADIUS * scale.x  # scale < 1 khi camera phóng to
 
 func mark_assigned() -> void:
 	assigned = true

@@ -441,6 +441,8 @@ func _free_nodes() -> Array:
 		var n: MapNode = g().get_map_node(id)
 		if n == null or n.kind != Types.NodeKind.DISTRICT or id in busy:
 			continue
+		if not GameManager.is_in_play(n.pos):
+			continue  # khu chưa mở (vùng chơi theo đợt)
 		if _clock - _last_rescued.get(id, -INF) < Config.SOS_COOLDOWN:
 			continue
 		result.append(id)

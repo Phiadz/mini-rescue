@@ -143,10 +143,16 @@ func _build_badges() -> void:
 		var food := Style.text(pill, "", 8, 0, 40, BADGE_SIZE.y, 15, Style.YELLOW, true)
 		var med := Style.text(pill, "", 48, 0, 40, BADGE_SIZE.y, 15, Style.CYAN, true)
 		badges[id] = [food, med]
+		pill.set_meta("anchor", n.pos + Vector2(0.0, BADGE_OFFSET))
 		for supply in [Types.SupplyType.FOOD, Types.SupplyType.MEDICAL]:
 			_on_stock(id, supply, RescueManager.get_stock(id, supply))
 
 func _process(delta: float) -> void:
+	# Nhãn tồn kho bám theo kho khi camera phóng to (vùng chơi theo đợt), kích thước giữ nguyên.
+	var xf := get_viewport().get_canvas_transform()
+	for pair in badges.values():
+		var pill: Control = pair[0].get_parent()
+		pill.position = xf * (pill.get_meta("anchor") as Vector2) - Vector2(BADGE_SIZE.x / 2.0, 0.0)
 	var speed_text := "x%d" % GameManager.game_speed
 	if speed_button.text != speed_text:
 		speed_button.text = speed_text
