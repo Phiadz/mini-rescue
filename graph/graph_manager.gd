@@ -288,7 +288,8 @@ func get_edge_budget() -> Dictionary:
 	return {used = _roads, limit = _limit}
 
 # --- Dijkstra ---
-func find_path(from_id: int, to_id: int, vehicle_type: int) -> PathResult:
+# edge_penalty (tùy chọn): số giây cộng thêm cho từng cạnh, RescueManager dùng để né chỗ đang đông xe.
+func find_path(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictionary = {}) -> PathResult:
 	var res := PathResult.new()
 	if not _nodes.has(from_id) or not _nodes.has(to_id):
 		return res
@@ -315,7 +316,7 @@ func find_path(from_id: int, to_id: int, vehicle_type: int) -> PathResult:
 			if factor <= 0.0:
 				continue                    # xe này không đi được cạnh này
 			var v := e.other_end(u)
-			var cost := e.length / (Config.base_speed(vehicle_type) * factor)
+			var cost := e.length / (Config.base_speed(vehicle_type) * factor) + float(edge_penalty.get(eid, 0.0))
 			if dist[u] + cost < dist[v]:
 				dist[v] = dist[u] + cost
 				prev_node[v] = u

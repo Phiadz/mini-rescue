@@ -10,6 +10,15 @@ const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết c
 const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
 const BONUS_TIME_RATIO := 0.5        # còn quá nửa thời gian thì được thưởng
 const ARRIVE_EPSILON := 0.5          # sai số khi tới node (px)
+# Kẹt xe: chỉ dùng khoảng cách và đồ thị, không dùng vật lý.
+const FOLLOW_GAP := 34.0             # xe phía trước cùng làn gần hơn mức này (px) thì chạy chậm
+const STOP_GAP := 20.0               # gần hơn mức này thì dừng chờ
+const FOLLOW_SLOW := 0.5             # hệ số tốc độ khi bám đuôi
+const SAME_LANE := 6.0               # lệch ngang dưới mức này (px) coi là cùng làn
+const JUNCTION_RADIUS := 24.0        # bán kính ngã ba, ngã tư (px)
+const JUNCTION_APPROACH := 46.0      # trong khoảng này trước ngã ba thì xét nhường đường
+const JAM_GIVE_UP := 3.0             # đứng chờ quá lâu (giây) thì đi chậm qua, tránh tắc vĩnh viễn
+const CONGESTION_PATH_COST := 1.5    # giây cộng thêm khi tìm đường qua cạnh sắp có xe đi
 
 # Nguồn đồ thị. null = dùng GraphManager thật. Scene thử gán đồ thị giả vào đây.
 var graph = null
@@ -98,6 +107,8 @@ class Vehicle extends Node2D:
 	var heading := Vector2.RIGHT  # hướng đang chạy
 	var _state: VehicleStateBase
 	var _lane := Vector2.ZERO     # độ lệch làn khi vẽ; position vẫn nằm giữa đường
+	var jammed := false           # đang bị kẹt (bám đuôi hoặc chờ ở ngã ba): vẽ đèn phanh
+	var _jam_time := 0.0
 
 	func set_initial_state() -> void:  # không phát tín hiệu
 		_state = IdleState.new()
@@ -128,6 +139,15 @@ class Vehicle extends Node2D:
 	func lane_offset() -> Vector2:
 		return _lane
 
+	# Xe đang chạy trên đường (không đứng ở kho, ở khu dân cư hay kẹt vì mất đường).
+	func is_moving() -> bool:
+		var running := state_id == Types.VehicleState.EN_ROUTE or state_id == Types.VehicleState.RETURNING
+		return running and path != null and path_index < path.edge_ids.size()
+
+	# Node kế tiếp xe đang chạy tới, -1 nếu đứng yên.
+	func next_node() -> int:
+		return path.node_ids[path_index + 1] if is_moving() else -1
+
 	func retry_if_stranded() -> void:
 		if state_id == Types.VehicleState.STRANDED and _state:
 			_state.retry(self)
@@ -140,7 +160,7 @@ class Vehicle extends Node2D:
 			path.node_ids.append(to_node)
 			path_index = 0
 			return true
-		var p: PathResult = RescueManager.find_path(current_node, to_node, type)
+		var p: PathResult = RescueManager.find_path(current_node, to_node, type, self)
 		if p.found:
 			path = p
 			path_index = 0
@@ -164,7 +184,14 @@ class Vehicle extends Node2D:
 		if position.distance_to(target) > ARRIVE_EPSILON:
 			heading = position.direction_to(target)
 			queue_redraw()
-		position = position.move_toward(target, Config.base_speed(type) * f * delta)
+		var jam := RescueManager.congestion_factor(self)
+		_jam_time = _jam_time + delta if jam < 1.0 else 0.0
+		if _jam_time > JAM_GIVE_UP:
+			jam = maxf(jam, FOLLOW_SLOW)  # chờ quá lâu: đi chậm qua
+		if jammed != (jam < 1.0):
+			jammed = jam < 1.0
+			queue_redraw()
+		position = position.move_toward(target, Config.base_speed(type) * f * jam * delta)
 		if position.distance_to(target) < ARRIVE_EPSILON:
 			position = target
 			current_node = next_id
@@ -237,6 +264,11 @@ class Vehicle extends Node2D:
 		draw_set_transform(Vector2.ZERO)
 		if state_id == Types.VehicleState.STRANDED:
 			draw_arc(offset, ICON_SIZE.x / 2.0 + 4.0, 0.0, TAU, 24, Color('#FF4500'), 2.0)
+		if jammed and state_id != Types.VehicleState.IDLE:  # đèn phanh: hai chấm đỏ ở đuôi xe
+			var rear := offset - heading * (ICON_SIZE.x / 2.0 - 1.0)
+			var side := heading.rotated(PI / 2.0) * 4.0
+			draw_circle(rear + side, 2.4, Color('#ff3b30'))
+			draw_circle(rear - side, 2.4, Color('#ff3b30'))
 
 # ===== VEHICLE STATE (State pattern) =====
 class VehicleStateBase extends RefCounted:
@@ -386,10 +418,64 @@ func _on_graph_changed() -> void:
 func mark_dirty() -> void:
 	_dirty = true
 
-func find_path(from_id: int, to_id: int, vehicle_type: int) -> PathResult:
+# Tìm đường cho xe; cạnh sắp có xe khác đi qua tính đắt hơn (CONGESTION_PATH_COST mỗi xe) để xe mới né chỗ đông.
+# exclude: xe đang tự tính lại đường, không tính phần của chính nó.
+func find_path(from_id: int, to_id: int, vehicle_type: int, exclude: Vehicle = null) -> PathResult:
 	if path_provider.is_valid():
 		return path_provider.call(from_id, to_id, vehicle_type)
-	return g().find_path(from_id, to_id, vehicle_type)
+	if graph != null:
+		return g().find_path(from_id, to_id, vehicle_type)  # đồ thị giả của scene thử
+	return g().find_path(from_id, to_id, vehicle_type, congestion_penalty(exclude))
+
+
+# ===== Kẹt xe =====
+# Mỗi xe đang chạy làm 3 cạnh sắp đi của nó đắt thêm CONGESTION_PATH_COST giây.
+func congestion_penalty(exclude: Vehicle = null) -> Dictionary:
+	var pen := {}
+	for v in _vehicles.values():
+		if v == exclude or not v.is_moving():
+			continue
+		for k in range(v.path_index, mini(v.path_index + 3, v.path.edge_ids.size())):
+			var eid: int = v.path.edge_ids[k]
+			pen[eid] = float(pen.get(eid, 0.0)) + CONGESTION_PATH_COST
+	return pen
+
+
+# Hệ số tốc độ do kẹt xe (1 = chạy bình thường, 0 = dừng chờ), chỉ dùng khoảng cách:
+# - bám đuôi: xe phía trước cùng hướng, cùng làn, cách dưới FOLLOW_GAP thì chậm, dưới STOP_GAP thì dừng;
+# - ngã ba, ngã tư (node có từ 3 cạnh): xe sắp vào nhường xe đang ở trong ngã ba, hoặc xe từ nhánh cắt ngang
+#   ở gần ngã ba hơn; bằng nhau thì xe có mã nhỏ hơn đi trước, nên hai xe không cùng nhường nhau.
+# others: danh sách xe để xét (test truyền vào); rỗng thì dùng mọi xe của RescueManager.
+func congestion_factor(v: Vehicle, others: Array = []) -> float:
+	if not v.is_moving():
+		return 1.0
+	var list: Array = others if not others.is_empty() else _vehicles.values()
+	var f := 1.0
+	var nxt := v.next_node()
+	var jpos := Vector2.ZERO
+	var dv := INF
+	var approaching := false
+	if nxt != -1 and g().get_edges_of(nxt).size() >= 3:
+		jpos = g().get_map_node(nxt).pos
+		dv = v.position.distance_to(jpos)
+		approaching = dv > JUNCTION_RADIUS and dv < JUNCTION_APPROACH
+	for u in list:
+		if u == v or not u.is_moving():
+			continue
+		var rel: Vector2 = u.position - v.position
+		var along := rel.dot(v.heading)
+		if along > 0.0 and u.heading.dot(v.heading) > 0.7 and absf(rel.cross(v.heading)) < SAME_LANE:
+			if along < STOP_GAP:
+				return 0.0
+			if along < FOLLOW_GAP:
+				f = minf(f, FOLLOW_SLOW)
+		if approaching and absf(u.heading.dot(v.heading)) < 0.7:
+			var du: float = u.position.distance_to(jpos)
+			var inside: bool = du <= JUNCTION_RADIUS
+			var first: bool = u.next_node() == nxt and (du < dv or (is_equal_approx(du, dv) and u.id < v.id))
+			if inside or first:
+				f = 0.0
+	return f
 
 func _process(delta: float) -> void:
 	_clock += delta
