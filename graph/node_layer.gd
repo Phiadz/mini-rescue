@@ -111,6 +111,8 @@ func _draw() -> void:
 		if hub != null and hub.kind == Types.NodeKind.HUB:
 			_draw_lot(hub)
 			_draw_dock(hub)
+		elif hub != null:
+			_draw_plot(hub)
 	for id in GraphManager.get_node_ids():
 		var n := GraphManager.get_map_node(id)
 		if n == null:
@@ -164,6 +166,23 @@ func _draw_house(p: Vector2) -> void:
 const Road := preload('res://graph/edge_layer.gd')
 const PIER_COLOR := Color('#b48c5c')
 const PIER_POST := Color('#8c6a42')
+# Lô đất của khu, nhà (bản đồ có cổng): nền vuông đúng một ô lưới quanh nhà, màu đất (không phải màu đường), viền nhạt,
+# như nhà trong Mini Motorways. Vẽ trên lớp đường nên đường nối vào dừng ở mép lô, nhà vẽ đè lên lô.
+const PLOT_FILL := Color('#ebe3d2')
+const PLOT_BORDER := Color('#d3c6ab')
+const PLOT_BORDER_WIDTH := 2
+const PLOT_RADIUS := 6
+
+func _draw_plot(n: MapNode) -> void:
+	if not GraphManager.uses_gates():
+		return
+	var box := StyleBoxFlat.new()
+	box.bg_color = PLOT_FILL
+	box.border_color = PLOT_BORDER
+	box.set_border_width_all(PLOT_BORDER_WIDTH)
+	box.set_corner_radius_all(PLOT_RADIUS)
+	var cell := GraphManager.cell_of(n.pos)
+	draw_style_box(box, Rect2(Vector2(cell * Config.CELL_SIZE), Vector2.ONE * Config.CELL_SIZE))
 
 func _draw_lot(hub: MapNode) -> void:
 	var lot := GraphManager.get_lot_cell(hub.id)
