@@ -17,6 +17,7 @@ const SLOT_DEPTH := 17.0             # tâm chỗ đỗ cách giữa lối đi (
 const DOCK_OUT := 38.0               # chỗ đỗ ca-nô cách tâm kho về phía sông (px), ra ngoài icon kho 56 px
 const PARKED_SCALE := 0.8            # xe trong bãi, ở bến vẽ nhỏ lại cho vừa chỗ đỗ
 const MANEUVER_SPEED := 0.4          # hệ số tốc độ khi lùi ra khỏi chỗ đỗ hoặc đỗ vào chỗ
+const BOAT_CLEAR := 12.0             # ca-nô cập bến khu, nhà: cách mép lô đất ít nhất chừng này px (không đè lên lô)
 const DISPATCH_INTERVAL := 0.5       # giây giữa hai lượt điều phối
 const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết cạnh
 const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
@@ -871,8 +872,30 @@ func boat_stop_pos(v: Vehicle, node_id: int) -> Vector2:
 		var prev: int = v.path.node_ids[v.path_index] if v.path != null and v.path_index < v.path.node_ids.size() else -1
 		var w: MapNode = g().get_map_node(prev) if prev != -1 else null
 		if w != null and w.kind == Types.NodeKind.WATER:
-			return w.pos
+			if n.kind == Types.NodeKind.HUB:
+				return w.pos
+			var before: int = v.path.node_ids[v.path_index - 1] if v.path_index >= 1 else -1
+			return _boat_clear_point(node_id, prev, before)
+	if n.kind == Types.NodeKind.WATER and v.path != null and v.path_index + 2 == v.path.node_ids.size() - 1:
+		var dest: MapNode = g().get_map_node(v.path.node_ids[-1])
+		if dest != null and dest.kind == Types.NodeKind.DISTRICT:  # sắp cập bến khu, nhà: dừng luôn ở chỗ cách lô đất
+			return _boat_clear_point(dest.id, node_id, v.path.node_ids[v.path_index])
 	return stop_pos(node_id)
+
+# Chỗ ca-nô dừng khi cập bến khu, nhà qua nút nước w: tại w, hoặc nếu w sát lô đất thì lùi dọc đoạn sông từ w về nút
+# nước trước đó (đoạn đã kiểm tra nằm trên nước) tới khi cách tâm nhà ít nhất nửa lô + BOAT_CLEAR. Không đè lên lô.
+func _boat_clear_point(point_id: int, w_id: int, before_id: int) -> Vector2:
+	var n: MapNode = g().get_map_node(point_id)
+	var w: Vector2 = g().get_map_node(w_id).pos
+	var need: float = g().point_radius(point_id) + BOAT_CLEAR
+	var b: MapNode = g().get_map_node(before_id) if before_id != -1 else null
+	if w.distance_to(n.pos) >= need or b == null or b.kind != Types.NodeKind.WATER:
+		return w
+	for k in range(1, 11):
+		var p := w.lerp(b.pos, k / 10.0)
+		if p.distance_to(n.pos) >= need:
+			return p
+	return b.pos
 
 # Ca-nô trong kho (bến đầy) nhận nhiệm vụ: ra thẳng nút nước nối bến đầu tiên trên đường, không chạy qua đất từ tâm kho.
 func _boat_depart(v: Vehicle) -> void:

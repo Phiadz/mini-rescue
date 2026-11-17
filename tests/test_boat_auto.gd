@@ -149,6 +149,34 @@ func _test_on_water() -> void:
 				dry.append(p)
 			v.free()
 	_check(stops > 0 and dry.is_empty(), 'ca-nô cập bến dừng trên nước (%d bến)%s' % [stops, '' if dry.is_empty() else ', lên cạn ở: %s' % str(dry)])
+	# Có nút sông trước đó trên đường: ca-nô dừng sớm dọc đoạn sông đó để không đè lên lô đất khu, nhà.
+	var tried := 0
+	var bad := []
+	for p in GraphManager.get_node_ids():
+		var pn := GraphManager.get_map_node(p)
+		if pn.kind == Types.NodeKind.HUB:
+			continue
+		for w in GraphManager.get_dock_nodes(p):
+			for b in GraphManager.get_water_neighbors(w):
+				var v = RescueManager.Vehicle.new()
+				v.type = BOAT
+				v.hub_id = CAT_LAI
+				var path := PathResult.new()
+				path.found = true
+				path.node_ids.append_array([b, w, p])
+				path.edge_ids.append_array([-1, -1])
+				v.path = path
+				v.path_index = 1
+				var s: Vector2 = RescueManager.boat_stop_pos(v, p)
+				v.path_index = 0
+				var early: Vector2 = RescueManager.arrive_pos(v, w)
+				tried += 1
+				var clear := s.distance_to(pn.pos) >= GraphManager.point_radius(p) + RescueManager.BOAT_CLEAR - 0.01 or s == GraphManager.get_map_node(b).pos
+				if not _river(s) or not clear or early != s:
+					bad.append(p)
+				v.free()
+				break
+	_check(tried > 0 and bad.is_empty(), 'ca-nô cập bến khu, nhà dừng trên nước, không đè lên lô đất, dừng một lần (%d trường hợp)%s' % [tried, '' if bad.is_empty() else ', lỗi ở: %s' % str(bad)])
 	var n := RescueManager.slot_count(CAT_LAI, BOAT)
 	var slot_ok := n > 0
 	for i in n:
