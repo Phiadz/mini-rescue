@@ -298,12 +298,15 @@ func _test_saigon_map() -> void:
 	EventBus.game_started.emit()
 	var trucks := RescueManager.START_TRUCKS
 	var boats := RescueManager.START_BOATS
-	_check(_count(Types.VehicleType.TRUCK, 0) == trucks and _count(Types.VehicleType.BOAT, 1) == boats,
-			'lúc đầu ván: %d xe tải ở kho cao, %d ca-nô ở kho ven sông' % [trucks, boats])
+	# Bản đồ có cổng: mỗi kho có bãi đỗ, xe tải chia đều hai kho; ca-nô ở kho có bến (ven sông).
+	var half := trucks / 2
+	_check(_count(Types.VehicleType.TRUCK, 0) == trucks - half and _count(Types.VehicleType.TRUCK, 1) == half and _count(Types.VehicleType.BOAT, 1) == boats,
+			'lúc đầu ván: %d xe tải chia đều hai kho, %d ca-nô ở kho ven sông' % [trucks, boats])
 	RescueManager.add_vehicle(Types.VehicleType.BOAT)
 	RescueManager.add_vehicle(Types.VehicleType.TRUCK)
-	_check(_count(Types.VehicleType.TRUCK, 0) == trucks + 1 and _count(Types.VehicleType.BOAT, 1) == boats + 1,
-			'xe thưởng về đúng kho hợp với loại xe')
+	var fewer := 1 if half < trucks - half else 0  # xe tải mới về kho đang ít xe hơn (bằng nhau thì kho cao)
+	_check(_count(Types.VehicleType.TRUCK, 0) + _count(Types.VehicleType.TRUCK, 1) == trucks + 1 and _count(Types.VehicleType.TRUCK, fewer) == (half if fewer == 1 else trucks - half) + 1
+			and _count(Types.VehicleType.BOAT, 1) == boats + 1, 'xe thưởng về đúng kho hợp với loại xe')
 
 
 func _count(type: int, hub: int) -> int:

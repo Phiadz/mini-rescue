@@ -9,6 +9,13 @@ const START_BOATS := 8               # số ca-nô lúc đầu ván (ở kho th�
 const PARK_IN := 14.0                # điểm có cổng: xe đỗ ở lối vào, lệch từ tâm điểm về phía cổng (px)
 const HUB_HIDE_RADIUS := 20.0        # xe trong bán kính này quanh kho của nó thì ẩn (đang ở trong kho)
 const HOUSE_TRIES := 12              # số lần thử chọn ô cho một nhà mới mỗi lượt
+const LOT_SLOTS := 6                 # chỗ đỗ xe tải trong bãi của kho: 3 chỗ mỗi bên lối đi giữa
+const DOCK_SLOTS := 4                # chỗ đỗ ca-nô ở bến của kho
+const SLOT_PITCH := 13.0             # khoảng cách hai chỗ đỗ cạnh nhau (px)
+const SLOT_DEPTH := 17.0             # tâm chỗ đỗ cách giữa lối đi (px)
+const DOCK_OUT := 38.0               # chỗ đỗ ca-nô cách tâm kho về phía sông (px), ra ngoài icon kho 56 px
+const PARKED_SCALE := 0.8            # xe trong bãi, ở bến vẽ nhỏ lại cho vừa chỗ đỗ
+const MANEUVER_SPEED := 0.4          # hệ số tốc độ khi lùi ra khỏi chỗ đỗ hoặc đỗ vào chỗ
 const DISPATCH_INTERVAL := 0.5       # giây giữa hai lượt điều phối
 const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết cạnh
 const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
@@ -133,6 +140,8 @@ class Vehicle extends Node2D:
 	var _lane := Vector2.ZERO     # độ lệch làn khi vẽ; position vẫn nằm giữa đường
 	var jammed := false           # đang bị kẹt (bám đuôi hoặc chờ ở ngã ba): vẽ đèn phanh
 	var at_red := false           # đang dừng trước đèn đỏ (congestion_factor đặt mỗi lần xét)
+	var slot := -1                # chỗ đỗ đang giữ ở bãi (xe tải) hoặc bến (ca-nô) của kho, -1: không có (ở trong kho)
+	var waypoints: Array[Vector2] = []  # điểm phải đi qua khi lùi ra hoặc đỗ vào chỗ, trước khi chạy theo đường
 	var _jam_time := 0.0
 
 	func set_initial_state() -> void:  # không phát tín hiệu
@@ -156,7 +165,7 @@ class Vehicle extends Node2D:
 
 	# Xe đang ở trong kho (đỗ, hoặc chờ ra cổng) thì ẩn, nên xe cùng kho không chồng lên nhau.
 	func _update_visible() -> void:
-		var hidden := state_id == Types.VehicleState.IDLE
+		var hidden := state_id == Types.VehicleState.IDLE and slot < 0 and waypoints.is_empty()  # bãi đầy: ở trong kho
 		if not hidden:
 			var h: MapNode = RescueManager.g().get_map_node(hub_id)
 			hidden = h != null and position.distance_to(h.pos) < HUB_HIDE_RADIUS
@@ -164,7 +173,7 @@ class Vehicle extends Node2D:
 
 	func _update_lane(delta: float) -> void:
 		var want := Vector2.ZERO
-		if state_id != Types.VehicleState.IDLE:
+		if state_id != Types.VehicleState.IDLE and not RescueManager.in_lot(self):  # trong bãi: đi giữa lối, không lệch làn
 			var off := RING_RADIUS if RescueManager.in_roundabout(self) else LANE_OFFSET  # trong vòng xoay: chạy quanh đảo
 			want = heading.rotated(PI / 2.0) * off
 		if _lane != want:
@@ -224,12 +233,15 @@ class Vehicle extends Node2D:
 	func advance(delta: float) -> bool:
 		if path == null or path_index >= path.edge_ids.size():
 			return true
+		if not waypoints.is_empty():
+			maneuver(delta)  # vừa rời chỗ đỗ: lùi ra lối đi trước
+			return false
 		var e: Edge = RescueManager.g().get_edge(path.edge_ids[path_index])
 		if e == null:
 			_cut()
 			return true
 		var next_id: int = path.node_ids[path_index + 1]
-		var target: Vector2 = RescueManager.stop_pos(next_id)  # điểm có cổng: dừng ở lối vào, không vào tâm
+		var target: Vector2 = RescueManager.arrive_pos(self, next_id)  # điểm có cổng: dừng ở lối vào; về kho: tới lối đi cạnh chỗ đã giữ
 		var f := e.speed_factor(type)
 		if f <= 0.0:
 			f = MIN_EDGE_SPEED_FACTOR  # cạnh vừa thành không đi được: đi nốt với tốc độ tối thiểu
@@ -244,6 +256,20 @@ class Vehicle extends Node2D:
 			path_index += 1
 			return not _next_edge_same_segment(e)
 		return false
+
+	# Đi chậm tới từng điểm trong waypoints (lùi ra lối đi, hoặc đỗ vào chỗ). Trả true khi đã hết điểm.
+	func maneuver(delta: float) -> bool:
+		while not waypoints.is_empty():
+			var to: Vector2 = waypoints[0]
+			if position.distance_to(to) < ARRIVE_EPSILON:
+				position = to
+				waypoints.pop_front()
+				continue
+			heading = position.direction_to(to)
+			position = position.move_toward(to, Config.base_speed(type) * MANEUVER_SPEED * delta)
+			queue_redraw()
+			return false
+		return true
 
 	func _next_edge_same_segment(e: Edge) -> bool:
 		if path_index >= path.edge_ids.size():
@@ -287,27 +313,33 @@ class Vehicle extends Node2D:
 		go_home()
 
 	func go_home() -> void:
+		RescueManager.reserve_slot(self)  # giữ sẵn một chỗ trong bãi; bãi đầy thì vào trong kho
 		if plan(hub_id):
 			change_state(ReturningState.new(), Types.VehicleState.RETURNING)
 		else:
 			change_state(StrandedState.new(), Types.VehicleState.STRANDED)
 
 	func park() -> void:
-		position = RescueManager.stop_pos(hub_id)
 		current_node = hub_id
 		path = null
-		heading = Vector2.RIGHT
 		_lane = Vector2.ZERO
+		waypoints.clear()
+		if slot >= 0:
+			waypoints.append(RescueManager.slot_pos(self))  # từ lối đi vào đúng chỗ đã giữ
+		else:
+			position = RescueManager.stop_pos(hub_id)
+			heading = Vector2.RIGHT
 		change_state(IdleState.new(), Types.VehicleState.IDLE)
 		RescueManager.mark_dirty()
 
 	func _draw() -> void:
 		var offset := _lane
-		if state_id == Types.VehicleState.IDLE:
+		if state_id == Types.VehicleState.IDLE and slot < 0:
 			offset.x = -PARK_OFFSET if type == Types.VehicleType.TRUCK else PARK_OFFSET
 		var icon := TRUCK_ICON if type == Types.VehicleType.TRUCK else BOAT_ICON
 		var left := heading.x < 0.0  # lật hình để xe không chổng ngược khi đi sang trái
-		draw_set_transform(offset, heading.angle() + (PI if left else 0.0), Vector2(-1.0 if left else 1.0, 1.0))
+		var sc: float = RescueManager.draw_scale(self)
+		draw_set_transform(offset, heading.angle() + (PI if left else 0.0), Vector2(-sc if left else sc, sc))
 		draw_texture_rect(icon, Rect2(-ICON_SIZE / 2.0, ICON_SIZE), false)
 		draw_set_transform(Vector2.ZERO)
 		if state_id == Types.VehicleState.STRANDED:
@@ -326,7 +358,11 @@ class VehicleStateBase extends RefCounted:
 	func retry(_v: Vehicle) -> void: pass
 
 class IdleState extends VehicleStateBase:
-	pass  # đứng ở kho, chờ điều phối
+	# Đứng ở kho chờ điều phối; vừa về thì chạy chậm vào chỗ đỗ đã giữ rồi quay đầu xe theo chỗ đỗ.
+	func update(v: Vehicle, delta: float) -> void:
+		if not v.waypoints.is_empty() and v.maneuver(delta) and v.slot >= 0:
+			v.heading = RescueManager.slot_heading(v.hub_id, v.type, v.slot)
+			v.queue_redraw()
 
 class EnRouteState extends VehicleStateBase:
 	func update(v: Vehicle, delta: float) -> void:
@@ -412,6 +448,7 @@ func reset() -> void:
 		if is_instance_valid(v):  # xe gắn vào VehicleLayer đã bị giải phóng khi chơi lại (đổi scene)
 			v.queue_free()
 	_vehicles.clear()
+	_slots.clear()
 	_requests.clear()
 	_hubs.clear()
 	_last_rescued.clear()
@@ -680,7 +717,108 @@ func stop_pos(node_id: int) -> Vector2:
 	var n: MapNode = g().get_map_node(node_id)
 	if n == null:
 		return Vector2.ZERO
+	if n.kind == Types.NodeKind.HUB:
+		return n.pos  # kho: trong nhà kho; chỗ đỗ ở bãi tính riêng (slot_pos)
 	return n.pos + Vector2(n.gate) * PARK_IN
+
+# ----- Bãi đỗ của kho (xe tải) và bến (ca-nô) -----
+# Bãi nằm ở ô giữa kho và cổng: lối đi giữa chạy từ kho ra cổng, mỗi bên 3 chỗ đỗ vuông góc (xe đỗ đầu vào trong).
+# Bến ở phía sông: các chỗ xếp hàng dọc bờ, mũi ca-nô hướng ra sông. Bãi, bến đầy thì xe vào trong kho (ẩn).
+var _slots := {}  # Vector2i(kho, loại xe) -> Array id xe ở từng chỗ (-1: trống)
+
+func slot_count(hub_id: int, type: int) -> int:
+	if not _uses_gates():
+		return 0
+	if type == Types.VehicleType.TRUCK:
+		return LOT_SLOTS if g().get_lot_cell(hub_id) != Vector2i(-1, -1) else 0
+	return DOCK_SLOTS if g().get_dock_dir(hub_id) != Vector2.ZERO else 0
+
+# Giữ một chỗ trống cho xe (khi xe mới vào kho hoặc bắt đầu về kho). Hết chỗ thì xe vào trong kho.
+func reserve_slot(v: Vehicle) -> void:
+	if v.slot >= 0:
+		return
+	var n := slot_count(v.hub_id, v.type)
+	if n == 0:
+		return
+	var key := Vector2i(v.hub_id, v.type)
+	if not _slots.has(key):
+		var empty := []
+		empty.resize(n)
+		empty.fill(-1)
+		_slots[key] = empty
+	var arr: Array = _slots[key]
+	for i in n:
+		if arr[i] == -1:
+			arr[i] = v.id
+			v.slot = i
+			return
+
+func release_slot(v: Vehicle) -> void:
+	if v.slot < 0:
+		return
+	var arr: Array = _slots.get(Vector2i(v.hub_id, v.type), [])
+	if v.slot < arr.size() and arr[v.slot] == v.id:
+		arr[v.slot] = -1
+	v.slot = -1
+
+# Xe nhận nhiệm vụ: trả chỗ; xe tải lùi ra lối đi cạnh chỗ đỗ rồi mới chạy ra cổng.
+func _leave_slot(v: Vehicle) -> void:
+	v.waypoints.clear()
+	if v.slot >= 0 and v.type == Types.VehicleType.TRUCK:
+		v.waypoints.append(aisle_pos(v.hub_id, v.slot))
+	release_slot(v)
+
+# Hệ trục của bãi: tâm ô bãi, hướng từ kho ra cổng (dọc lối đi), hướng ngang lối đi.
+func _lot_frame(hub_id: int) -> Array:
+	var n: MapNode = g().get_map_node(hub_id)
+	var d := Vector2(n.gate)
+	return [g().cell_center(g().get_lot_cell(hub_id)), d, Vector2(-d.y, d.x)]
+
+func slot_point(hub_id: int, type: int, i: int) -> Vector2:
+	var n: MapNode = g().get_map_node(hub_id)
+	if type == Types.VehicleType.TRUCK:
+		var f := _lot_frame(hub_id)
+		var side := -1.0 if i < LOT_SLOTS / 2 else 1.0
+		return f[0] + f[1] * (float(i % (LOT_SLOTS / 2)) - 1.0) * SLOT_PITCH + f[2] * side * SLOT_DEPTH
+	var w: Vector2 = g().get_dock_dir(hub_id)
+	return n.pos + w * DOCK_OUT + Vector2(-w.y, w.x) * (float(i) - (DOCK_SLOTS - 1) / 2.0) * (SLOT_PITCH + 2.0)
+
+func slot_heading(hub_id: int, type: int, i: int) -> Vector2:
+	if type == Types.VehicleType.TRUCK:
+		var f := _lot_frame(hub_id)
+		return f[2] * (-1.0 if i < LOT_SLOTS / 2 else 1.0)  # đầu xe hướng vào trong chỗ đỗ
+	return g().get_dock_dir(hub_id)  # mũi ca-nô hướng ra sông
+
+func slot_pos(v: Vehicle) -> Vector2:
+	return slot_point(v.hub_id, v.type, v.slot)
+
+# Điểm trên lối đi giữa bãi, ngay cạnh chỗ đỗ i.
+func aisle_pos(hub_id: int, i: int) -> Vector2:
+	var f := _lot_frame(hub_id)
+	return f[0] + f[1] * (float(i % (LOT_SLOTS / 2)) - 1.0) * SLOT_PITCH
+
+# Đích của xe khi tới node: về kho có chỗ giữ sẵn thì xe tải tới lối đi cạnh chỗ đó, ca-nô tới thẳng chỗ ở bến.
+func arrive_pos(v: Vehicle, node_id: int) -> Vector2:
+	if node_id == v.hub_id and v.slot >= 0 and v.path != null and v.path_index == v.path.edge_ids.size() - 1:
+		return aisle_pos(v.hub_id, v.slot) if v.type == Types.VehicleType.TRUCK else slot_pos(v)
+	return stop_pos(node_id)
+
+# Xe tải đang ở trong ô bãi của kho mình (đi giữa lối, vẽ nhỏ).
+func in_lot(v: Vehicle) -> bool:
+	if v.type != Types.VehicleType.TRUCK or slot_count(v.hub_id, v.type) == 0:
+		return false
+	var f := _lot_frame(v.hub_id)
+	var rel: Vector2 = v.position - f[0]
+	return absf(rel.dot(f[1])) <= Config.CELL_SIZE / 2.0 + 1.0 and absf(rel.dot(f[2])) <= SLOT_DEPTH + 12.0
+
+func draw_scale(v: Vehicle) -> float:
+	if in_lot(v):
+		return PARKED_SCALE
+	if v.type == Types.VehicleType.BOAT and slot_count(v.hub_id, v.type) > 0:
+		var h: MapNode = g().get_map_node(v.hub_id)
+		if h != null and v.position.distance_to(h.pos) < DOCK_OUT + 12.0:
+			return PARKED_SCALE
+	return 1.0
 
 func _uses_gates() -> bool:
 	return g().has_method('uses_gates') and g().uses_gates()
@@ -811,6 +949,7 @@ func _assign(r: SosRequest, v: Vehicle, p: PathResult) -> void:
 	var h: Hub = _hubs[v.hub_id]
 	h.stock[r.supply] -= 1
 	EventBus.stock_changed.emit(h.id, r.supply, h.stock[r.supply])
+	_leave_slot(v)
 	v.change_state(EnRouteState.new(), Types.VehicleState.EN_ROUTE)
 	EventBus.sos_assigned.emit(r.id, v.id)
 
@@ -844,6 +983,10 @@ func _make_vehicle(type: int, hub_id: int) -> int:
 	var v := VehicleFactory.create(_next_vehicle_id, type, hub_id)
 	_next_vehicle_id += 1
 	_vehicles[v.id] = v
+	reserve_slot(v)
+	if v.slot >= 0:
+		v.position = slot_pos(v)
+		v.heading = slot_heading(hub_id, type, v.slot)
 	var layer := get_tree().get_first_node_in_group('vehicle_layer')
 	if layer == null:
 		push_warning('Không thấy nhóm vehicle_layer, gắn xe vào RescueManager')
@@ -862,7 +1005,19 @@ func add_vehicle(type: int) -> int:
 
 # Xe tải về kho cao nhất vì đường quanh đó khô lâu; ca-nô về kho thấp nhất vì đường quanh đó ngập sớm.
 # Bản đồ có sông cho ca-nô: ca-nô chỉ về kho có bến (sát sông), chọn kho thấp nhất trong số đó.
+# Bản đồ có cổng (mỗi kho có bãi đỗ): xe tải chia đều các kho, xe mới về kho đang ít xe tải nhất (bằng nhau thì kho cao hơn).
 func _hub_for(type: int) -> int:
+	if type == Types.VehicleType.TRUCK and _uses_gates():
+		var pick := -1
+		for hid in _hubs:
+			if pick == -1:
+				pick = hid
+				continue
+			var a := get_home_count(hid, type)
+			var b := get_home_count(pick, type)
+			if a < b or (a == b and g().get_map_node(hid).elevation > g().get_map_node(pick).elevation):
+				pick = hid
+		return pick
 	var docked := {}
 	if type == Types.VehicleType.BOAT and g().has_method('has_dock'):
 		for hid in _hubs:

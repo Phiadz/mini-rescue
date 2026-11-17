@@ -40,6 +40,7 @@ var _badges := Node2D.new()
 func _ready() -> void:
 	EventBus.game_started.connect(queue_redraw)
 	EventBus.point_added.connect(queue_redraw.unbind(1))
+	EventBus.edge_state_changed.connect(_on_edge_state)  # bãi đỗ đổi màu theo đoạn kho–cổng khi ngập
 	add_child(_badges)
 	_badges.draw.connect(_draw_badges)
 	EventBus.game_started.connect(_badges.queue_redraw)
@@ -49,6 +50,11 @@ func _ready() -> void:
 
 
 func _draw() -> void:
+	for id in GraphManager.get_node_ids():
+		var hub := GraphManager.get_map_node(id)
+		if hub != null and hub.kind == Types.NodeKind.HUB:
+			_draw_lot(hub)
+			_draw_dock(hub)
 	for id in GraphManager.get_node_ids():
 		var n := GraphManager.get_map_node(id)
 		if n == null:
@@ -100,6 +106,74 @@ func _draw_house(p: Vector2) -> void:
 
 
 # Góc trên bên phải mỗi kho: số xe tải, số ca-nô đang đỗ trong kho (chỉ hiện loại xe kho đó có).
+# Bãi đỗ của kho (bản đồ có cổng): khung bo tròn ôm nhà kho và ô bãi, kẻ vạch chỗ đỗ hai bên lối đi giữa,
+# giống bãi xe của tòa nhà trong Mini Motorways. Vẽ trước icon kho nên nhà kho nằm đè lên phần đầu khung.
+# Màu lấy đúng màu đường của EdgeLayer (mặt đường, viền, vạch) theo trạng thái ngập của đoạn kho–cổng.
+const Road := preload('res://graph/edge_layer.gd')
+const PIER_COLOR := Color('#b48c5c')
+const PIER_POST := Color('#8c6a42')
+
+func _draw_lot(hub: MapNode) -> void:
+	var lot := GraphManager.get_lot_cell(hub.id)
+	if lot == Vector2i(-1, -1):
+		return
+	var center := GraphManager.cell_center(lot)
+	var d := Vector2(hub.gate)
+	var p := Vector2(-d.y, d.x)
+	var mid := (hub.pos + center) / 2.0
+	var across := 2.0 * (RescueManager.SLOT_DEPTH + 13.0)
+	var along := 2.0 * Config.CELL_SIZE + 4.0
+	var size := Vector2(along, across) if d.y == 0.0 else Vector2(across, along)
+	var state := Types.EdgeState.DRY
+	var link := GraphManager.get_edges_of(hub.id)
+	if not link.is_empty():
+		state = GraphManager.get_edge(link[0]).state  # đoạn kho–cổng chạy qua bãi
+	var colors := {
+		Types.EdgeState.DRY: [Road.DRY_COLOR, Road.DRY_CASING, Road.DRY_MARK_COLOR],
+		Types.EdgeState.SHALLOW: [Road.SHALLOW_COLOR, Road.SHALLOW_CASING, Road.SHALLOW_MARK_COLOR],
+		Types.EdgeState.DEEP: [Road.DEEP_COLOR, Road.DEEP_CASING, Road.DEEP_MARK_COLOR],
+	}
+	var c: Array = colors[state]
+	var box := StyleBoxFlat.new()
+	box.bg_color = c[0]
+	box.border_color = c[1]
+	box.set_border_width_all(int((Road.CASING_WIDTH - Road.ROAD_WIDTH) / 2.0))  # viền dày bằng viền đường
+	box.set_corner_radius_all(12)
+	draw_style_box(box, Rect2(mid - size / 2.0, size))
+	var half := RescueManager.LOT_SLOTS / 2
+	for side in [-1.0, 1.0]:
+		for k in half + 1:  # vạch ngăn giữa các chỗ đỗ, cùng màu vạch chia làn
+			var a := (float(k) - half / 2.0) * RescueManager.SLOT_PITCH
+			draw_line(center + d * a + p * side * 9.0, center + d * a + p * side * (RescueManager.SLOT_DEPTH + 11.0), c[2], Road.MARK_WIDTH)
+
+# Bến ca-nô: cầu tàu gỗ dọc bờ phía sông của kho, cọc ngăn giữa các chỗ đỗ.
+func _draw_dock(hub: MapNode) -> void:
+	if RescueManager.slot_count(hub.id, Types.VehicleType.BOAT) == 0:
+		return
+	var w := GraphManager.get_dock_dir(hub.id)
+	var pw := Vector2(-w.y, w.x)
+	var n := RescueManager.DOCK_SLOTS
+	var pitch := RescueManager.SLOT_PITCH + 2.0
+	var base := hub.pos + w * (RescueManager.DOCK_OUT - 11.0)
+	var half_len := (n * pitch) / 2.0 + 3.0
+	draw_line(base - pw * half_len, base + pw * half_len, PIER_COLOR, 6.0)
+	for k in n + 1:
+		var o := (float(k) - n / 2.0) * pitch
+		draw_line(base + pw * o, base + pw * o + w * 13.0, PIER_POST, 2.0)
+
+
+# Chỉ vẽ lại khi cạnh đổi trạng thái là đoạn kho–cổng (đi qua bãi đỗ).
+func _on_edge_state(edge_id: int, _state: int) -> void:
+	var e := GraphManager.get_edge(edge_id)
+	if e == null:
+		return
+	for id in [e.node_a, e.node_b]:
+		var n := GraphManager.get_map_node(id)
+		if n != null and n.kind == Types.NodeKind.HUB:
+			queue_redraw()
+			return
+
+
 func _draw_badges() -> void:
 	for id in GraphManager.get_node_ids():
 		var n := GraphManager.get_map_node(id)
@@ -117,7 +191,10 @@ func _draw_badges() -> void:
 			var w: float = BADGE_ICON.x + 2.0 + LABEL_FONT.get_string_size(it[1], HORIZONTAL_ALIGNMENT_LEFT, -1, BADGE_FONT_SIZE).x + 4.0
 			widths.append(w)
 			total += w
-		var top_left := n.pos + Vector2(HUB_ICON_SIZE / 2.0 - 10.0, -HUB_ICON_SIZE / 2.0 - 8.0)
+		# Giữa, phía trên icon kho (bãi đỗ ở bên cạnh); bãi ở phía trên thì đặt sang trái icon.
+		var top_left := n.pos + Vector2(-total / 2.0, -HUB_ICON_SIZE / 2.0 - 20.0)
+		if n.gate == Vector2i(0, -1):
+			top_left = n.pos + Vector2(-HUB_ICON_SIZE / 2.0 - total - 2.0, -8.0)
 		var box := StyleBoxFlat.new()
 		box.bg_color = BADGE_FILL
 		box.border_color = BADGE_BORDER

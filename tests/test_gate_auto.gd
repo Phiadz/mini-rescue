@@ -52,19 +52,24 @@ func _test_gates() -> void:
 	var names := []
 	for id in GraphManager.get_node_ids():
 		var n := GraphManager.get_map_node(id)
-		var gcell: Vector2i = _cell(id) + n.gate
+		var hub := n.kind == Types.NodeKind.HUB
+		var gcell: Vector2i = _cell(id) + n.gate * (2 if hub else 1)  # kho: kho, ô bãi, ô cổng thẳng hàng
 		var gid := GraphManager.get_gate_node(id)
 		var edges := GraphManager.get_edges_of(id)
 		ok = ok and n.gate != Vector2i.ZERO and absi(n.gate.x) + absi(n.gate.y) == 1
 		ok = ok and gid != -1 and GraphManager.is_gate_cell(gcell) and GraphManager.road_at(gcell) == gid
 		ok = ok and edges.size() == 1 and GraphManager.get_edge(edges[0]).other_end(id) == gid
 		ok = ok and not GraphManager.cell_is_water(gcell) and not cells.has(gcell)
+		if hub:
+			var lot: Vector2i = _cell(id) + n.gate
+			ok = ok and GraphManager.get_lot_cell(id) == lot and GraphManager.is_lot_cell(lot) and GraphManager.road_at(lot) == -1
+			ok = ok and n.gate != Vector2i(0, 1)  # bãi không nằm phía dưới (tên kho, nhãn hàng)
 		cells[gcell] = true
 		names.append('%s %s' % [n.name, {Vector2i(1, 0): 'Đ', Vector2i(-1, 0): 'T', Vector2i(0, -1): 'B', Vector2i(0, 1): 'N'}.get(n.gate, '?')])
 	print('  hướng cổng: ', ', '.join(names))
-	_check(ok, '17 điểm đều có đúng một ô cổng (kề cạnh, không phải sông, không trùng), nối với điểm bằng một cạnh')
+	_check(ok, '17 điểm đều có đúng một ô cổng (khu kề cạnh; kho cách 2 ô, ô giữa là bãi đỗ; không phải sông, không trùng), nối với điểm bằng một cạnh')
 	_check(GraphManager.get_edge_budget().used == 0, 'ô cổng không tính vào hạn mức')
-	_check(not GraphManager.remove_road(_cell(HUB) + GraphManager.get_map_node(HUB).gate), 'không xóa được ô cổng')
+	_check(not GraphManager.remove_road(_cell(HUB) + GraphManager.get_map_node(HUB).gate * 2), 'không xóa được ô cổng')
 	_check(GraphManager.get_road_ids().size() == 17, 'đầu ván chỉ có 17 ô đường là 17 ô cổng')
 
 
@@ -83,9 +88,16 @@ func _test_extend() -> void:
 	_check(GraphManager.extend_road(side_id, hub_cell) == -1, 'từ ô cạnh không phải cổng không nối vào kho được')
 	_check(GraphManager.extend_road(HUB, side) == -1, 'từ kho không đi thẳng ra ô không phải cổng')
 	var gid := GraphManager.get_gate_node(HUB)
-	_check(GraphManager.extend_road(gid, hub_cell) == HUB, 'từ ô cổng vào kho được')
-	_check(GraphManager.extend_road(HUB, hub_cell + gate) == gid, 'từ kho ra ô cổng được')
-	var out: Vector2i = hub_cell + gate * 2
+	_check(GraphManager.extend_road(-1, hub_cell + gate) == -1 and GraphManager.extend_road(gid, hub_cell + gate) == -1, 'không tô đường lên ô bãi đỗ giữa kho và cổng')
+	var link: Array = GraphManager.get_edges_of(HUB)
+	_check(link.size() == 1 and GraphManager.get_edge(link[0]).other_end(HUB) == gid, 'kho nối sẵn với ô cổng bằng một cạnh qua bãi')
+	var gcell := hub_cell + gate * 2
+	var out := gcell + gate  # ô trống kề ô cổng (thẳng ra ngoài có thể trùng ô cổng của điểm bên cạnh)
+	for d in [gate, Vector2i(gate.y, gate.x), Vector2i(-gate.y, -gate.x)]:
+		var c: Vector2i = gcell + d
+		if GraphManager.road_at(c) == -1 and not GraphManager._point_cells.has(c) and not GraphManager.is_lot_cell(c) and not GraphManager.cell_is_water(c):
+			out = c
+			break
 	var before: int = GraphManager.get_edge_budget().used
 	var out_id := GraphManager.extend_road(gid, out)
 	_check(out_id != -1 and GraphManager.get_edge_budget().used == before + 1, 'tô tiếp từ ô cổng ra ngoài, tính 1 ô hạn mức')
@@ -103,11 +115,22 @@ func _test_stop_pos() -> void:
 
 
 func _test_vehicle() -> void:
-	print('\n== Xe ẩn trong kho, đỗ ở lối vào khi giao hàng')
+	print('\n== Bãi đỗ ở kho, bến ca-nô, đỗ ở lối vào khi giao hàng')
 	await get_tree().process_frame
 	await get_tree().process_frame  # process_frame phát trước _process của xe: chờ thêm một khung
 	var idle := RescueManager._vehicles.values()
-	_check(not idle.is_empty() and idle.all(func(v) -> bool: return not v.visible), 'xe đang đỗ ở kho đều ẩn')
+	for type in [Types.VehicleType.TRUCK, Types.VehicleType.BOAT]:
+		var mine := idle.filter(func(v) -> bool: return v.type == type and v.hub_id == (HUB if type == Types.VehicleType.TRUCK else 1))  # xét từng kho
+		var slotted := mine.filter(func(v) -> bool: return v.slot >= 0)
+		var spots := {}
+		for v in slotted:
+			spots[Vector2i(v.position.round())] = true
+		var cap := RescueManager.slot_count(mine[0].hub_id, type) if not mine.is_empty() else 0
+		var name := 'xe tải ở bãi' if type == Types.VehicleType.TRUCK else 'ca-nô ở bến'
+		_check(cap > 0 and slotted.size() == mini(cap, mine.size()) and spots.size() == slotted.size()
+				and slotted.all(func(v) -> bool: return v.visible and v.position.distance_to(RescueManager.slot_pos(v)) < 0.5),
+				'%s: %d chỗ, mỗi xe một chỗ riêng, không chồng nhau, nhìn thấy được' % [name, cap])
+		_check(mine.filter(func(v) -> bool: return v.slot < 0).all(func(v) -> bool: return not v.visible), '%s: hết chỗ thì xe vào trong kho (ẩn)' % name)
 	_check(_connect(GraphManager.get_gate_node(HUB), _cell(NEAR) + GraphManager.get_map_node(NEAR).gate), 'nối đường từ cổng kho tới cổng Lê Đức Thọ')
 	var req := RescueManager.SosRequest.new()
 	req.id = 900
@@ -128,6 +151,7 @@ func _test_vehicle() -> void:
 	_check(truck != null, 'một xe tải nhận SOS')
 	if truck == null:
 		return
+	_check(truck.slot == -1, 'xe nhận nhiệm vụ thì trả chỗ đỗ')
 	await _wait(func() -> bool: return truck.position.distance_to(hub_pos) > RescueManager.HUB_HIDE_RADIUS + 4.0)
 	await get_tree().process_frame
 	_check(truck.visible, 'ra khỏi kho thì xe hiện')
@@ -138,7 +162,15 @@ func _test_vehicle() -> void:
 	_check(_rescued == 1, 'giao hàng xong')
 	await _wait(func() -> bool: return truck.state_id == Types.VehicleState.IDLE)
 	await get_tree().process_frame
-	_check(truck.state_id == Types.VehicleState.IDLE and not truck.visible, 'về kho thì xe ẩn lại')
+	_check(truck.slot >= 0, 'về kho: giữ được một chỗ trong bãi')
+	await _wait(func() -> bool: return truck.waypoints.is_empty())
+	await get_tree().process_frame
+	_check(truck.visible and truck.position.distance_to(RescueManager.slot_pos(truck)) < 0.5, 'về kho thì đỗ vào đúng chỗ đã giữ trong bãi')
+	var parked := RescueManager._vehicles.values().filter(func(v) -> bool: return v.type == Types.VehicleType.TRUCK and v.slot >= 0)
+	var at := {}
+	for v in parked:
+		at[Vector2i(v.position.round())] = true
+	_check(at.size() == parked.size(), 'các xe trong bãi không chồng nhau')
 
 
 func _test_house() -> void:

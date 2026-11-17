@@ -26,6 +26,7 @@ var _terrain: Dictionary = {}   # khóa "terrain" của bản đồ: ảnh độ
 var _roads := 0                 # số ô đường đã tô
 var _segments := {}             # id đoạn -> Array các id cạnh
 var _gate_cells := {}           # ô cổng -> id điểm (ô cổng là ô đường dựng sẵn, không tính hạn mức, không xóa được)
+var _lot_cells := {}            # ô bãi đỗ -> id kho: kho có bãi nằm giữa kho và cổng (kho, bãi, cổng thẳng hàng)
 var _gate_override := {}        # id điểm -> hướng cổng ghi trong json (trường "gate": "E"/"W"/"N"/"S")
 var _next_house_id := HOUSE_ID_BASE
 # Đồ thị riêng của ca-nô: nút nước và cạnh boat_only (sông, bến, lối xuống nước). Không nằm trong _nodes/_adj,
@@ -201,8 +202,8 @@ func _next_to(a: Vector2i, b: Vector2i) -> bool:
 # Nối tiếp đường từ nút from_id (-1 nếu mới bắt đầu kéo) sang ô cell, tạo ô đường nếu chưa có.
 # Trả về nút tại ô đó, hoặc -1 nếu ô ngoài lưới, không kề nút trước, hoặc đã hết hạn mức.
 func extend_road(from_id: int, cell: Vector2i) -> int:
-	if not _in_grid(cell):
-		return -1
+	if not _in_grid(cell) or _lot_cells.has(cell):
+		return -1  # ngoài lưới, hoặc ô bãi đỗ của kho
 	if from_id != -1 and not (_nodes.has(from_id) and _next_to(cell_of(_nodes[from_id].pos), cell)):
 		return -1
 	var to_id: int = _point_cells.get(cell, road_at(cell))
@@ -258,6 +259,7 @@ func _after_road_edit() -> void:
 # Đường chỉ nối vào điểm qua ô cổng, nên xe không đi xuyên qua nhà, và xe ra vào điểm theo một lối.
 func _build_gates(notify := true) -> void:
 	_gate_cells.clear()
+	_lot_cells.clear()
 	if not _gates_enabled:
 		return
 	for id in _points:
@@ -274,7 +276,10 @@ func _make_gate(id: int, max_level := 2) -> bool:
 	n.gate = dir
 	if dir == Vector2i.ZERO:
 		return false
-	var gcell := cell + dir
+	var reach := _gate_reach(id)
+	var gcell := cell + dir * reach
+	if reach == 2:
+		_lot_cells[cell + dir] = id  # kho: ô giữa kho và cổng là bãi đỗ
 	var gid := road_at(gcell)
 	if gid == -1:
 		gid = _add_road(gcell)
@@ -287,27 +292,41 @@ func _make_gate(id: int, max_level := 2) -> bool:
 # (nhà: hướng tới khu mẹ). Không hướng nào hợp lệ thì nới dần điều kiện; vẫn không được thì ZERO.
 func _choose_gate(id: int, cell: Vector2i, max_level: int) -> Vector2i:
 	var n: MapNode = _nodes[id]
-	if _gate_override.has(id) and _gate_ok(cell + _gate_override[id], id, max_level):
+	if _gate_override.has(id) and _dir_ok(id, cell, _gate_override[id], max_level):
 		return _gate_override[id]
 	var anchor := MAP_CENTER
 	if n.parent != -1 and _nodes.has(n.parent):
 		anchor = _nodes[n.parent].pos
 	var want := (anchor - n.pos).normalized()
-	for level in max_level + 1:
+	var hub := n.kind == Types.NodeKind.HUB
+	for level in range(1 if hub else 0, max_level + 1):
 		var best := Vector2i.ZERO
 		var best_score := -INF
 		for d in GATE_DIRS:
 			var s := Vector2(d).dot(want)
-			if s > best_score + 0.001 and _gate_ok(cell + d, id, level):
+			if hub and d == Vector2i(0, 1):
+				s -= 3.0  # bãi của kho không đặt phía dưới: chỗ đó là tên kho và nhãn tồn kho
+			if s > best_score + 0.001 and _dir_ok(id, cell, d, level):
 				best = d
 				best_score = s
 		if best != Vector2i.ZERO:
 			return best
 	return Vector2i.ZERO
 
+# Hướng d dùng được cho điểm id: ô cổng (và với kho, cả ô bãi ở giữa) đều hợp lệ.
+func _dir_ok(id: int, cell: Vector2i, d: Vector2i, level: int) -> bool:
+	for k in range(1, _gate_reach(id) + 1):
+		if not _gate_ok(cell + d * k, id, level):
+			return false
+	return true
+
+# Kho có bãi đỗ nên cổng cách kho 2 ô; điểm khác cổng sát bên.
+func _gate_reach(id: int) -> int:
+	return 2 if _nodes.has(id) and _nodes[id].kind == Types.NodeKind.HUB else 1
+
 # Ô gcell làm cổng cho điểm owner được không. level 0: đủ điều kiện; 1: cho kề điểm khác; 2: cho cả ô ca-nô.
 func _gate_ok(gcell: Vector2i, owner: int, level: int) -> bool:
-	if not _in_grid(gcell) or cell_is_water(gcell) or _point_cells.has(gcell) or _gate_cells.has(gcell):
+	if not _in_grid(gcell) or cell_is_water(gcell) or _point_cells.has(gcell) or _gate_cells.has(gcell) or _lot_cells.has(gcell):
 		return false
 	if road_at(gcell) != -1:
 		return false
@@ -352,7 +371,32 @@ func _gate_allows(from_id: int, to_id: int) -> bool:
 func get_gate_node(point_id: int) -> int:
 	if not _is_gated(point_id):
 		return -1
-	return road_at(cell_of(_nodes[point_id].pos) + _nodes[point_id].gate)
+	return road_at(cell_of(_nodes[point_id].pos) + _nodes[point_id].gate * _gate_reach(point_id))
+
+# Ô bãi đỗ của kho (giữa kho và cổng), Vector2i(-1, -1) nếu kho không có bãi.
+func get_lot_cell(hub_id: int) -> Vector2i:
+	if not _is_gated(hub_id) or _gate_reach(hub_id) != 2:
+		return Vector2i(-1, -1)
+	return cell_of(_nodes[hub_id].pos) + _nodes[hub_id].gate
+
+func is_lot_cell(cell: Vector2i) -> bool:
+	return _lot_cells.has(cell)
+
+# Hướng từ điểm ra bến: hướng tới một nút nước nối bến, chọn hướng ít chĩa xuống nhất (dưới kho là tên và nhãn hàng),
+# rồi hướng ngang rõ nhất. Vector2.ZERO nếu điểm không có bến.
+func get_dock_dir(point_id: int) -> Vector2:
+	var n: MapNode = _nodes.get(point_id)
+	if n == null:
+		return Vector2.ZERO
+	var best := Vector2.ZERO
+	for eid in _badj.get(point_id, []):
+		var w: MapNode = get_map_node(_edges[eid].other_end(point_id))
+		if w == null or w.kind != Types.NodeKind.WATER or w.pos == n.pos:
+			continue
+		var dir := (w.pos - n.pos).normalized()
+		if best == Vector2.ZERO or dir.y < best.y - 0.01 or (absf(dir.y - best.y) <= 0.01 and absf(dir.x) > absf(best.x)):
+			best = dir
+	return best
 
 func is_gate_cell(cell: Vector2i) -> bool:
 	return _gate_cells.has(cell)
@@ -364,6 +408,10 @@ func can_place_house(cell: Vector2i) -> bool:
 		return false
 	if road_at(cell) != -1 or _point_cells.has(cell) or _gate_cells.has(cell) or _near_point(cell, -1):
 		return false
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			if _lot_cells.has(cell + Vector2i(dx, dy)):
+				return false  # không đặt nhà sát bãi đỗ của kho
 	for d in GATE_DIRS:
 		if _gate_ok(cell + d, -1, 1):
 			return true
