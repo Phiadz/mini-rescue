@@ -12,6 +12,8 @@ var _points: Array[int] = []    # các điểm trên bản đồ, theo thứ t�
 var _point_cells := {}          # ô -> id điểm
 var _cell_elevation: Array = [] # độ cao từng ô, khóa "grid" của bản đồ
 var _cell_water: Array = []     # 1 nếu ô là sông (grid.water), bản đồ không có thì rỗng
+var _cell_boat: Array = []      # 1 nếu ca-nô đi được trên ô (grid.boat: ít nhất 10% diện tích ô là sông), rỗng nếu bản đồ không có
+var _gates_enabled := false     # khóa "gates": mỗi điểm có một ô cổng, đường chỉ nối vào điểm qua ô đó
 var _stages: Array = []         # khóa "stages": vùng camera theo đợt (GameManager dùng)
 var _terrain: Dictionary = {}   # khóa "terrain" của bản đồ: ảnh độ cao và màu nước cho FloodOverlay
 var _roads := 0                 # số ô đường đã tô
@@ -52,6 +54,8 @@ func load_map(path: String) -> void:
 		return
 	_cell_elevation = data.get('grid', {}).get('elevation', [])
 	_cell_water = data.get('grid', {}).get('water', [])
+	_cell_boat = data.get('grid', {}).get('boat', [])
+	_gates_enabled = bool(data.get('gates', false))
 	_terrain = data.get('terrain', {})
 	_stages = data.get('stages', [])
 	for d in data['nodes']:
@@ -120,6 +124,15 @@ func cell_elevation(cell: Vector2i) -> float:
 func cell_is_water(cell: Vector2i) -> bool:
 	var i := _cell_index(cell)
 	return _in_grid(cell) and i < _cell_water.size() and int(_cell_water[i]) == 1
+
+# Ô ca-nô đi được (lớp grid.boat, dày và liền hơn lớp sông của lũ). Bản đồ không có lớp này thì không ô nào.
+func cell_is_boat(cell: Vector2i) -> bool:
+	var i := _cell_index(cell)
+	return _in_grid(cell) and i < _cell_boat.size() and int(_cell_boat[i]) == 1
+
+# Bản đồ bật cổng (khóa "gates"): mỗi điểm có một ô cổng, xe vào và ra điểm chỉ qua ô đó.
+func uses_gates() -> bool:
+	return _gates_enabled
 
 # Các vùng chơi theo đợt [{center: [x, y], zoom}], rỗng nếu bản đồ không khai báo.
 func get_stages() -> Array:
