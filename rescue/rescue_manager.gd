@@ -4,8 +4,8 @@ extends Node
 
 # TODO: xin A chuyển các hằng số này sang autoload/config.gd rồi đổi thành Config.X
 const HOSPITAL_ID := 5               # node Bệnh viện luôn ra SOS Y tế
-const START_TRUCKS := 16              # số xe tải lúc đầu ván (ở kho cao nhất)
-const START_BOATS := 16               # số ca-nô lúc đầu ván (ở kho thấp nhất)
+const START_TRUCKS := 100             # số xe tải lúc đầu ván (ở kho cao nhất)
+const START_BOATS := 100              # số ca-nô lúc đầu ván (ở kho thấp nhất)
 const DISPATCH_INTERVAL := 0.5       # giây giữa hai lượt điều phối
 const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết cạnh
 const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
@@ -20,7 +20,8 @@ const JUNCTION_RADIUS := 24.0        # bán kính ngã ba, ngã tư (px)
 const JUNCTION_APPROACH := 46.0      # trong khoảng này trước ngã ba thì xét nhường đường
 const JAM_GIVE_UP := 3.0             # đứng chờ quá lâu (giây) thì đi chậm qua, tránh tắc vĩnh viễn
 const CONGESTION_PATH_COST := 1.5    # giây cộng thêm khi tìm đường qua cạnh sắp có xe đi
-const UNIT_EXTRA_TIME := 0.3         # SOS cần nhiều phần: mỗi phần thêm cộng 30% thời hạn
+const UNIT_EXTRA_SECONDS := 2.0      # SOS cần nhiều phần: mỗi phần thêm cộng 2 giây (xe xếp hàng dỡ hàng lần lượt)
+const GRID_CELL := 40.0              # ô lưới để tìm xe ở gần khi tính kẹt xe (bằng một ô đường)
 
 # Nguồn đồ thị. null = dùng GraphManager thật. Scene thử gán đồ thị giả vào đây.
 var graph = null
@@ -93,8 +94,8 @@ class SosFactory extends RefCounted:
 		else:
 			req.time_total = w.deadline_medical
 		req.time_left = req.time_total
-		req.units = randi_range(1, int(w.get("sos_units", 1)))
-		req.time_total *= 1.0 + UNIT_EXTRA_TIME * (req.units - 1)  # khu ngập nặng cần nhiều chuyến hơn
+		req.units = int(w.get("sos_units", 1))
+		req.time_total += UNIT_EXTRA_SECONDS * (req.units - 1)  # nhiều xe phải xếp hàng dỡ hàng
 		return req
 
 # ===== VEHICLE =====
@@ -444,6 +445,31 @@ func find_path(from_id: int, to_id: int, vehicle_type: int, exclude: Vehicle = n
 
 
 # ===== Kẹt xe =====
+var _grid := {}  # ô lưới -> các xe đang chạy hoặc đang dỡ hàng trong ô đó (dựng lại mỗi khung hình)
+
+
+func _rebuild_grid() -> void:
+	_grid.clear()
+	for v in _vehicles.values():
+		if v.is_moving() or v.state_id == Types.VehicleState.DELIVERING:
+			var key := Vector2i((v.position / GRID_CELL).floor())
+			if not _grid.has(key):
+				_grid[key] = []
+			_grid[key].append(v)
+
+
+# Xe ở gần p (trong 3 ô quanh p, đủ cho FOLLOW_GAP và vùng ngã ba JUNCTION_APPROACH), để không phải so mọi cặp xe.
+func _nearby(p: Vector2) -> Array:
+	var out := []
+	var c := Vector2i((p / GRID_CELL).floor())
+	for dy in range(-3, 4):
+		for dx in range(-3, 4):
+			var k := c + Vector2i(dx, dy)
+			if _grid.has(k):
+				out.append_array(_grid[k])
+	return out
+
+
 # Mỗi xe đang chạy làm 3 cạnh sắp đi của nó đắt thêm CONGESTION_PATH_COST giây.
 func congestion_penalty(exclude: Vehicle = null) -> Dictionary:
 	var pen := {}
@@ -464,7 +490,7 @@ func congestion_penalty(exclude: Vehicle = null) -> Dictionary:
 func congestion_factor(v: Vehicle, others: Array = []) -> float:
 	if not v.is_moving():
 		return 1.0
-	var list: Array = others if not others.is_empty() else _vehicles.values()
+	var list: Array = others if not others.is_empty() else _nearby(v.position)
 	var f := 1.0
 	var nxt := v.next_node()
 	var jpos := Vector2.ZERO
@@ -504,6 +530,7 @@ func congestion_factor(v: Vehicle, others: Array = []) -> float:
 
 func _process(delta: float) -> void:
 	_clock += delta
+	_rebuild_grid()
 	for h in _hubs.values():
 		for s in h.tick(delta):
 			EventBus.stock_changed.emit(h.id, s, h.stock[s])

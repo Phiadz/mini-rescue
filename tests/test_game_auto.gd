@@ -84,14 +84,14 @@ func _test_full_game_win() -> void:
 	_check(_last('wave_started') == ['wave_started', 1], 'sau giờ nghỉ bắt đầu đợt 1')
 
 	await _wait_state(Types.GameState.WAVE_BREAK)
-	GameManager._score_system.funds = 300
+	GameManager._score_system.funds = int(Config.SHOP_PRICES[Types.Reward.MORE_EDGES]) * 5  # đủ mua 2 lần ô đường và 1 xe tải, không đủ thêm ca-nô
 	var limit_before: int = GraphManager.get_edge_budget().limit
 	var p1 := GameManager.get_price(Types.Reward.MORE_EDGES)
 	_check(GameManager.choose_reward(Types.Reward.MORE_EDGES), 'mua +ô đường (%d)' % p1)
 	var p2 := GameManager.get_price(Types.Reward.MORE_EDGES)
 	_check(p2 > p1 and GameManager.choose_reward(Types.Reward.MORE_EDGES), 'mua lần hai, giá tăng (%d lên %d)' % [p1, p2])
 	_check(GameManager.choose_reward(Types.Reward.EXTRA_TRUCK), 'mua thêm xe tải trong cùng lượt nghỉ')
-	var left_funds: int = 300 - p1 - p2 - int(Config.SHOP_PRICES[Types.Reward.EXTRA_TRUCK])
+	var left_funds: int = int(Config.SHOP_PRICES[Types.Reward.MORE_EDGES]) * 5 - p1 - p2 - int(Config.SHOP_PRICES[Types.Reward.EXTRA_TRUCK])
 	_check(GameManager.get_funds() == left_funds, 'quỹ trừ đúng, còn %d' % GameManager.get_funds())
 	_check(not GameManager.choose_reward(Types.Reward.EXTRA_BOAT), 'không đủ quỹ thì không mua được ca-nô')
 	_check(GraphManager.get_edge_budget().limit == limit_before + 2 * Config.REWARD_EDGE_BONUS, 'hạn mức ô đường tăng 2 lần')

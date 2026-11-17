@@ -6,8 +6,8 @@ signal reward_pressed(reward: int)
 signal done_pressed
 const Style = preload("res://ui/style.gd")
 const ICONS := ["res://assets/icons/road_dry.svg", "res://assets/icons/truck.svg", "res://assets/icons/boat.svg"]
-var titles: Array = ["+%d Ô ĐƯỜNG" % Config.REWARD_EDGE_BONUS, "+1 XE TẢI", "+1 CA-NÔ"]
-var details: Array = ["Thêm %d ô đường có thể xây." % Config.REWARD_EDGE_BONUS, "Thêm 1 xe tải vận chuyển hàng.", "Thêm 1 ca-nô cứu hộ trên nước."]
+var titles: Array = ["+%d Ô ĐƯỜNG" % Config.REWARD_EDGE_BONUS, "+%d XE TẢI" % Config.REWARD_VEHICLE_BONUS, "+%d CA-NÔ" % Config.REWARD_VEHICLE_BONUS]
+var details: Array = ["Thêm %d ô đường có thể xây." % Config.REWARD_EDGE_BONUS, "Thêm %d xe tải vận chuyển hàng." % Config.REWARD_VEHICLE_BONUS, "Thêm %d ca-nô cứu hộ trên nước." % Config.REWARD_VEHICLE_BONUS]
 var timer_label: Label
 var funds_label: Label
 var options: Array = [0, 1, 2]

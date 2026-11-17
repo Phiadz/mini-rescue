@@ -131,9 +131,11 @@ func choose_reward(reward: int) -> bool:
 		Types.Reward.MORE_EDGES:
 			GraphManager.add_edge_limit(Config.REWARD_EDGE_BONUS)
 		Types.Reward.EXTRA_TRUCK:
-			RescueManager.add_vehicle(Types.VehicleType.TRUCK)
+			for i in Config.REWARD_VEHICLE_BONUS:
+				RescueManager.add_vehicle(Types.VehicleType.TRUCK)
 		Types.Reward.EXTRA_BOAT:
-			RescueManager.add_vehicle(Types.VehicleType.BOAT)
+			for i in Config.REWARD_VEHICLE_BONUS:
+				RescueManager.add_vehicle(Types.VehicleType.BOAT)
 	_bought[reward] = int(_bought.get(reward, 0)) + 1
 	EventBus.reward_chosen.emit(reward)
 	return true
