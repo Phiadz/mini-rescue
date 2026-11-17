@@ -57,7 +57,7 @@ const SHOP_PRICE_GROWTH := 1.5  # mỗi lần mua cùng một món trong ván, g
 # Loại xe: 0 TRUCK, 1 BOAT. Trạng thái tuyến: 0 DRY, 1 SHALLOW, 2 DEEP
 const SPEED_FACTOR := {
 	0: [1.0, 0.5, 0.0],
-	1: [0.0, 0.0, 1.0],  # ca-nô chỉ chạy trên sông (cạnh boat_only, luôn DEEP) và đường ngập sâu; đường khô, đường "cạn" là của xe tải
+	1: [0.0, 0.5, 1.0],  # ca-nô không lên đất khô; chạy trên sông (cạnh boat_only, luôn DEEP), đường ngập sâu, đường ngập nhẹ thì chậm
 }
 
 # --- Các đợt lũ (chỉ số 0, 1, 2) ---
@@ -65,8 +65,8 @@ const SPEED_FACTOR := {
 # house_interval: bản đồ có cổng thì cứ chừng ấy giây lại mọc thêm một nhà quanh một khu đã mở.
 const WAVES := [
 	{water_delta = 25.0, sos_interval = 7.0, sos_max = 6, sos_units = 1, house_interval = 9.0, food_ratio = 0.70, deadline_food = 40.0, deadline_medical = 30.0},
-	{water_delta = 30.0, sos_interval = 5.0, sos_max = 8, sos_units = 1, house_interval = 7.0, food_ratio = 0.60, deadline_food = 38.0, deadline_medical = 29.0},
-	{water_delta = 35.0, sos_interval = 3.8, sos_max = 10, sos_units = 1, house_interval = 5.0, food_ratio = 0.55, deadline_food = 30.0, deadline_medical = 23.0},
+	{water_delta = 30.0, sos_interval = 5.0, sos_max = 8, sos_units = 1, house_interval = 7.0, food_ratio = 0.60, deadline_food = 35.0, deadline_medical = 27.0},
+	{water_delta = 35.0, sos_interval = 3.8, sos_max = 10, sos_units = 1, house_interval = 5.0, food_ratio = 0.55, deadline_food = 27.0, deadline_medical = 21.0},
 ]
 
 # Nhà mọc dần: mỗi khu (điểm có tên) có tối đa HOUSE_MAX_PER_DISTRICT nhà, cách khu tối đa HOUSE_RADIUS ô.

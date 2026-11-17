@@ -125,8 +125,8 @@ func _test_on_water() -> void:
 			low += 1
 	_check(count > 0 and low <= 2 and worst >= 0.75,
 			'đoạn sông (%d đoạn) nằm trên sông: %d đoạn dưới 90%% nước (nối chỗ ảnh sông bị đứt), thấp nhất %d%%' % [count, low, roundi(worst * 100.0)])
-	_check(Config.SPEED_FACTOR[BOAT][Types.EdgeState.SHALLOW] == 0.0 and Config.SPEED_FACTOR[BOAT][Types.EdgeState.DRY] == 0.0,
-			'ca-nô không đi đường khô, không đi đường ngập nhẹ ("cạn")')
+	_check(Config.SPEED_FACTOR[BOAT][Types.EdgeState.DRY] == 0.0 and Config.SPEED_FACTOR[BOAT][Types.EdgeState.SHALLOW] < Config.SPEED_FACTOR[BOAT][Types.EdgeState.DEEP],
+			'ca-nô không lên đất khô; đường ngập nhẹ chạy chậm hơn ngập sâu')
 	# Ca-nô cập bến một điểm từ nút nước: dừng trên nước.
 	var stops := 0
 	var dry := []
