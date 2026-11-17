@@ -172,6 +172,10 @@ func _process(delta: float) -> void:
 
 func _on_score(value: int) -> void:
 	score_label.text = "ĐIỂM %d" % value
+	score_label.pivot_offset = score_label.size / 2.0
+	var tw := score_label.create_tween()
+	score_label.scale = Vector2(1.25, 1.25)
+	tw.tween_property(score_label, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func _on_failed(count: int, maximum: int) -> void:
 	fail_label.text = "THẤT BẠI %d / %d" % [count, maximum]
