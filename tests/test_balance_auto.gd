@@ -2,7 +2,9 @@ extends Node
 # Tự chơi nhiều ván trên mạng đường cố định để chỉnh hạn mức, đồng thời đo thời gian tìm đường.
 # Không có kiểm tra đạt/trượt: chỉ in số liệu. Chạy headless (từ thư mục project):
 #   Godot_v4.7.2-stable_win64_console.exe --headless --fixed-fps 60 --path . res://tests/test_balance_auto.tscn
-# Chạy ít ván hơn để dò nhanh: thêm "-- games=4" vào cuối lệnh.
+# Chạy ít ván hơn để dò nhanh: thêm "-- games=4" vào cuối lệnh. Đo khung hình ở tốc độ thật: "-- games=1 speed=1 seconds=150"
+# (speed: hệ số tua, mặc định SPEED; seconds: dừng ván sau chừng ấy giây chơi).
+# Chụp màn hình lúc dừng (chạy có cửa sổ, bỏ --headless): thêm "shot=D:/duong/dan/anh.png".
 # Cách chơi cố định: nối sẵn các tuyến, không sửa đường, không chọn thưởng. Không thay cho người chơi thật.
 # Bản đồ có cổng: tuyến nối từ ô cổng tới ô cổng theo đường ngắn nhất (đi lại trên đường có sẵn không tốn hạn mức),
 # chừa HOUSE_RESERVE ô để nối nhà mọc thêm; nhà mới mọc thì tự nối cổng nhà tới đường gần nhất;
@@ -23,9 +25,13 @@ var _stats := {}
 var _won := false
 var _moving := 0.0  # tổng thời gian xe chạy trên đường (giây × xe)
 var _jammed := 0.0
-var _frame_ms := 0.0  # tổng thời gian xử lý khung hình (ms)
+var _frame_ms := 0.0  # tổng thời gian thực giữa hai khung hình (ms); TIME_PROCESS của Godot sai khi chạy headless với --fixed-fps
 var _frame_max := 0.0
-var _frames := 0  # phần trong đó xe bị kẹt (bám đuôi hoặc chờ ở ngã ba)
+var _frames := 0
+var _last_tick := 0
+var _sos_node := {}     # mã SOS -> nút có SOS
+var _sos_taken := {}    # mã SOS đã có xe nhận
+var _fail_why := {}     # lý do SOS thất bại -> số lần
 
 
 func _ready() -> void:
@@ -44,11 +50,23 @@ func _run() -> void:
 	EventBus.wave_ended.connect(_print_states)
 	EventBus.point_added.connect(func(id: int) -> void: _link_house.call_deferred(id))
 	EventBus.break_started.connect(func(_s: float) -> void: _buy_edges.call_deferred())
-	Engine.time_scale = SPEED
+	EventBus.sos_spawned.connect(func(rid: int, node: int, _sup: int, _t: float) -> void: _sos_node[rid] = node)
+	EventBus.sos_assigned.connect(func(rid: int, _vid: int) -> void: _sos_taken[rid] = true)
+	EventBus.sos_failed.connect(_on_sos_failed)
 	var games := GAMES
+	var speed := SPEED
+	var limit := 0.0
+	var shot := ""
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("games="):
 			games = maxi(1, int(arg.trim_prefix("games=")))
+		elif arg.begins_with("speed="):
+			speed = maxf(0.1, float(arg.trim_prefix("speed=")))
+		elif arg.begins_with("seconds="):
+			limit = float(arg.trim_prefix("seconds="))
+		elif arg.begins_with("shot="):
+			shot = arg.trim_prefix("shot=")
+	Engine.time_scale = speed
 	var wins := 0
 	var scores := 0
 	var jam_total := 0.0
@@ -62,25 +80,53 @@ func _run() -> void:
 		_frame_ms = 0.0
 		_frame_max = 0.0
 		_frames = 0
+		_last_tick = Time.get_ticks_usec()
+		_fail_why.clear()
 		while _stats.is_empty():
 			await get_tree().process_frame
 			_count_jams()
+			if limit > 0.0 and GameManager.get_time_survived() >= limit:
+				print('Dừng ở %.0f giây (tốc độ x%.1f): %d xe đang chạy, %d nhà, khung hình trung bình %.2f ms, lâu nhất %.1f ms' % [
+						GameManager.get_time_survived(), speed, RescueManager._vehicles.values().filter(func(v) -> bool: return v.is_moving()).size(),
+						GraphManager.get_node_ids().size() - 17, _frame_ms / maxf(_frames, 1), _frame_max])
+				if not shot.is_empty():
+					await RenderingServer.frame_post_draw
+					get_viewport().get_texture().get_image().save_png(shot)
+					print('Đã chụp ', shot)
+				get_tree().quit()
+				return
 		wins += 1 if _won else 0
 		scores += _stats.score
 		jam_total += _jammed / maxf(_moving, 0.001)
 		print('Ván %2d: %-5s %4d điểm, cứu %2d, thất bại %d, %3.0f giây, %d ô đường, kẹt %4.1f%% thời gian chạy' % [
 			i + 1, 'thắng' if _won else 'thua', _stats.score, _stats.saved, _stats.failed, _stats.time_survived, used, 100.0 * _jammed / maxf(_moving, 0.001)])
-		print('        khung hình: trung bình %.2f ms, lâu nhất %.1f ms' % [_frame_ms / maxf(_frames, 1), _frame_max])
+		print('        khung hình (thời gian thực): trung bình %.2f ms, lâu nhất %.1f ms; SOS thất bại vì: %s' % [_frame_ms / maxf(_frames, 1), _frame_max, str(_fail_why)])
 	print('Tổng: thắng %d/%d, điểm trung bình %.0f, kẹt trung bình %.1f%% thời gian chạy (%d xe tải, %d ca-nô lúc đầu)' % [
 			wins, games, float(scores) / games, 100.0 * jam_total / games, RescueManager.START_TRUCKS, RescueManager.START_BOATS])
 	_time_find_path()
 	get_tree().quit()
 
 
+# SOS hết giờ: ghi lý do (không xe nào tới được, có đường nhưng chưa xe nhận, đã có xe nhận nhưng tới trễ), kèm loại điểm.
+func _on_sos_failed(rid: int) -> void:
+	var node: int = _sos_node.get(rid, -1)
+	var n := GraphManager.get_map_node(node)
+	var where := 'nhà' if n != null and n.name.is_empty() else 'khu'
+	var why := 'xe tới trễ'
+	if not _sos_taken.has(rid):
+		var truck := GraphManager.find_path(RescueManager._hub_for(Types.VehicleType.TRUCK), node, Types.VehicleType.TRUCK).found
+		var boat := GraphManager.find_path(RescueManager._hub_for(Types.VehicleType.BOAT), node, Types.VehicleType.BOAT).found
+		why = 'chưa xe nhận' if truck or boat else 'không có đường'
+	var key := '%s (%s)' % [why, where]
+	_fail_why[key] = int(_fail_why.get(key, 0)) + 1
+
+
 # Mỗi khung hình: cộng thời gian chạy và thời gian bị kẹt của các xe đang trên đường.
 func _count_jams() -> void:
 	var dt := get_process_delta_time()
-	var ms: float = Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+	var now := Time.get_ticks_usec()
+	var ms := (now - _last_tick) / 1000.0
+	_last_tick = now
 	_frame_ms += ms
 	_frame_max = maxf(_frame_max, ms)
 	_frames += 1

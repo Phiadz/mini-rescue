@@ -5,7 +5,7 @@ signal pause_pressed
 const Style = preload("res://ui/style.gd")
 
 const BAR := Rect2(215, 8, 850, 42)
-const BADGE_SIZE := Vector2(96, 26)
+const BADGE_SIZE := Vector2(104, 26)
 const BADGE_OFFSET := 52.0 # below the hub icon and its name (NodeLayer)
 const ROAD_DRY := Color("#fbfaf6")
 const ROAD_SHALLOW := Color("#f7e6ae")
@@ -140,8 +140,10 @@ func _build_badges() -> void:
 			continue
 		var at: Vector2 = n.pos + Vector2(-BADGE_SIZE.x / 2.0, BADGE_OFFSET)
 		var pill := Style.rect(self, at.x, at.y, BADGE_SIZE.x, BADGE_SIZE.y, Color(0.0, 0.05, 0.11, 0.9), Style.BORDER, 13)
-		var food := Style.text(pill, "", 8, 0, 40, BADGE_SIZE.y, 15, Style.YELLOW, true)
-		var med := Style.text(pill, "", 48, 0, 40, BADGE_SIZE.y, 15, Style.CYAN, true)
+		var food := Style.text(pill, "", 6, 0, 46, BADGE_SIZE.y, 15, Style.YELLOW, true)
+		var med := Style.text(pill, "", 52, 0, 46, BADGE_SIZE.y, 15, Style.CYAN, true)
+		food.autowrap_mode = TextServer.AUTOWRAP_OFF  # "YT 20" rộng hơn ô 40 px cũ nên bị xuống dòng
+		med.autowrap_mode = TextServer.AUTOWRAP_OFF
 		badges[id] = [food, med]
 		pill.set_meta("anchor", n.pos + Vector2(0.0, BADGE_OFFSET))
 		for supply in [Types.SupplyType.FOOD, Types.SupplyType.MEDICAL]:
