@@ -1,0 +1,261 @@
+extends Node
+# Test tự động cho cổng, chỗ đỗ và nhà mọc dần trên bản đồ Sài Gòn (bản đồ bật "gates").
+# Chạy headless (từ thư mục project):
+#   Godot_v4.7.2-stable_win64_console.exe --headless --fixed-fps 60 --path . res://tests/test_gate_auto.tscn
+# Thoát với mã 0 nếu mọi kiểm tra đạt, 1 nếu có kiểm tra trượt.
+
+const HUB := 0         # Kho Tân Sơn Nhất
+const NEAR := 16       # Lê Đức Thọ, gần Kho Tân Sơn Nhất
+const NB8: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
+		Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1)]
+
+var _passed := 0
+var _failed := 0
+var _added: Array[int] = []
+var _rescued := 0
+
+
+func _ready() -> void:
+	EventBus.point_added.connect(func(id: int) -> void: _added.append(id))
+	EventBus.sos_rescued.connect(func(_r: int, _p: int) -> void: _rescued += 1)
+	_run.call_deferred()
+
+
+func _run() -> void:
+	seed(7)
+	_fresh()
+	_test_gates()
+	_test_extend()
+	_test_stop_pos()
+	await _test_vehicle()
+	_fresh()
+	_test_house()
+	_test_spawn()
+	print('\nKết quả: %d đạt, %d trượt' % [_passed, _failed])
+	get_tree().quit(1 if _failed > 0 else 0)
+
+
+func _fresh() -> void:
+	GraphManager.load_map(Config.MAP_PATH)
+	EventBus.game_started.emit()
+
+
+func _cell(id: int) -> Vector2i:
+	return GraphManager.cell_of(GraphManager.get_map_node(id).pos)
+
+
+func _test_gates() -> void:
+	print('\n== Mỗi điểm một ô cổng')
+	_check(GraphManager.uses_gates(), 'bản đồ Sài Gòn bật cổng')
+	var ok := true
+	var cells := {}
+	var names := []
+	for id in GraphManager.get_node_ids():
+		var n := GraphManager.get_map_node(id)
+		var gcell: Vector2i = _cell(id) + n.gate
+		var gid := GraphManager.get_gate_node(id)
+		var edges := GraphManager.get_edges_of(id)
+		ok = ok and n.gate != Vector2i.ZERO and absi(n.gate.x) + absi(n.gate.y) == 1
+		ok = ok and gid != -1 and GraphManager.is_gate_cell(gcell) and GraphManager.road_at(gcell) == gid
+		ok = ok and edges.size() == 1 and GraphManager.get_edge(edges[0]).other_end(id) == gid
+		ok = ok and not GraphManager.cell_is_water(gcell) and not cells.has(gcell)
+		cells[gcell] = true
+		names.append('%s %s' % [n.name, {Vector2i(1, 0): 'Đ', Vector2i(-1, 0): 'T', Vector2i(0, -1): 'B', Vector2i(0, 1): 'N'}.get(n.gate, '?')])
+	print('  hướng cổng: ', ', '.join(names))
+	_check(ok, '17 điểm đều có đúng một ô cổng (kề cạnh, không phải sông, không trùng), nối với điểm bằng một cạnh')
+	_check(GraphManager.get_edge_budget().used == 0, 'ô cổng không tính vào hạn mức')
+	_check(not GraphManager.remove_road(_cell(HUB) + GraphManager.get_map_node(HUB).gate), 'không xóa được ô cổng')
+	_check(GraphManager.get_road_ids().size() == 17, 'đầu ván chỉ có 17 ô đường là 17 ô cổng')
+
+
+func _test_extend() -> void:
+	print('\n== Đường chỉ vào điểm qua cổng')
+	var hub_cell := _cell(HUB)
+	var gate: Vector2i = GraphManager.get_map_node(HUB).gate
+	var side := Vector2i.ZERO
+	for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
+		var c: Vector2i = hub_cell + d
+		if d != gate and GraphManager.road_at(c) == -1 and not GraphManager.cell_is_water(c):
+			side = c
+			break
+	var side_id := GraphManager.extend_road(-1, side)
+	_check(side_id != -1, 'tô được ô cạnh kho (không phải cổng)')
+	_check(GraphManager.extend_road(side_id, hub_cell) == -1, 'từ ô cạnh không phải cổng không nối vào kho được')
+	_check(GraphManager.extend_road(HUB, side) == -1, 'từ kho không đi thẳng ra ô không phải cổng')
+	var gid := GraphManager.get_gate_node(HUB)
+	_check(GraphManager.extend_road(gid, hub_cell) == HUB, 'từ ô cổng vào kho được')
+	_check(GraphManager.extend_road(HUB, hub_cell + gate) == gid, 'từ kho ra ô cổng được')
+	var out: Vector2i = hub_cell + gate * 2
+	var before: int = GraphManager.get_edge_budget().used
+	var out_id := GraphManager.extend_road(gid, out)
+	_check(out_id != -1 and GraphManager.get_edge_budget().used == before + 1, 'tô tiếp từ ô cổng ra ngoài, tính 1 ô hạn mức')
+	GraphManager.remove_road(side)
+	GraphManager.remove_road(out)
+
+
+func _test_stop_pos() -> void:
+	print('\n== Chỗ đỗ ở lối vào')
+	var n := GraphManager.get_map_node(NEAR)
+	var p := RescueManager.stop_pos(NEAR)
+	_check(p == n.pos + Vector2(n.gate) * RescueManager.PARK_IN, 'xe đỗ lệch %d px từ tâm về phía cổng' % int(RescueManager.PARK_IN))
+	var gid := GraphManager.get_gate_node(NEAR)
+	_check(RescueManager.stop_pos(gid) == GraphManager.get_map_node(gid).pos, 'ô đường: dừng ở tâm ô như cũ')
+
+
+func _test_vehicle() -> void:
+	print('\n== Xe ẩn trong kho, đỗ ở lối vào khi giao hàng')
+	await get_tree().process_frame
+	await get_tree().process_frame  # process_frame phát trước _process của xe: chờ thêm một khung
+	var idle := RescueManager._vehicles.values()
+	_check(not idle.is_empty() and idle.all(func(v) -> bool: return not v.visible), 'xe đang đỗ ở kho đều ẩn')
+	_check(_connect(GraphManager.get_gate_node(HUB), _cell(NEAR) + GraphManager.get_map_node(NEAR).gate), 'nối đường từ cổng kho tới cổng Lê Đức Thọ')
+	var req := RescueManager.SosRequest.new()
+	req.id = 900
+	req.node_id = NEAR
+	req.supply = Types.SupplyType.FOOD
+	req.time_total = 600.0
+	req.time_left = 600.0
+	RescueManager._requests[900] = req
+	RescueManager.mark_dirty()
+	var hub_pos := GraphManager.get_map_node(HUB).pos
+	var found := []  # lambda chụp biến cục bộ theo giá trị, nên trả xe ra qua mảng
+	await _wait(func() -> bool:
+		for v in RescueManager._vehicles.values():
+			if v.request == req and found.is_empty():
+				found.append(v)
+		return not found.is_empty())
+	var truck = found[0] if not found.is_empty() else null
+	_check(truck != null, 'một xe tải nhận SOS')
+	if truck == null:
+		return
+	await _wait(func() -> bool: return truck.position.distance_to(hub_pos) > RescueManager.HUB_HIDE_RADIUS + 4.0)
+	await get_tree().process_frame
+	_check(truck.visible, 'ra khỏi kho thì xe hiện')
+	await _wait(func() -> bool: return truck.state_id == Types.VehicleState.DELIVERING)
+	_check(truck.position.distance_to(RescueManager.stop_pos(NEAR)) < 0.5, 'xe đỗ ở lối vào trước nhà')
+	_check(truck.position.distance_to(GraphManager.get_map_node(NEAR).pos) > 10.0, 'xe không chồng lên tâm nhà')
+	await _wait(func() -> bool: return _rescued > 0)
+	_check(_rescued == 1, 'giao hàng xong')
+	await _wait(func() -> bool: return truck.state_id == Types.VehicleState.IDLE)
+	await get_tree().process_frame
+	_check(truck.state_id == Types.VehicleState.IDLE and not truck.visible, 'về kho thì xe ẩn lại')
+
+
+func _test_house() -> void:
+	print('\n== Đặt nhà')
+	var hub_cell := _cell(HUB)
+	_check(not GraphManager.can_place_house(hub_cell), 'không đặt nhà lên ô của điểm')
+	_check(not GraphManager.can_place_house(hub_cell + GraphManager.get_map_node(HUB).gate), 'không đặt nhà lên ô cổng')
+	_check(not GraphManager.can_place_house(hub_cell + Vector2i(1, 1)), 'không đặt nhà kề điểm khác')
+	var water := Vector2i(-1, -1)
+	for y in Config.GRID_ROWS:
+		for x in Config.GRID_COLS:
+			if water == Vector2i(-1, -1) and GraphManager.cell_is_boat(Vector2i(x, y)):
+				water = Vector2i(x, y)
+	_check(not GraphManager.can_place_house(water), 'không đặt nhà trên sông')
+	var cell := _free_cell_near(NEAR)
+	_check(cell != Vector2i(-1, -1) and GraphManager.can_place_house(cell), 'tìm được ô hợp lệ gần Lê Đức Thọ')
+	_added.clear()
+	var before: int = GraphManager.get_edge_budget().used
+	var id := GraphManager.add_house(cell, NEAR)
+	var n := GraphManager.get_map_node(id)
+	_check(id >= GraphManager.HOUSE_ID_BASE and id < GraphManager.ROAD_ID_BASE, 'nhà mới có mã từ %d' % GraphManager.HOUSE_ID_BASE)
+	_check(n != null and n.kind == Types.NodeKind.DISTRICT and n.name.is_empty() and n.parent == NEAR and n.icon.begins_with('house_'),
+			'nhà là khu dân cư không tên, thuộc Lê Đức Thọ, icon nhà')
+	_check(GraphManager.get_gate_node(id) != -1 and GraphManager.get_edges_of(id).size() == 1, 'nhà có ô cổng')
+	_check(GraphManager.get_edge_budget().used == before, 'cổng nhà không tính hạn mức')
+	_check(_added == [id] and GraphManager.get_node_ids().has(id), 'phát point_added, nhà có trong danh sách điểm')
+	_check(not GraphManager.can_place_house(cell) and GraphManager.add_house(cell, NEAR) == -1, 'không đặt chồng nhà lên ô đã có nhà')
+
+
+func _test_spawn() -> void:
+	print('\n== Nhà mọc dần')
+	GameManager._enter_stage(0, false)  # vùng chơi đợt 1
+	_added.clear()
+	RescueManager.set_wave(0)
+	var w: Dictionary = Config.WAVES[0]
+	RescueManager._tick_houses(float(w.house_interval) - 0.5)
+	_check(_added.is_empty(), 'chưa đủ house_interval thì chưa mọc nhà')
+	RescueManager._tick_houses(1.0)
+	_check(_added.size() == 1, 'đủ house_interval (%.0f giây) thì mọc một nhà' % float(w.house_interval))
+	for i in 80:
+		RescueManager.try_spawn_house()
+	var per := {}
+	var near := true
+	var inside := true
+	var dry := true
+	for id in _added:  # chỉ xét nhà vừa mọc trong bài này
+		var n := GraphManager.get_map_node(id)
+		per[n.parent] = int(per.get(n.parent, 0)) + 1
+		var d: Vector2i = GraphManager.cell_of(n.pos) - _cell(n.parent)
+		near = near and maxi(absi(d.x), absi(d.y)) <= Config.HOUSE_RADIUS
+		inside = inside and GameManager.is_in_play(n.pos) and GameManager.is_in_play(GraphManager.get_map_node(n.parent).pos)
+		dry = dry and not GraphManager.cell_is_boat(GraphManager.cell_of(n.pos))
+	var max_per := 0
+	for k in per:
+		max_per = maxi(max_per, per[k])
+	_check(_added.size() >= 8, 'mọc được nhiều nhà (%d)' % _added.size())
+	_check(max_per <= Config.HOUSE_MAX_PER_DISTRICT, 'mỗi khu tối đa %d nhà' % Config.HOUSE_MAX_PER_DISTRICT)
+	_check(near, 'nhà cách khu mẹ tối đa %d ô' % Config.HOUSE_RADIUS)
+	_check(inside, 'nhà và khu mẹ đều trong vùng chơi đợt 1')
+	_check(dry, 'nhà không mọc trên sông')
+	_check(_added.all(func(id: int) -> bool: return GraphManager.get_gate_node(id) != -1), 'nhà nào cũng có cổng')
+	RescueManager.set_spawning(false)
+	GameManager._enter_stage(2, false)
+
+
+# Ô trống đặt được nhà gần điểm id (bán kính 3), hoặc (-1, -1).
+func _free_cell_near(id: int) -> Vector2i:
+	var c := _cell(id)
+	for r in range(2, 4):
+		for dy in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if GraphManager.can_place_house(c + Vector2i(dx, dy)):
+					return c + Vector2i(dx, dy)
+	return Vector2i(-1, -1)
+
+
+# Nối đường từ nút from_id tới ô to theo đường ngắn nhất (BFS 8 hướng, tránh ô của điểm).
+func _connect(from_id: int, to: Vector2i) -> bool:
+	var start := GraphManager.cell_of(GraphManager.get_map_node(from_id).pos)
+	var prev := {start: start}
+	var queue: Array[Vector2i] = [start]
+	while not queue.is_empty() and not prev.has(to):
+		var c: Vector2i = queue.pop_front()
+		for d in NB8:
+			var n: Vector2i = c + d
+			if prev.has(n) or n.x < 0 or n.y < 0 or n.x >= Config.GRID_COLS or n.y >= Config.GRID_ROWS:
+				continue
+			if GraphManager._point_cells.has(n):
+				continue
+			prev[n] = c
+			queue.append(n)
+	if not prev.has(to):
+		return false
+	var path: Array[Vector2i] = []
+	var cur := to
+	while cur != start:
+		path.push_front(cur)
+		cur = prev[cur]
+	var last := from_id
+	for c in path:
+		last = GraphManager.extend_road(last, c)
+		if last == -1:
+			return false
+	return true
+
+
+func _wait(done: Callable) -> void:
+	for i in 1800:
+		if done.call():
+			return
+		await get_tree().process_frame
+
+
+func _check(ok: bool, label: String) -> void:
+	if ok:
+		_passed += 1
+		print('  [ĐẠT]   ', label)
+	else:
+		_failed += 1
+		print('  [TRƯỢT] ', label)

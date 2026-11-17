@@ -2,6 +2,11 @@ extends Node
 # Autoload: GraphManager. Chủ sở hữu: A. Không đặt class_name.
 
 const ROAD_ID_BASE := 1000  # mã nút ô đường = ROAD_ID_BASE + chỉ số ô, không đổi khi tô lại
+const HOUSE_ID_BASE := 100  # nhà mọc thêm trong ván: 100, 101, ... (nhỏ hơn ROAD_ID_BASE)
+const GATE_DIRS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, -1), Vector2i(0, 1)]  # Đ, T, B, N
+const GATE_NAMES := {'E': Vector2i(1, 0), 'W': Vector2i(-1, 0), 'N': Vector2i(0, -1), 'S': Vector2i(0, 1)}
+const MAP_CENTER := Vector2(640, 360)  # cổng của điểm có sẵn quay về phía tâm bản đồ
+const HOUSE_ICONS := ['house_blue', 'house_coral', 'house_gold', 'house_mint']
 
 var _nodes := {}        # id -> MapNode (cả điểm trên bản đồ và ô đường)
 var _edges := {}        # id -> Edge
@@ -18,6 +23,9 @@ var _stages: Array = []         # khóa "stages": vùng camera theo đợt (Game
 var _terrain: Dictionary = {}   # khóa "terrain" của bản đồ: ảnh độ cao và màu nước cho FloodOverlay
 var _roads := 0                 # số ô đường đã tô
 var _segments := {}             # id đoạn -> Array các id cạnh
+var _gate_cells := {}           # ô cổng -> id điểm (ô cổng là ô đường dựng sẵn, không tính hạn mức, không xóa được)
+var _gate_override := {}        # id điểm -> hướng cổng ghi trong json (trường "gate": "E"/"W"/"N"/"S")
+var _next_house_id := HOUSE_ID_BASE
 
 func _ready() -> void:
 	_limit = Config.EDGE_LIMIT_START
@@ -25,6 +33,7 @@ func _ready() -> void:
 
 func _on_game_started() -> void:
 	_clear_edges()
+	_build_gates()
 	EventBus.edge_budget_changed.emit(0, _limit)
 
 func _clear_edges() -> void:
@@ -46,6 +55,8 @@ func load_map(path: String) -> void:
 	_adj.clear()
 	_points.clear()
 	_point_cells.clear()
+	_gate_override.clear()
+	_next_house_id = HOUSE_ID_BASE
 	_clear_edges()
 	var text := FileAccess.get_file_as_string(path)
 	var data = JSON.parse_string(text)
@@ -70,6 +81,9 @@ func load_map(path: String) -> void:
 		_adj[n.id] = []
 		_points.append(n.id)
 		_point_cells[cell_of(n.pos)] = n.id
+		if GATE_NAMES.has(str(d.get('gate', ''))):
+			_gate_override[n.id] = GATE_NAMES[str(d['gate'])]
+	_build_gates(false)  # chưa phát tín hiệu: game_started sẽ dựng lại cổng và phát road_changed
 
 # --- Truy vấn ---
 # Chỉ các điểm trên bản đồ, không gồm ô đường.
@@ -168,6 +182,8 @@ func extend_road(from_id: int, cell: Vector2i) -> int:
 	if from_id != -1 and not (_nodes.has(from_id) and _next_to(cell_of(_nodes[from_id].pos), cell)):
 		return -1
 	var to_id: int = _point_cells.get(cell, road_at(cell))
+	if not _gate_allows(from_id, to_id):
+		return -1  # có cổng: điểm chỉ nối với ô cổng của nó
 	var created := false
 	if to_id == -1:
 		if _roads >= _limit:
@@ -196,8 +212,8 @@ func _add_road(cell: Vector2i) -> int:
 # Xóa ô đường và các cạnh nối vào nó, hoàn 1 hạn mức. Trả false nếu ô không có đường.
 func remove_road(cell: Vector2i) -> bool:
 	var id := road_at(cell)
-	if id == -1:
-		return false
+	if id == -1 or _gate_cells.has(cell):
+		return false  # ô cổng thuộc về điểm, không xóa được
 	for eid in _adj[id].duplicate():
 		_unlink(eid)
 	_nodes.erase(id)
@@ -210,6 +226,150 @@ func _after_road_edit() -> void:
 	_refresh_segments()
 	EventBus.edge_budget_changed.emit(_roads, _limit)
 	EventBus.road_changed.emit()
+
+# --- Cổng và nhà (chỉ khi bản đồ bật "gates") ---
+# Mỗi điểm có một ô cổng kề cạnh (4 hướng). Ô cổng là ô đường dựng sẵn: không tính hạn mức, không xóa được.
+# Đường chỉ nối vào điểm qua ô cổng, nên xe không đi xuyên qua nhà, và xe ra vào điểm theo một lối.
+func _build_gates(notify := true) -> void:
+	_gate_cells.clear()
+	if not _gates_enabled:
+		return
+	for id in _points:
+		_make_gate(id)
+	_refresh_segments()
+	if notify:
+		EventBus.road_changed.emit()
+
+# Tạo ô cổng và cạnh điểm–cổng cho điểm id. max_level: mức nới điều kiện tối đa (xem _gate_ok).
+func _make_gate(id: int, max_level := 2) -> bool:
+	var n: MapNode = _nodes[id]
+	var cell := cell_of(n.pos)
+	var dir := _choose_gate(id, cell, max_level)
+	n.gate = dir
+	if dir == Vector2i.ZERO:
+		return false
+	var gcell := cell + dir
+	var gid := road_at(gcell)
+	if gid == -1:
+		gid = _add_road(gcell)
+		_roads -= 1  # ô cổng không tính vào hạn mức
+	_gate_cells[gcell] = id
+	_new_edge(id, gid)
+	return true
+
+# Hướng cổng: hướng ghi trong json nếu hợp lệ; không thì hướng hợp lệ gần nhất với hướng tới tâm bản đồ
+# (nhà: hướng tới khu mẹ). Không hướng nào hợp lệ thì nới dần điều kiện; vẫn không được thì ZERO.
+func _choose_gate(id: int, cell: Vector2i, max_level: int) -> Vector2i:
+	var n: MapNode = _nodes[id]
+	if _gate_override.has(id) and _gate_ok(cell + _gate_override[id], id, max_level):
+		return _gate_override[id]
+	var anchor := MAP_CENTER
+	if n.parent != -1 and _nodes.has(n.parent):
+		anchor = _nodes[n.parent].pos
+	var want := (anchor - n.pos).normalized()
+	for level in max_level + 1:
+		var best := Vector2i.ZERO
+		var best_score := -INF
+		for d in GATE_DIRS:
+			var s := Vector2(d).dot(want)
+			if s > best_score + 0.001 and _gate_ok(cell + d, id, level):
+				best = d
+				best_score = s
+		if best != Vector2i.ZERO:
+			return best
+	return Vector2i.ZERO
+
+# Ô gcell làm cổng cho điểm owner được không. level 0: đủ điều kiện; 1: cho kề điểm khác; 2: cho cả ô ca-nô.
+func _gate_ok(gcell: Vector2i, owner: int, level: int) -> bool:
+	if not _in_grid(gcell) or cell_is_water(gcell) or _point_cells.has(gcell) or _gate_cells.has(gcell):
+		return false
+	if road_at(gcell) != -1:
+		return false
+	if level < 2 and cell_is_boat(gcell):
+		return false
+	return level >= 1 or not _near_point(gcell, owner)
+
+# Ô cell có trùng hoặc kề (8 hướng) một điểm nào khác điểm except không.
+func _near_point(cell: Vector2i, except: int) -> bool:
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			var id: int = _point_cells.get(cell + Vector2i(dx, dy), -1)
+			if id != -1 and id != except:
+				return true
+	return false
+
+# Cạnh mới không phát tín hiệu (dùng khi dựng cổng hàng loạt; nơi gọi tự phát road_changed).
+func _new_edge(a: int, b: int) -> int:
+	var e := Edge.new()
+	e.id = _next_edge_id
+	_next_edge_id += 1
+	e.node_a = a
+	e.node_b = b
+	e.length = _nodes[a].pos.distance_to(_nodes[b].pos)
+	_edges[e.id] = e
+	_adj[a].append(e.id)
+	_adj[b].append(e.id)
+	return e.id
+
+func _is_gated(id: int) -> bool:
+	return _nodes.has(id) and _nodes[id].kind != Types.NodeKind.ROAD and _nodes[id].gate != Vector2i.ZERO
+
+# Có cổng thì cạnh giữa from_id và to_id (-1: ô chưa có đường) chỉ được nối nếu đầu là điểm thì đầu kia là ô cổng của nó.
+func _gate_allows(from_id: int, to_id: int) -> bool:
+	if not _gates_enabled or from_id == -1 or from_id == to_id:
+		return true
+	if _is_gated(from_id) and to_id != get_gate_node(from_id):
+		return false
+	return not (to_id != -1 and _is_gated(to_id) and from_id != get_gate_node(to_id))
+
+# Nút ô cổng của điểm, -1 nếu điểm không có cổng.
+func get_gate_node(point_id: int) -> int:
+	if not _is_gated(point_id):
+		return -1
+	return road_at(cell_of(_nodes[point_id].pos) + _nodes[point_id].gate)
+
+func is_gate_cell(cell: Vector2i) -> bool:
+	return _gate_cells.has(cell)
+
+# Ô đặt được nhà: trong lưới, đất liền (không phải ô sông hay ô ca-nô), chưa có đường, không phải điểm hay cổng,
+# không kề điểm khác, và có ô cổng hợp lệ chưa có đường.
+func can_place_house(cell: Vector2i) -> bool:
+	if not _gates_enabled or not _in_grid(cell) or cell_is_water(cell) or cell_is_boat(cell):
+		return false
+	if road_at(cell) != -1 or _point_cells.has(cell) or _gate_cells.has(cell) or _near_point(cell, -1):
+		return false
+	for d in GATE_DIRS:
+		if _gate_ok(cell + d, -1, 1):
+			return true
+	return false
+
+# Thêm một nhà (điểm DISTRICT không tên) ở ô cell, thuộc khu parent_id. Trả id nhà, -1 nếu ô không hợp lệ.
+func add_house(cell: Vector2i, parent_id: int) -> int:
+	if not can_place_house(cell):
+		return -1
+	var n := MapNode.new()
+	n.id = _next_house_id
+	n.name = ''
+	n.kind = Types.NodeKind.DISTRICT
+	n.pos = cell_center(cell)
+	n.elevation = cell_elevation(cell)
+	n.icon = HOUSE_ICONS[randi() % HOUSE_ICONS.size()]
+	n.parent = parent_id
+	_nodes[n.id] = n
+	_adj[n.id] = []
+	_points.append(n.id)
+	_point_cells[cell] = n.id
+	if not _make_gate(n.id, 1):  # can_place_house đã bảo đảm có cổng; phòng hờ thì gỡ lại
+		_nodes.erase(n.id)
+		_adj.erase(n.id)
+		_points.erase(n.id)
+		_point_cells.erase(cell)
+		return -1
+	_next_house_id += 1
+	_refresh_segments()
+	EventBus.point_added.emit(n.id)
+	EventBus.road_changed.emit()
+	return n.id
 
 # --- Đoạn: chuỗi cạnh giữa hai đầu mút (điểm, ngã rẽ, ô cụt) ---
 # Cả đoạn dùng chung độ cao trung bình các nút nên ngập cùng lúc.

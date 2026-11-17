@@ -4,8 +4,11 @@ extends Node
 
 # TODO: xin A chuyển các hằng số này sang autoload/config.gd rồi đổi thành Config.X
 const HOSPITAL_ID := 5               # node Bệnh viện luôn ra SOS Y tế
-const START_TRUCKS := 100             # số xe tải lúc đầu ván (ở kho cao nhất)
-const START_BOATS := 100              # số ca-nô lúc đầu ván (ở kho thấp nhất)
+const START_TRUCKS := 12             # số xe tải lúc đầu ván (ở kho cao nhất)
+const START_BOATS := 8               # số ca-nô lúc đầu ván (ở kho thấp nhất)
+const PARK_IN := 14.0                # điểm có cổng: xe đỗ ở lối vào, lệch từ tâm điểm về phía cổng (px)
+const HUB_HIDE_RADIUS := 20.0        # xe trong bán kính này quanh kho của nó thì ẩn (đang ở trong kho)
+const HOUSE_TRIES := 12              # số lần thử chọn ô cho một nhà mới mỗi lượt
 const DISPATCH_INTERVAL := 0.5       # giây giữa hai lượt điều phối
 const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết cạnh
 const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
@@ -149,6 +152,15 @@ class Vehicle extends Node2D:
 		if _state:
 			_state.update(self, delta)
 		_update_lane(delta)
+		_update_visible()
+
+	# Xe đang ở trong kho (đỗ, hoặc chờ ra cổng) thì ẩn, nên xe cùng kho không chồng lên nhau.
+	func _update_visible() -> void:
+		var hidden := state_id == Types.VehicleState.IDLE
+		if not hidden:
+			var h: MapNode = RescueManager.g().get_map_node(hub_id)
+			hidden = h != null and position.distance_to(h.pos) < HUB_HIDE_RADIUS
+		visible = not hidden
 
 	func _update_lane(delta: float) -> void:
 		var want := Vector2.ZERO
@@ -217,7 +229,7 @@ class Vehicle extends Node2D:
 			_cut()
 			return true
 		var next_id: int = path.node_ids[path_index + 1]
-		var target: Vector2 = RescueManager.g().get_map_node(next_id).pos
+		var target: Vector2 = RescueManager.stop_pos(next_id)  # điểm có cổng: dừng ở lối vào, không vào tâm
 		var f := e.speed_factor(type)
 		if f <= 0.0:
 			f = MIN_EDGE_SPEED_FACTOR  # cạnh vừa thành không đi được: đi nốt với tốc độ tối thiểu
@@ -244,7 +256,7 @@ class Vehicle extends Node2D:
 	func _cut() -> void:
 		if path != null and path_index < path.node_ids.size():
 			current_node = path.node_ids[path_index]
-			position = RescueManager.g().get_map_node(current_node).pos
+			position = RescueManager.stop_pos(current_node)
 		path = PathResult.new()
 		path_index = 0
 
@@ -281,7 +293,7 @@ class Vehicle extends Node2D:
 			change_state(StrandedState.new(), Types.VehicleState.STRANDED)
 
 	func park() -> void:
-		position = RescueManager.g().get_map_node(hub_id).pos
+		position = RescueManager.stop_pos(hub_id)
 		current_node = hub_id
 		path = null
 		heading = Vector2.RIGHT
@@ -366,9 +378,8 @@ class VehicleFactory extends RefCounted:
 		v.type = vehicle_type
 		v.hub_id = hub
 		v.current_node = hub
-		var n: MapNode = RescueManager.g().get_map_node(hub)
-		if n != null:
-			v.position = n.pos
+		if RescueManager.g().get_map_node(hub) != null:
+			v.position = RescueManager.stop_pos(hub)
 		v.set_initial_state()
 		return v
 
@@ -382,6 +393,7 @@ var _next_vehicle_id := 0
 var _wave := 0
 var _spawning := false
 var _spawn_timer := 0.0
+var _house_timer := 0.0  # nhà mọc dần (bản đồ có cổng)
 var _dispatch_timer := 0.0
 var _dirty := false
 var _clock := 0.0
@@ -408,6 +420,7 @@ func reset() -> void:
 	_wave = 0
 	_spawning = false
 	_spawn_timer = 0.0
+	_house_timer = 0.0
 	_dispatch_timer = 0.0
 	_dirty = false
 	_clock = 0.0
@@ -441,7 +454,8 @@ func _on_edge_added(_edge_id: int) -> void:
 
 func _on_edge_removed(edge_id: int) -> void:
 	for v in _vehicles.values():
-		v.on_edge_removed(edge_id)
+		if is_instance_valid(v):  # xe ván cũ đã giải phóng cùng scene, chờ reset() dọn
+			v.on_edge_removed(edge_id)
 	_on_graph_changed()
 
 func _on_edge_state_changed(_edge_id: int, _state: int) -> void:
@@ -450,7 +464,8 @@ func _on_edge_state_changed(_edge_id: int, _state: int) -> void:
 func _on_graph_changed() -> void:
 	_dirty = true
 	for v in _vehicles.values():
-		v.retry_if_stranded()
+		if is_instance_valid(v):
+			v.retry_if_stranded()
 
 func mark_dirty() -> void:
 	_dirty = true
@@ -624,6 +639,7 @@ func _process(delta: float) -> void:
 	_tick_requests(delta)
 	if _spawning:
 		_tick_spawn(delta)
+		_tick_houses(delta)
 	_dispatch_timer += delta
 	if _dirty or _dispatch_timer >= DISPATCH_INTERVAL:
 		_dirty = false
@@ -657,6 +673,69 @@ func _tick_spawn(delta: float) -> void:
 	_requests[req.id] = req
 	EventBus.sos_spawned.emit(req.id, req.node_id, req.supply, req.time_total)
 	_dirty = true
+
+# ===== Cổng, chỗ đỗ, nhà mọc dần (bản đồ có cổng) =====
+# Vị trí xe dừng ở node: điểm có cổng thì dừng ở lối vào (lệch PARK_IN về phía cổng), không chồng vào tâm điểm.
+func stop_pos(node_id: int) -> Vector2:
+	var n: MapNode = g().get_map_node(node_id)
+	if n == null:
+		return Vector2.ZERO
+	return n.pos + Vector2(n.gate) * PARK_IN
+
+func _uses_gates() -> bool:
+	return g().has_method('uses_gates') and g().uses_gates()
+
+# Mỗi house_interval giây của đợt hiện tại, một nhà mới mọc quanh một khu đã mở.
+func _tick_houses(delta: float) -> void:
+	if not _uses_gates():
+		return
+	_house_timer += delta
+	if _house_timer < float(Config.WAVES[_wave].get('house_interval', INF)):
+		return
+	_house_timer = 0.0
+	try_spawn_house()
+
+# Chọn ngẫu nhiên một khu đã mở còn chưa đủ HOUSE_MAX_PER_DISTRICT nhà, đặt nhà ở ô khô trong vùng chơi
+# cách khu tối đa HOUSE_RADIUS ô. Trả id nhà mới, -1 nếu thử HOUSE_TRIES lần không được.
+func try_spawn_house() -> int:
+	var houses := {}  # khu mẹ -> số nhà
+	for id in g().get_node_ids():
+		var n: MapNode = g().get_map_node(id)
+		if n.parent != -1:
+			houses[n.parent] = int(houses.get(n.parent, 0)) + 1
+	var districts := []
+	for id in g().get_node_ids():
+		var n: MapNode = g().get_map_node(id)
+		if n.kind == Types.NodeKind.DISTRICT and n.parent == -1 and GameManager.is_in_play(n.pos) \
+				and int(houses.get(id, 0)) < Config.HOUSE_MAX_PER_DISTRICT:
+			districts.append(id)
+	if districts.is_empty():
+		return -1
+	var r := Config.HOUSE_RADIUS
+	for i in HOUSE_TRIES:
+		var d: int = districts[randi() % districts.size()]
+		var cell: Vector2i = g().cell_of(g().get_map_node(d).pos) + Vector2i(randi_range(-r, r), randi_range(-r, r))
+		if not GameManager.is_in_play(g().cell_center(cell)) or FloodManager.depth_at(cell) >= 0.05:
+			continue
+		if g().can_place_house(cell):
+			return g().add_house(cell, d)
+	return -1
+
+# Số xe đang đỗ ở kho hub_id theo loại (nhãn ở kho), và số xe thuộc kho đó.
+# Bỏ qua xe đã bị giải phóng (đổi scene khi chơi lại, trước khi reset() dọn danh sách).
+func get_idle_count(hub_id: int, type: int) -> int:
+	var count := 0
+	for v in _vehicles.values():
+		if is_instance_valid(v) and v.hub_id == hub_id and v.type == type and v.state_id == Types.VehicleState.IDLE:
+			count += 1
+	return count
+
+func get_home_count(hub_id: int, type: int) -> int:
+	var count := 0
+	for v in _vehicles.values():
+		if is_instance_valid(v) and v.hub_id == hub_id and v.type == type:
+			count += 1
+	return count
 
 func _free_nodes() -> Array:
 	var busy := []

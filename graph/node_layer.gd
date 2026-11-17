@@ -6,6 +6,7 @@ extends Node2D
 const ICON_PATH := 'res://assets/icons/%s.svg'
 const HUB_ICON_SIZE := 56.0
 const DISTRICT_ICON_SIZE := 44.0
+const HOUSE_ICON_SIZE := 30.0  # nhà mọc thêm trong ván (điểm không tên): nhỏ hơn khu, không nhãn
 
 const SHAPE_COLOR := Color('#E8E8E8')
 const HUB_FILL := Color('#1E1E24')
@@ -26,9 +27,24 @@ const LABEL_FONT := preload('res://assets/fonts/BeVietnamPro-Regular.ttf')
 
 var _icons := {}  # tên icon -> Texture2D, hoặc null nếu không có file
 
+# Nhãn số xe đang đỗ ở mỗi kho (xe trong kho ẩn đi nên cần nhãn này). Node con riêng để chỉ vẽ lại nhãn khi xe đổi trạng thái.
+const BADGE_ICON := Vector2(15, 10)
+const BADGE_FONT_SIZE := 12
+const BADGE_FILL := Color(1, 1, 1, 0.92)
+const BADGE_BORDER := Color('#b9cdd6')
+const TRUCK_ICON := preload('res://assets/icons/truck.svg')
+const BOAT_ICON := preload('res://assets/icons/boat.svg')
+var _badges := Node2D.new()
+
 
 func _ready() -> void:
 	EventBus.game_started.connect(queue_redraw)
+	EventBus.point_added.connect(queue_redraw.unbind(1))
+	add_child(_badges)
+	_badges.draw.connect(_draw_badges)
+	EventBus.game_started.connect(_badges.queue_redraw)
+	EventBus.vehicle_added.connect(_badges.queue_redraw.unbind(3))
+	EventBus.vehicle_state_changed.connect(_badges.queue_redraw.unbind(2))
 	queue_redraw()
 
 
@@ -41,12 +57,16 @@ func _draw() -> void:
 		var tex := _icon_of(n)
 		if tex != null:
 			var size := HUB_ICON_SIZE if n.kind == Types.NodeKind.HUB else DISTRICT_ICON_SIZE
+			if n.name.is_empty():
+				size = HOUSE_ICON_SIZE
 			draw_texture_rect(tex, Rect2(n.pos - Vector2(size, size) / 2.0, Vector2(size, size)), false)
 			half_height = size / 2.0
 		elif n.kind == Types.NodeKind.HUB:
 			_draw_hub(n.pos)
 		else:
 			_draw_house(n.pos)
+		if n.name.is_empty():
+			continue  # nhà không có nhãn
 		var label_pos := n.pos + Vector2(-LABEL_WIDTH / 2.0, half_height + LABEL_GAP)
 		draw_string_outline(LABEL_FONT, label_pos, n.name, HORIZONTAL_ALIGNMENT_CENTER, LABEL_WIDTH, LABEL_SIZE,
 				LABEL_OUTLINE, LABEL_OUTLINE_COLOR)
@@ -77,3 +97,35 @@ func _draw_house(p: Vector2) -> void:
 	for v in HOUSE:
 		pts.append(p + v)
 	draw_colored_polygon(pts, SHAPE_COLOR)
+
+
+# Góc trên bên phải mỗi kho: số xe tải, số ca-nô đang đỗ trong kho (chỉ hiện loại xe kho đó có).
+func _draw_badges() -> void:
+	for id in GraphManager.get_node_ids():
+		var n := GraphManager.get_map_node(id)
+		if n == null or n.kind != Types.NodeKind.HUB:
+			continue
+		var items := []
+		for type in [Types.VehicleType.TRUCK, Types.VehicleType.BOAT]:
+			if RescueManager.get_home_count(id, type) > 0:
+				items.append([TRUCK_ICON if type == Types.VehicleType.TRUCK else BOAT_ICON, str(RescueManager.get_idle_count(id, type))])
+		if items.is_empty():
+			continue
+		var widths := []
+		var total := 4.0
+		for it in items:
+			var w: float = BADGE_ICON.x + 2.0 + LABEL_FONT.get_string_size(it[1], HORIZONTAL_ALIGNMENT_LEFT, -1, BADGE_FONT_SIZE).x + 4.0
+			widths.append(w)
+			total += w
+		var top_left := n.pos + Vector2(HUB_ICON_SIZE / 2.0 - 10.0, -HUB_ICON_SIZE / 2.0 - 8.0)
+		var box := StyleBoxFlat.new()
+		box.bg_color = BADGE_FILL
+		box.border_color = BADGE_BORDER
+		box.set_border_width_all(1)
+		box.set_corner_radius_all(7)
+		_badges.draw_style_box(box, Rect2(top_left, Vector2(total, 16)))
+		var x := top_left.x + 4.0
+		for i in items.size():
+			_badges.draw_texture_rect(items[i][0], Rect2(Vector2(x, top_left.y + 3.0), BADGE_ICON), false)
+			_badges.draw_string(LABEL_FONT, Vector2(x + BADGE_ICON.x + 2.0, top_left.y + 12.5), items[i][1], HORIZONTAL_ALIGNMENT_LEFT, -1, BADGE_FONT_SIZE, LABEL_COLOR)
+			x += widths[i]
