@@ -108,7 +108,7 @@ func _draw_house(p: Vector2) -> void:
 # Góc trên bên phải mỗi kho: số xe tải, số ca-nô đang đỗ trong kho (chỉ hiện loại xe kho đó có).
 # Bãi đỗ của kho (bản đồ có cổng): khung bo tròn ôm nhà kho và ô bãi, kẻ vạch chỗ đỗ hai bên lối đi giữa,
 # giống bãi xe của tòa nhà trong Mini Motorways. Vẽ trước icon kho nên nhà kho nằm đè lên phần đầu khung.
-# Màu lấy đúng màu đường của EdgeLayer (mặt đường, viền, vạch) theo trạng thái ngập của đoạn kho–cổng.
+# Màu lấy đúng màu đường của EdgeLayer (mặt đường, viền, vạch) theo trạng thái ngập của đoạn kho–cổng; chỗ nối ra đường không viền.
 const Road := preload('res://graph/edge_layer.gd')
 const PIER_COLOR := Color('#b48c5c')
 const PIER_POST := Color('#8c6a42')
@@ -140,6 +140,10 @@ func _draw_lot(hub: MapNode) -> void:
 	box.set_border_width_all(int((Road.CASING_WIDTH - Road.ROAD_WIDTH) / 2.0))  # viền dày bằng viền đường
 	box.set_corner_radius_all(12)
 	draw_style_box(box, Rect2(mid - size / 2.0, size))
+	# Chỗ bãi nối ra đường (phía cổng): xóa viền trên đúng bề rộng mặt đường, để bãi liền với đường.
+	var edge := mid + d * (along / 2.0 - 1.0)  # giữa dải viền 2 px ở mép bãi phía cổng
+	var gap := Vector2(4.0, Road.ROAD_WIDTH) if d.y == 0.0 else Vector2(Road.ROAD_WIDTH, 4.0)
+	draw_rect(Rect2(edge - gap / 2.0, gap), c[0])
 	var half := RescueManager.LOT_SLOTS / 2
 	for side in [-1.0, 1.0]:
 		for k in half + 1:  # vạch ngăn giữa các chỗ đỗ, cùng màu vạch chia làn
