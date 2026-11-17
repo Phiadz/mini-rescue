@@ -209,6 +209,8 @@ func _connect(from_id: int, is_target: Callable, max_new: int) -> bool:
 			var n: Vector2i = c + d
 			if n.x < 0 or n.y < 0 or n.x >= Config.GRID_COLS or n.y >= Config.GRID_ROWS or GraphManager._point_cells.has(n):
 				continue
+			if GraphManager.is_lot_cell(n) or not GraphManager.diagonal_ok(c, n):
+				continue  # ô bãi kho, hoặc bước chéo cắt góc công trình
 			var step := 0 if GraphManager.road_at(n) != -1 else 1
 			var nc: int = cost[c] + step
 			if nc > max_new or nc >= int(cost.get(n, 1 << 30)):

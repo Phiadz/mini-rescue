@@ -26,6 +26,7 @@ func _run() -> void:
 	_fresh()
 	_test_gates()
 	_test_driveway()
+	_test_corner()
 	_test_extend()
 	_test_stop_pos()
 	await _test_vehicle()
@@ -111,6 +112,49 @@ func _test_driveway() -> void:
 			other = id
 			break
 	_check(not GraphManager._gate_allows(p, other, _cell(other)), 'không nối thẳng hai điểm với nhau')
+	_check(GraphManager.get_edge_budget().used == 0, 'dọn sạch đường vừa thử')
+
+
+# Luật không cắt góc: đường chéo không đi qua góc ô có công trình; nhà không mọc vào ô bị đường chéo cắt góc.
+func _test_corner() -> void:
+	print('
+== Đường chéo không cắt góc công trình')
+	var pc := _cell(NEAR)
+	var free := func(c: Vector2i) -> bool:
+		return GraphManager.road_at(c) == -1 and not GraphManager.cell_is_water(c) and not GraphManager._point_cells.has(c) and not GraphManager.is_lot_cell(c)
+	var tried := false
+	for d in [Vector2i(1, 1), Vector2i(-1, 1), Vector2i(1, -1), Vector2i(-1, -1)]:
+		var a: Vector2i = pc + Vector2i(d.x, 0)
+		var b: Vector2i = pc + Vector2i(0, d.y)
+		if free.call(a) and free.call(b):
+			var ra := GraphManager.extend_road(-1, a)
+			_check(GraphManager.extend_road(ra, b) == -1, 'không vẽ đường chéo cắt qua góc ô nhà')
+			GraphManager.remove_road(a)
+			tried = true
+			break
+	_check(tried, 'tìm được hai ô kề nhà để thử bước chéo')
+	# Ô trống bị một đoạn đường chéo cắt góc: không mọc nhà ở đó.
+	var found := false
+	for y in range(2, Config.GRID_ROWS - 2):
+		for x in range(2, Config.GRID_COLS - 2):
+			var c := Vector2i(x, y)
+			if found or not GraphManager.can_place_house(c):
+				continue
+			var a := c + Vector2i(1, 0)
+			var b := c + Vector2i(0, 1)
+			if not (free.call(a) and free.call(b)):
+				continue
+			var ra := GraphManager.extend_road(-1, a)
+			var rb := GraphManager.extend_road(ra, b)
+			if rb == -1:
+				GraphManager.remove_road(a)
+				continue
+			found = true
+			_check(not GraphManager.can_place_house(c), 'không mọc nhà ở ô đang bị đường chéo cắt góc')
+			GraphManager.remove_road(a)
+			GraphManager.remove_road(b)
+			_check(GraphManager.can_place_house(c), 'xóa đường chéo thì ô đó lại đặt được nhà')
+	_check(found, 'tìm được ô trống để thử đường chéo cắt góc')
 	_check(GraphManager.get_edge_budget().used == 0, 'dọn sạch đường vừa thử')
 
 
@@ -303,7 +347,7 @@ func _connect(from_id: int, to: Vector2i) -> bool:
 			var n: Vector2i = c + d
 			if prev.has(n) or n.x < 0 or n.y < 0 or n.x >= Config.GRID_COLS or n.y >= Config.GRID_ROWS:
 				continue
-			if GraphManager._point_cells.has(n):
+			if GraphManager._point_cells.has(n) or GraphManager.is_lot_cell(n) or not GraphManager.diagonal_ok(c, n):
 				continue
 			prev[n] = c
 			queue.append(n)

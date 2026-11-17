@@ -211,6 +211,8 @@ func extend_road(from_id: int, cell: Vector2i) -> int:
 		return -1  # ngoài lưới, hoặc ô bãi đỗ của kho
 	if from_id != -1 and not (_nodes.has(from_id) and _next_to(cell_of(_nodes[from_id].pos), cell)):
 		return -1
+	if from_id != -1 and not diagonal_ok(cell_of(_nodes[from_id].pos), cell):
+		return -1  # đường chéo cắt qua góc ô có công trình
 	var to_id: int = _point_cells.get(cell, road_at(cell))
 	if not _gate_allows(from_id, to_id, cell):
 		return -1  # có cổng: kho chỉ nối qua ô cổng; khu, nhà chỉ một lối vào, nối từ một cạnh
@@ -346,6 +348,28 @@ func _gate_ok(gcell: Vector2i, owner: int, level: int) -> bool:
 		return false
 	return level >= 1 or not _near_point(gcell, owner)
 
+# Luật không cắt góc (bản đồ có cổng): bước chéo từ ô a sang ô b chạy qua góc chung của hai ô kề còn lại; đường rộng
+# nên lấn vào góc hai ô đó. Không cho đi chéo nếu một trong hai ô đó là điểm (kho, khu, nhà) hay ô bãi của kho.
+func diagonal_ok(a: Vector2i, b: Vector2i) -> bool:
+	if not _gates_enabled or absi(a.x - b.x) != 1 or absi(a.y - b.y) != 1:
+		return true
+	for c in [Vector2i(a.x, b.y), Vector2i(b.x, a.y)]:
+		if _point_cells.has(c) or _lot_cells.has(c):
+			return false
+	return true
+
+# Ô cell đang bị một đoạn đường chéo cắt qua góc (đoạn nối hai ô kề cạnh của nó theo đường chéo).
+func _corner_cut(cell: Vector2i) -> bool:
+	for d in [Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1)]:
+		var a := road_at(cell + Vector2i(d.x, 0))
+		var b := road_at(cell + Vector2i(0, d.y))
+		if a == -1 or b == -1:
+			continue
+		for eid in _adj[a]:
+			if _edges[eid].other_end(a) == b:
+				return true
+	return false
+
 # Ô trước lối vào của khu, nhà: trong lưới, không phải ô sông, ô của điểm, ô cổng hay ô bãi của kho.
 func _drive_ok(c: Vector2i) -> bool:
 	return _in_grid(c) and not cell_is_water(c) and not _point_cells.has(c) and not _gate_cells.has(c) and not _lot_cells.has(c)
@@ -459,8 +483,8 @@ func is_gate_cell(cell: Vector2i) -> bool:
 func can_place_house(cell: Vector2i) -> bool:
 	if not _gates_enabled or not _in_grid(cell) or cell_is_water(cell) or cell_is_boat(cell):
 		return false
-	if road_at(cell) != -1 or _point_cells.has(cell) or _gate_cells.has(cell) or _near_point(cell, -1):
-		return false
+	if road_at(cell) != -1 or _point_cells.has(cell) or _gate_cells.has(cell) or _near_point(cell, -1) or _corner_cut(cell):
+		return false  # (gồm ô đang bị đường chéo cắt góc: nhà đặt vào sẽ đè lên đường)
 	for dy in range(-1, 2):
 		for dx in range(-1, 2):
 			if _lot_cells.has(cell + Vector2i(dx, dy)):
