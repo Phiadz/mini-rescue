@@ -4,8 +4,8 @@ extends Node
 
 # TODO: xin A chuyển các hằng số này sang autoload/config.gd rồi đổi thành Config.X
 const HOSPITAL_ID := 5               # node Bệnh viện luôn ra SOS Y tế
-const START_TRUCKS := 4              # số xe tải lúc đầu ván (ở kho cao nhất)
-const START_BOATS := 4               # số ca-nô lúc đầu ván (ở kho thấp nhất)
+const START_TRUCKS := 6              # số xe tải lúc đầu ván (ở kho cao nhất)
+const START_BOATS := 6               # số ca-nô lúc đầu ván (ở kho thấp nhất)
 const DISPATCH_INTERVAL := 0.5       # giây giữa hai lượt điều phối
 const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết cạnh
 const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
