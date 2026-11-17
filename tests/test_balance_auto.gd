@@ -13,7 +13,10 @@ const ROUTES := [[0, 16], [16, 5], [5, 10], [10, 3], [3, 2], [3, 6], [6, 11], [1
 var _stats := {}
 var _won := false
 var _moving := 0.0  # tổng thời gian xe chạy trên đường (giây × xe)
-var _jammed := 0.0  # phần trong đó xe bị kẹt (bám đuôi hoặc chờ ở ngã ba)
+var _jammed := 0.0
+var _frame_ms := 0.0  # tổng thời gian xử lý khung hình (ms)
+var _frame_max := 0.0
+var _frames := 0  # phần trong đó xe bị kẹt (bám đuôi hoặc chờ ở ngã ba)
 
 
 func _ready() -> void:
@@ -41,6 +44,9 @@ func _run() -> void:
 		var used: int = GraphManager.get_edge_budget().used
 		_moving = 0.0
 		_jammed = 0.0
+		_frame_ms = 0.0
+		_frame_max = 0.0
+		_frames = 0
 		while _stats.is_empty():
 			await get_tree().process_frame
 			_count_jams()
@@ -49,6 +55,7 @@ func _run() -> void:
 		jam_total += _jammed / maxf(_moving, 0.001)
 		print('Ván %2d: %-5s %4d điểm, cứu %2d, thất bại %d, %3.0f giây, %d ô đường, kẹt %4.1f%% thời gian chạy' % [
 			i + 1, 'thắng' if _won else 'thua', _stats.score, _stats.saved, _stats.failed, _stats.time_survived, used, 100.0 * _jammed / maxf(_moving, 0.001)])
+		print('        khung hình: trung bình %.2f ms, lâu nhất %.1f ms' % [_frame_ms / maxf(_frames, 1), _frame_max])
 	print('Tổng: thắng %d/%d, điểm trung bình %.0f, kẹt trung bình %.1f%% thời gian chạy (%d xe tải, %d ca-nô lúc đầu)' % [
 			wins, GAMES, float(scores) / GAMES, 100.0 * jam_total / GAMES, RescueManager.START_TRUCKS, RescueManager.START_BOATS])
 	_time_find_path()
@@ -58,6 +65,10 @@ func _run() -> void:
 # Mỗi khung hình: cộng thời gian chạy và thời gian bị kẹt của các xe đang trên đường.
 func _count_jams() -> void:
 	var dt := get_process_delta_time()
+	var ms: float = Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+	_frame_ms += ms
+	_frame_max = maxf(_frame_max, ms)
+	_frames += 1
 	for v in RescueManager._vehicles.values():
 		if v.is_moving():
 			_moving += dt

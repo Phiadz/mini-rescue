@@ -354,11 +354,12 @@ func _test_multi_unit() -> void:
 
 	_fresh()
 	_chain()
+	var can_send := mini(RescueManager.START_TRUCKS, RescueManager.get_stock(HUB, food))  # giới hạn bởi số xe và hàng trong kho
 	var req3 := _sos(202)
-	req3.units = RescueManager.START_TRUCKS + 2
+	req3.units = can_send + 2
 	await _frames(3)
-	_check(req3.assigned == RescueManager.START_TRUCKS and req3.state == Types.SosState.PENDING,
-			'cần nhiều phần hơn số xe: giao hết xe rảnh, SOS vẫn chờ thêm xe')
+	_check(req3.assigned == can_send and req3.state == Types.SosState.PENDING,
+			'cần nhiều phần hơn số xe, số hàng: giao hết những gì có (%d), SOS vẫn chờ thêm' % can_send)
 
 
 func _fresh() -> void:

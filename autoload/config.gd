@@ -35,9 +35,9 @@ const MAX_FAILED := 3
 # --- Giao hàng, kho, SOS ---
 const DELIVERY_TIME := 1.5
 const SOS_COOLDOWN := 20.0
-const STOCK_START := 6
-const STOCK_MAX := 10
-const STOCK_REGEN := 20.0
+const STOCK_START := 12
+const STOCK_MAX := 20
+const STOCK_REGEN := 10.0
 const MAX_PRIORITIZED := 2
 
 # --- Điểm ---
@@ -62,9 +62,9 @@ const SPEED_FACTOR := {
 # --- Các đợt lũ (chỉ số 0, 1, 2) ---
 # sos_units: số phần hàng tối đa một SOS cần (ngẫu nhiên 1..sos_units); mỗi xe chở 1 phần, nên SOS lớn cần nhiều xe chạy cùng lúc.
 const WAVES := [
-	{water_delta = 25.0, sos_interval = 12.0, sos_max = 5, sos_units = 2, food_ratio = 0.70, deadline_food = 60.0, deadline_medical = 45.0},
-	{water_delta = 30.0, sos_interval = 9.0, sos_max = 6, sos_units = 3, food_ratio = 0.60, deadline_food = 50.0, deadline_medical = 38.0},
-	{water_delta = 35.0, sos_interval = 7.0, sos_max = 7, sos_units = 4, food_ratio = 0.55, deadline_food = 40.0, deadline_medical = 32.0},
+	{water_delta = 25.0, sos_interval = 10.0, sos_max = 6, sos_units = 4, food_ratio = 0.70, deadline_food = 60.0, deadline_medical = 45.0},
+	{water_delta = 30.0, sos_interval = 7.0, sos_max = 8, sos_units = 5, food_ratio = 0.60, deadline_food = 50.0, deadline_medical = 38.0},
+	{water_delta = 35.0, sos_interval = 5.0, sos_max = 10, sos_units = 6, food_ratio = 0.55, deadline_food = 40.0, deadline_medical = 32.0},
 ]
 
 # --- Khảo sát: E điền link Google Form sau ---

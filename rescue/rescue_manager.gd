@@ -4,8 +4,8 @@ extends Node
 
 # TODO: xin A chuyển các hằng số này sang autoload/config.gd rồi đổi thành Config.X
 const HOSPITAL_ID := 5               # node Bệnh viện luôn ra SOS Y tế
-const START_TRUCKS := 6              # số xe tải lúc đầu ván (ở kho cao nhất)
-const START_BOATS := 6               # số ca-nô lúc đầu ván (ở kho thấp nhất)
+const START_TRUCKS := 16              # số xe tải lúc đầu ván (ở kho cao nhất)
+const START_BOATS := 16               # số ca-nô lúc đầu ván (ở kho thấp nhất)
 const DISPATCH_INTERVAL := 0.5       # giây giữa hai lượt điều phối
 const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết cạnh
 const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
@@ -573,11 +573,16 @@ func _dispatch() -> void:
 		while r.missing() > 0:
 			var best_v: Vehicle = null
 			var best_p: PathResult = null
+			var tried := {}  # xe rảnh cùng kho, cùng loại đứng cùng chỗ nên chung một đường: chỉ tính một lần
 			for v in _vehicles.values():
 				if v.state_id != Types.VehicleState.IDLE:
 					continue
 				if not _hubs.has(v.hub_id) or _hubs[v.hub_id].stock[r.supply] <= 0:
 					continue
+				var key := Vector2i(v.hub_id, v.type)
+				if tried.has(key):
+					continue
+				tried[key] = true
 				var p: PathResult = find_path(v.hub_id, r.node_id, v.type)
 				if p.found and (best_v == null or p.cost < best_p.cost):
 					best_v = v
