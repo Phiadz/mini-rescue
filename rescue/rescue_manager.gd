@@ -515,7 +515,8 @@ func find_path(from_id: int, to_id: int, vehicle_type: int, exclude: Vehicle = n
 		return path_provider.call(from_id, to_id, vehicle_type)
 	if graph != null:
 		return g().find_path(from_id, to_id, vehicle_type)  # đồ thị giả của scene thử
-	return g().find_path(from_id, to_id, vehicle_type, congestion_penalty(exclude))
+	var p: PathResult = g().find_path(from_id, to_id, vehicle_type, congestion_penalty(exclude))
+	return g().smooth_boat_path(p) if vehicle_type == Types.VehicleType.BOAT else p  # ca-nô lao thẳng trên nước thoáng
 
 
 # ===== Kẹt xe =====
@@ -1040,6 +1041,8 @@ func _assign(r: SosRequest, v: Vehicle, p: PathResult) -> void:
 	var h: Hub = _hubs[v.hub_id]
 	h.stock[r.supply] -= 1
 	EventBus.stock_changed.emit(h.id, r.supply, h.stock[r.supply])
+	if v.type == Types.VehicleType.BOAT and g().has_method('smooth_boat_path'):
+		v.path = g().smooth_boat_path(v.path)  # đường từ cây điều phối: ca-nô lao thẳng trên nước thoáng
 	_boat_depart(v)
 	_leave_slot(v)
 	v.change_state(EnRouteState.new(), Types.VehicleState.EN_ROUTE)

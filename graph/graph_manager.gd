@@ -33,6 +33,8 @@ var _rings: Array = []          # vòng xoay người chơi vẽ: [{center: Vect
 var _ring_of := {}              # id ô đường -> chỉ số vòng trong _rings
 var _ring_from := {}            # id cạnh vòng -> nút được đi từ đó (vòng một chiều, ngược kim đồng hồ trên màn hình)
 const RING3_RADIUS := 40.0      # vòng 3×3: 8 nút cách đều tâm vòng chừng này px (ô cạnh giữ nguyên, ô góc dời vào trong)
+var _shortcuts := {}            # Vector2i(a, b) (a < b) -> id cạnh tắt của ca-nô trên nước thoáng (không nằm trong đồ thị tìm đường)
+const LINE_STEP := 8.0          # khoảng lấy mẫu khi xét đường thẳng của ca-nô có đi trọn trên nước không (px)
 var _gate_cells := {}           # ô cổng -> id điểm (ô cổng là ô đường dựng sẵn, không tính hạn mức, không xóa được)
 var _lot_cells := {}            # ô bãi đỗ -> id kho: kho có bãi nằm giữa kho và cổng (kho, bãi, cổng thẳng hàng)
 var _gate_override := {}        # id điểm -> hướng cổng ghi trong json (trường "gate": "E"/"W"/"N"/"S")
@@ -73,6 +75,7 @@ func _clear_edges() -> void:
 	_badj.clear()
 	_boat_edges.clear()
 	_flood_links.clear()
+	_shortcuts.clear()
 
 # --- Nạp bản đồ (gọi nhiều lần vẫn đúng: luôn xóa dữ liệu cũ trước) ---
 func load_map(path: String) -> void:
@@ -789,6 +792,62 @@ func _dijkstra(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictio
 					heap.push(nd, v)
 	return {from = from_id, dist = dist, prev_node = prev_node, prev_edge = prev_edge}
 
+# --- Ca-nô lao thẳng trên nước thoáng ---
+# Đường thẳng từ a tới b chỉ đi qua nước thoáng: ô sông (grid.water) hoặc ô đất đã ngập sâu (vùng ngập), không qua ô của
+# điểm; được đi qua ô của hai đầu mút (nút sông có thể nằm ở ô chỉ một phần là sông).
+func water_line(a: Vector2, b: Vector2, end_a: Vector2i, end_b: Vector2i) -> bool:
+	var n := maxi(1, ceili(a.distance_to(b) / LINE_STEP))
+	for k in range(1, n):
+		var c := cell_of(a.lerp(b, float(k) / n))
+		if c == end_a or c == end_b:
+			continue
+		if _point_cells.has(c) or not (cell_is_water(c) or _flood_at(c) != -1):
+			return false
+	return true
+
+# Làm thẳng đường ca-nô (như Theta*): trên mỗi đoạn đi liền qua các nút nước, từ một nút nhảy thẳng tới nút nước xa nhất
+# còn nhìn thấy trên nước thoáng, bỏ các nút gấp khúc ở giữa. Đoạn tắt là cạnh boat_only riêng (DEEP), dùng lại nếu đã có.
+# Ven bờ hay còn đất khô chắn thì giữ nguyên đường theo ô như cũ, nên ca-nô không băng qua đất.
+func smooth_boat_path(p: PathResult) -> PathResult:
+	if not p.found or p.node_ids.size() < 3:
+		return p
+	var ids := p.node_ids
+	var out := PathResult.new()
+	out.found = true
+	out.cost = p.cost
+	out.node_ids.append(ids[0])
+	var i := 0
+	while i < ids.size() - 1:
+		var j := i + 1
+		if _water.has(ids[i]):
+			var a: Vector2 = _water[ids[i]].pos
+			var k := i + 2
+			while k < ids.size() and _water.has(ids[k - 1]) and _water.has(ids[k]) \
+					and water_line(a, _water[ids[k]].pos, cell_of(a), cell_of(_water[ids[k]].pos)):
+				j = k
+				k += 1
+		out.edge_ids.append(p.edge_ids[i] if j == i + 1 else _boat_shortcut(ids[i], ids[j]))
+		out.node_ids.append(ids[j])
+		i = j
+	return out
+
+func _boat_shortcut(a: int, b: int) -> int:
+	var key := Vector2i(mini(a, b), maxi(a, b))
+	if _shortcuts.has(key) and _edges.has(_shortcuts[key]):
+		return _shortcuts[key]
+	var e := Edge.new()
+	e.id = BOAT_EDGE_ID_BASE + _next_boat_edge
+	_next_boat_edge += 1
+	e.node_a = a
+	e.node_b = b
+	e.length = get_map_node(a).pos.distance_to(get_map_node(b).pos)
+	e.state = Types.EdgeState.DEEP
+	e.boat_only = true
+	_edges[e.id] = e
+	_boat_edges[e.id] = true
+	_shortcuts[key] = e.id
+	return e.id
+
 # edge_penalty (tùy chọn): số giây cộng thêm cho từng cạnh, RescueManager dùng để né chỗ đang đông xe.
 func find_path(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictionary = {}) -> PathResult:
 	if not _has_node(from_id) or not _has_node(to_id):
@@ -830,6 +889,7 @@ func _build_water() -> void:
 		_edges.erase(eid)
 	_boat_edges.clear()
 	_flood_links.clear()
+	_shortcuts.clear()
 	_badj.clear()
 	_water.clear()
 	_next_boat_edge = 0

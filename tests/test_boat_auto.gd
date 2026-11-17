@@ -294,6 +294,36 @@ func _test_flood_area() -> void:
 	_check(p.found and p.node_ids.any(func(id: int) -> bool: return GraphManager.is_flood_node(id)),
 			'ngập sâu: ca-nô từ Cát Lái chạy qua vùng ngập tới Kinh Dương Vương mà không cần đường (%.1f giây)' % p.cost)
 	_check(not GraphManager.find_path(TAN_SON_NHAT, inland, TRUCK).found, 'xe tải vẫn không chạy qua vùng ngập')
+	# Lao thẳng trên nước thoáng: bỏ các nút gấp khúc, đoạn tắt nào cũng đi trọn trên ô ngập sâu hoặc ô sông.
+	var s := GraphManager.smooth_boat_path(p)
+	var length := func(q: PathResult) -> float:
+		var sum := 0.0
+		for k in q.node_ids.size() - 1:
+			sum += GraphManager.get_map_node(q.node_ids[k]).pos.distance_to(GraphManager.get_map_node(q.node_ids[k + 1]).pos)
+		return sum
+	_check(s.found and s.node_ids.size() < p.node_ids.size() and length.call(s) < length.call(p) - 1.0,
+			'ngập sâu: đường ca-nô được làm thẳng (%d → %d điểm, %.0f → %.0f px)' % [p.node_ids.size(), s.node_ids.size(), length.call(p), length.call(s)])
+	_check(s.node_ids[0] == p.node_ids[0] and s.node_ids[-1] == p.node_ids[-1] and s.edge_ids.size() == s.node_ids.size() - 1, 'đường làm thẳng giữ đầu, cuối, đủ cạnh')
+	var dry := 0
+	for k in s.node_ids.size() - 1:
+		var a: Vector2 = GraphManager.get_map_node(s.node_ids[k]).pos
+		var b: Vector2 = GraphManager.get_map_node(s.node_ids[k + 1]).pos
+		var e := GraphManager.get_edge(s.edge_ids[k])
+		if e == null or not e.boat_only:
+			dry += 1
+			continue
+		var steps := maxi(1, ceili(a.distance_to(b) / 4.0))
+		for m in range(1, steps):
+			var c := GraphManager.cell_of(a.lerp(b, float(m) / steps))
+			if c == GraphManager.cell_of(a) or c == GraphManager.cell_of(b):
+				continue
+			if not (GraphManager.cell_is_water(c) or FloodManager.depth_at(c) >= Config.SHALLOW_MAX):
+				dry += 1
+	_check(dry == 0, 'mọi đoạn ca-nô đi (kể cả đoạn tắt) nằm trên ô sông hoặc ô ngập sâu')
+	_check(GraphManager.smooth_boat_path(p).edge_ids == s.edge_ids, 'đoạn tắt dùng lại, không tạo thêm khi tìm lại đường')
+	var shortcuts := s.edge_ids.filter(func(eid: int) -> bool: return not p.edge_ids.has(eid))
+	_check(not shortcuts.is_empty() and shortcuts.all(func(eid: int) -> bool: return not GraphManager.get_edge_ids().has(eid)),
+			'đoạn tắt (%d) không lẫn vào danh sách cạnh đường bộ' % shortcuts.size())
 	var before: int = flood_nodes.call()
 	FloodManager._update_edges()
 	_check(flood_nodes.call() == before, 'mỗi ô chỉ thêm một lần')
