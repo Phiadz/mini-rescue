@@ -21,6 +21,7 @@ const MARK_WIDTH := 2.0
 const SHALLOW_MARK_WIDTH := 4.0
 const DASH := 10.0
 const SHALLOW_DASH := 9.0
+const DRIVEWAY_TUCK := 3.0  # lối vào lấn vào dưới mép icon vài px cho liền với tòa nhà
 
 
 func _ready() -> void:
@@ -69,17 +70,34 @@ func _pos(id: int) -> Vector2:
 
 
 # Hai đầu bo tròn để chỗ rẽ và chỗ nối nhiều đường vào một điểm trông liền mạch.
+# Bản đồ có cổng: đoạn nối điểm với ô cổng bắt đầu từ mép trước của tòa nhà (lối vào), không vẽ dưới nhà
+# và không có đầu tròn ở tâm nhà, để nhà không trông như nằm trên đường.
 func _stroke(e: Edge, color: Color, width: float) -> void:
-	var a := _pos(e.node_a)
-	var b := _pos(e.node_b)
-	draw_circle(a, width / 2.0, color)
-	draw_circle(b, width / 2.0, color)
+	var a := _end(e.node_a, e.node_b)
+	var b := _end(e.node_b, e.node_a)
+	if not _is_gated_point(e.node_a):
+		draw_circle(a, width / 2.0, color)
+	if not _is_gated_point(e.node_b):
+		draw_circle(b, width / 2.0, color)
 	draw_line(a, b, color, width, true)
 
 
+func _is_gated_point(id: int) -> bool:
+	var n := GraphManager.get_map_node(id)
+	return GraphManager.uses_gates() and n != null and n.kind != Types.NodeKind.ROAD and n.gate != Vector2i.ZERO
+
+
+# Đầu mút đoạn đường ở node id (hướng về node other): điểm có cổng thì lùi ra mép trước tòa nhà.
+func _end(id: int, other: int) -> Vector2:
+	var p := _pos(id)
+	if not _is_gated_point(id):
+		return p
+	return p + p.direction_to(_pos(other)) * (GraphManager.point_radius(id) - DRIVEWAY_TUCK)
+
+
 func _mark(e: Edge) -> void:
-	var a := _pos(e.node_a)
-	var b := _pos(e.node_b)
+	var a := _end(e.node_a, e.node_b)
+	var b := _end(e.node_b, e.node_a)
 	match e.state:
 		Types.EdgeState.SHALLOW:
 			draw_dashed_line(a, b, SHALLOW_MARK_COLOR, SHALLOW_MARK_WIDTH, SHALLOW_DASH)

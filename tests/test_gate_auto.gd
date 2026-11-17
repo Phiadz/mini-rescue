@@ -109,7 +109,8 @@ func _test_stop_pos() -> void:
 	print('\n== Chỗ đỗ ở lối vào')
 	var n := GraphManager.get_map_node(NEAR)
 	var p := RescueManager.stop_pos(NEAR)
-	_check(p == n.pos + Vector2(n.gate) * RescueManager.PARK_IN, 'xe đỗ lệch %d px từ tâm về phía cổng' % int(RescueManager.PARK_IN))
+	var off := GraphManager.point_radius(NEAR) + RescueManager.PARK_GAP
+	_check(p == n.pos + Vector2(n.gate) * off, 'xe đỗ trên lối vào, cách tâm %d px (ngay trước mép nhà)' % int(off))
 	var gid := GraphManager.get_gate_node(NEAR)
 	_check(RescueManager.stop_pos(gid) == GraphManager.get_map_node(gid).pos, 'ô đường: dừng ở tâm ô như cũ')
 

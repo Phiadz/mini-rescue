@@ -5,8 +5,8 @@ extends Node2D
 
 const ICON_PATH := 'res://assets/icons/%s.svg'
 const HUB_ICON_SIZE := 56.0
-const DISTRICT_ICON_SIZE := 44.0
-const HOUSE_ICON_SIZE := 30.0  # nhà mọc thêm trong ván (điểm không tên): nhỏ hơn khu, không nhãn
+const DISTRICT_ICON_SIZE := 36.0  # khu và nhà mọc thêm cùng cỡ để các nhà to nhỏ đều nhau (kho to hơn)
+const HOUSE_ICON_SIZE := DISTRICT_ICON_SIZE  # nhà mọc thêm trong ván (điểm không tên): cùng cỡ khu, không nhãn
 
 const SHAPE_COLOR := Color('#E8E8E8')
 const HUB_FILL := Color('#1E1E24')
@@ -36,6 +36,12 @@ const TRUCK_ICON := preload('res://assets/icons/truck.svg')
 const BOAT_ICON := preload('res://assets/icons/boat.svg')
 var _badges := Node2D.new()
 
+# Tên địa điểm chỉ hiện khi rê chuột lên (góp ý của Lộc: bản đồ tối giản). SHOW_NAMES = true thì luôn hiện như trước.
+const SHOW_NAMES := false
+const HOVER_PAD := 4.0  # rê chuột trong bán kính icon cộng chừng này px thì hiện tên
+var _hover := Node2D.new()
+var _hover_id := -1
+
 
 func _ready() -> void:
 	EventBus.game_started.connect(queue_redraw)
@@ -46,7 +52,57 @@ func _ready() -> void:
 	EventBus.game_started.connect(_badges.queue_redraw)
 	EventBus.vehicle_added.connect(_badges.queue_redraw.unbind(3))
 	EventBus.vehicle_state_changed.connect(_badges.queue_redraw.unbind(2))
+	add_child(_hover)
+	_hover.draw.connect(_draw_hover)
+	EventBus.game_started.connect(func() -> void:
+		_hover_id = -1
+		_hover.queue_redraw())
 	queue_redraw()
+
+
+# Rê chuột: tìm điểm có tên dưới con trỏ, đổi thì chỉ vẽ lại nhãn tên. Không chặn sự kiện (EdgeDrawer vẫn nhận chuột).
+func _input(event: InputEvent) -> void:
+	if SHOW_NAMES or not event is InputEventMouseMotion:
+		return
+	var id := _named_point_at(get_local_mouse_position())
+	if id != _hover_id:
+		_hover_id = id
+		_hover.queue_redraw()
+
+
+# Điểm có tên (kho, khu) gần p nhất trong bán kính icon của nó, hoặc -1.
+func _named_point_at(p: Vector2) -> int:
+	var best := -1
+	var best_d := INF
+	for id in GraphManager.get_node_ids():
+		var n := GraphManager.get_map_node(id)
+		if n == null or n.name.is_empty():
+			continue
+		var d := n.pos.distance_to(p)
+		if d <= _icon_size(n) / 2.0 + HOVER_PAD and d < best_d:
+			best = id
+			best_d = d
+	return best
+
+
+func _draw_hover() -> void:
+	var n := GraphManager.get_map_node(_hover_id) if _hover_id != -1 else null
+	if n != null and not n.name.is_empty():
+		_draw_name(_hover, n, _icon_size(n) / 2.0)
+
+
+func _icon_size(n: MapNode) -> float:
+	if n.kind == Types.NodeKind.HUB:
+		return HUB_ICON_SIZE
+	return HOUSE_ICON_SIZE if n.name.is_empty() else DISTRICT_ICON_SIZE
+
+
+# Tên điểm dưới icon: chữ có viền màu nền để đọc được khi đường chạy qua.
+func _draw_name(canvas: CanvasItem, n: MapNode, half_height: float) -> void:
+	var label_pos := n.pos + Vector2(-LABEL_WIDTH / 2.0, half_height + LABEL_GAP)
+	canvas.draw_string_outline(LABEL_FONT, label_pos, n.name, HORIZONTAL_ALIGNMENT_CENTER, LABEL_WIDTH, LABEL_SIZE,
+			LABEL_OUTLINE, LABEL_OUTLINE_COLOR)
+	canvas.draw_string(LABEL_FONT, label_pos, n.name, HORIZONTAL_ALIGNMENT_CENTER, LABEL_WIDTH, LABEL_SIZE, LABEL_COLOR)
 
 
 func _draw() -> void:
@@ -71,12 +127,8 @@ func _draw() -> void:
 			_draw_hub(n.pos)
 		else:
 			_draw_house(n.pos)
-		if n.name.is_empty():
-			continue  # nhà không có nhãn
-		var label_pos := n.pos + Vector2(-LABEL_WIDTH / 2.0, half_height + LABEL_GAP)
-		draw_string_outline(LABEL_FONT, label_pos, n.name, HORIZONTAL_ALIGNMENT_CENTER, LABEL_WIDTH, LABEL_SIZE,
-				LABEL_OUTLINE, LABEL_OUTLINE_COLOR)
-		draw_string(LABEL_FONT, label_pos, n.name, HORIZONTAL_ALIGNMENT_CENTER, LABEL_WIDTH, LABEL_SIZE, LABEL_COLOR)
+		if SHOW_NAMES and not n.name.is_empty():  # mặc định tên chỉ hiện khi rê chuột (_draw_hover); nhà không có tên
+			_draw_name(self, n, half_height)
 
 
 # Icon theo trường `icon` của MapNode (A thêm); bản đồ chưa có trường này thì trả null.
@@ -153,8 +205,12 @@ func _draw_lot(hub: MapNode) -> void:
 # Bến ca-nô: cầu tàu gỗ dọc bờ phía sông của kho, cọc ngăn giữa các chỗ đỗ.
 # Mỗi chỗ đỗ ca-nô (nằm trên sông, tại nút nước nối bến) có một cầu tàu ngắn từ mép kho ra, cọc ở đầu cầu.
 func _draw_dock(hub: MapNode) -> void:
-	for i in RescueManager.slot_count(hub.id, Types.VehicleType.BOAT):
-		var s := RescueManager.slot_point(hub.id, Types.VehicleType.BOAT, i)
+	var docks := GraphManager.get_dock_nodes(hub.id)
+	var slots := RescueManager.dock_slot_nodes(hub.id)
+	for i in slots.size():
+		if not docks.has(slots[i]):
+			continue  # chỗ neo xa hơn (nút sông kề bến): không có cầu tàu
+		var s := GraphManager.get_map_node(slots[i]).pos
 		var dir := (s - hub.pos).normalized()
 		var from := hub.pos + dir * (HUB_ICON_SIZE / 2.0 - 6.0)
 		var to := s - dir * 8.0  # dừng trước chỗ ca-nô đỗ

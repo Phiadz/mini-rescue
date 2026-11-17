@@ -6,11 +6,13 @@ extends Node
 const HOSPITAL_ID := 5               # node Bệnh viện luôn ra SOS Y tế
 const START_TRUCKS := 12             # số xe tải lúc đầu ván (ở kho cao nhất)
 const START_BOATS := 8               # số ca-nô lúc đầu ván (ở kho thấp nhất)
-const PARK_IN := 14.0                # điểm có cổng: xe đỗ ở lối vào, lệch từ tâm điểm về phía cổng (px)
+const PARK_GAP := 10.0               # điểm có cổng: xe giao hàng đỗ ở lối vào, cách mép trước tòa nhà chừng này (px)
 const HUB_HIDE_RADIUS := 20.0        # xe trong bán kính này quanh kho của nó thì ẩn (đang ở trong kho)
 const HOUSE_TRIES := 12              # số lần thử chọn ô cho một nhà mới mỗi lượt
 const LOT_SLOTS := 6                 # chỗ đỗ xe tải trong bãi của kho: 3 chỗ mỗi bên lối đi giữa
 const DOCK_SLOTS := 4                # chỗ đỗ ca-nô ở bến của kho
+const DOCK_MAX_DOWN := 0.3           # chỗ đỗ ca-nô không chĩa xuống quá mức này (dưới kho là tên kho và nhãn hàng)
+const DOCK_REACH := 95.0             # chỗ neo thêm ở nút sông kề bến cách kho tối đa (px)
 const SLOT_PITCH := 13.0             # khoảng cách hai chỗ đỗ cạnh nhau (px)
 const SLOT_DEPTH := 17.0             # tâm chỗ đỗ cách giữa lối đi (px)
 const DOCK_OUT := 38.0               # chỗ đỗ ca-nô cách tâm kho về phía sông (px), ra ngoài icon kho 56 px
@@ -712,14 +714,16 @@ func _tick_spawn(delta: float) -> void:
 	_dirty = true
 
 # ===== Cổng, chỗ đỗ, nhà mọc dần (bản đồ có cổng) =====
-# Vị trí xe dừng ở node: điểm có cổng thì dừng ở lối vào (lệch PARK_IN về phía cổng), không chồng vào tâm điểm.
+# Vị trí xe dừng ở node: điểm có cổng thì dừng trên lối vào, ngay trước mép tòa nhà (không đè lên icon); điểm không cổng ở tâm.
 func stop_pos(node_id: int) -> Vector2:
 	var n: MapNode = g().get_map_node(node_id)
 	if n == null:
 		return Vector2.ZERO
 	if n.kind == Types.NodeKind.HUB:
 		return n.pos  # kho: trong nhà kho; chỗ đỗ ở bãi tính riêng (slot_pos)
-	return n.pos + Vector2(n.gate) * PARK_IN
+	if n.gate == Vector2i.ZERO:
+		return n.pos
+	return n.pos + Vector2(n.gate) * (g().point_radius(node_id) + PARK_GAP)
 
 # ----- Bãi đỗ của kho (xe tải) và bến (ca-nô) -----
 # Bãi nằm ở ô giữa kho và cổng: lối đi giữa chạy từ kho ra cổng, mỗi bên 3 chỗ đỗ vuông góc (xe đỗ đầu vào trong).
@@ -833,7 +837,8 @@ func _dock_slots(hub_id: int) -> Array[int]:
 		return out
 	var nodes: Array = g().get_dock_nodes(hub_id)
 	var dir := func(id: int) -> Vector2: return (g().get_map_node(id).pos - h.pos).normalized()
-	nodes = nodes.filter(func(id: int) -> bool: return dir.call(id).y <= 0.9)
+	var ok := func(id: int) -> bool: return dir.call(id).y <= DOCK_MAX_DOWN  # không chĩa xuống chỗ tên kho, nhãn hàng
+	nodes = nodes.filter(ok)
 	nodes.sort_custom(func(a: int, b: int) -> bool:
 		var da: Vector2 = dir.call(a)
 		var db: Vector2 = dir.call(b)
@@ -842,7 +847,20 @@ func _dock_slots(hub_id: int) -> Array[int]:
 		if out.size() >= DOCK_SLOTS:
 			break
 		out.append(id)
+	# Chưa đủ chỗ: neo thêm ở các nút sông kề bến (vẫn trên nước, không chĩa xuống, không quá xa kho).
+	var k := 0
+	while out.size() < DOCK_SLOTS and k < out.size():
+		for w in g().get_water_neighbors(out[k]):
+			if out.size() >= DOCK_SLOTS:
+				break
+			if not out.has(w) and ok.call(w) and g().get_map_node(w).pos.distance_to(h.pos) <= DOCK_REACH:
+				out.append(w)
+		k += 1
 	return out
+
+# Các nút nước làm chỗ đỗ ca-nô ở bến kho (NodeLayer vẽ cầu tàu tới những chỗ sát kho).
+func dock_slot_nodes(hub_id: int) -> Array[int]:
+	return _dock_slots(hub_id)
 
 # Đích của ca-nô khi tới node: về kho có chỗ thì tới chỗ đỗ ở bến; cập bến một điểm (kho, khu, nhà) từ nút nước thì
 # dừng ngay trên nút nước đó (đã bảo đảm nằm trên sông), không chạy lên bờ tới tâm điểm.

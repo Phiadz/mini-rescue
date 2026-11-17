@@ -378,6 +378,16 @@ func get_gate_node(point_id: int) -> int:
 		return -1
 	return road_at(cell_of(_nodes[point_id].pos) + _nodes[point_id].gate * _gate_reach(point_id))
 
+# Nửa cỡ icon của điểm (khớp HUB/DISTRICT/HOUSE_ICON_SIZE của NodeLayer): đường cổng bắt đầu từ mép này, xe giao hàng đỗ
+# ngay trước mép này. 0 với ô đường, nút nước.
+func point_radius(id: int) -> float:
+	var n: MapNode = _nodes.get(id)
+	if n == null or n.kind == Types.NodeKind.ROAD:
+		return 0.0
+	if n.kind == Types.NodeKind.HUB:
+		return 28.0
+	return 18.0  # khu và nhà cùng cỡ icon 36 px
+
 # Ô bãi đỗ của kho (giữa kho và cổng), Vector2i(-1, -1) nếu kho không có bãi.
 func get_lot_cell(hub_id: int) -> Vector2i:
 	if not _is_gated(hub_id) or _gate_reach(hub_id) != 2:
@@ -758,6 +768,15 @@ func get_dock_nodes(point_id: int) -> Array[int]:
 		return out
 	for eid in _badj.get(point_id, []):
 		var w: int = _edges[eid].other_end(point_id)
+		if _water.has(w):
+			out.append(w)
+	return out
+
+# Các nút nước nối với nút nước id bằng cạnh sông (để xếp thêm chỗ neo ca-nô cạnh bến).
+func get_water_neighbors(id: int) -> Array[int]:
+	var out: Array[int] = []
+	for eid in _badj.get(id, []):
+		var w: int = _edges[eid].other_end(id)
 		if _water.has(w):
 			out.append(w)
 	return out
