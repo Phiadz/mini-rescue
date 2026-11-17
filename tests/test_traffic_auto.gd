@@ -1,10 +1,11 @@
 extends Node
-# Test tự động cho kẹt xe (RescueManager.congestion_factor, congestion_penalty, GraphManager.find_path có edge_penalty).
+# Test tự động cho kẹt xe (RescueManager.congestion_factor, junction_kind, light_green, congestion_penalty, GraphManager.find_path có edge_penalty).
 # Chạy headless (từ thư mục project):
 #   Godot_v4.7.2-stable_win64_console.exe --headless --fixed-fps 60 --path . res://tests/test_traffic_auto.tscn
 # Thoát với mã 0 nếu mọi kiểm tra đạt, 1 nếu có kiểm tra trượt.
 
 const FIXTURE_MAP := 'res://data/map_01.json'
+const JunctionLayerScript := preload('res://graph/junction_layer.gd')
 
 var _passed := 0
 var _failed := 0
@@ -20,6 +21,8 @@ func _run() -> void:
 	EventBus.game_started.emit()
 	_test_follow()
 	_test_junction()
+	_test_light()
+	_test_yield_point()
 	_test_penalty()
 	for c in _cars:
 		c.free()
@@ -87,25 +90,108 @@ func _test_follow() -> void:
 	_check(RescueManager.congestion_factor(queued, [queued, unloading]) == 0.0, 'xe tới cùng SOS chờ xe trước dỡ hàng xong')
 
 
+# Ngã ba đường tự thành vòng xoay: xe sắp vào chỉ nhường xe đang ở trong vòng, không còn luật ai gần hơn đi trước.
 func _test_junction() -> void:
-	print('\n== Ngã ba')
+	print('\n== Vòng xoay ở ngã ba')
 	GraphManager.load_map(FIXTURE_MAP)
 	EventBus.game_started.emit()
 	var t := _t_junction()
 	_check(GraphManager.get_edges_of(t.j).size() == 3, 'ô (19, 14) là ngã ba')
+	_check(RescueManager.junction_kind(t.j) == RescueManager.JUNCTION_ROUNDABOUT, 'ngã ba đường tự thành vòng xoay')
+	_check(RescueManager.junction_kind(t.w) == RescueManager.JUNCTION_NONE, 'đầu đường không phải nút giao')
 	var jp: Vector2 = GraphManager.get_map_node(t.j).pos
 	var west = _car(10, jp - Vector2(35, 0), t.w, t.j)
 	var inside = _car(11, jp - Vector2(0, 18), t.n, t.j)
-	_check(RescueManager.congestion_factor(west, [west, inside]) == 0.0, 'xe đang ở trong ngã ba được đi trước, xe sắp vào phải chờ')
-	_check(RescueManager.congestion_factor(inside, [west, inside]) == 1.0, 'xe trong ngã ba đi tiếp')
+	_check(RescueManager.congestion_factor(west, [west, inside]) == 0.0, 'xe sắp vào vòng xoay chờ xe đang ở trong vòng')
+	_check(RescueManager.congestion_factor(inside, [west, inside]) == RescueManager.ROUNDABOUT_SLOW,
+			'xe trong vòng không phải chờ, chạy chậm %.1f' % RescueManager.ROUNDABOUT_SLOW)
+	_check(RescueManager.in_roundabout(inside) and not RescueManager.in_roundabout(west), 'phân biệt xe ở trong vòng và xe sắp vào')
 	var far_north = _car(12, jp - Vector2(0, 42), t.n, t.j)
 	_check(RescueManager.congestion_factor(west, [west, far_north]) == 1.0
-			and RescueManager.congestion_factor(far_north, [west, far_north]) == 0.0, 'xe gần ngã ba hơn đi trước, xe xa hơn nhường')
-	var tie_north = _car(13, jp - Vector2(0, 35), t.n, t.j)
+			and RescueManager.congestion_factor(far_north, [west, far_north]) == 1.0, 'hai xe cùng sắp vào vòng xoay thì không ai phải chờ')
+	var east = _car(14, jp + Vector2(35, 0), t.e, t.j)
+	_check(RescueManager.congestion_factor(west, [west, east]) == 1.0, 'hai xe ngược chiều sắp vào không phải nhường')
+	var leaving = _car(15, jp - Vector2(12, 0), t.j, t.w)
+	_check(RescueManager.congestion_factor(west, [west, leaving]) == 1.0, 'xe đang ra theo nhánh mình vào (làn bên kia) không làm mình chờ')
+	inside._update_lane(1.0)
+	_check(inside.lane_offset().distance_to(inside.heading.rotated(PI / 2.0) * RescueManager.RING_RADIUS) < 0.01,
+			'xe trong vòng xoay vẽ lệch ra vòng quanh đảo')
+	var slowed = _car(16, jp - Vector2(0, 18), t.n, t.j)
+	slowed.settle_jam(RescueManager.ROUNDABOUT_SLOW, 1.0)
+	_check(not slowed.jammed, 'chạy chậm trong vòng xoay không tính là kẹt (không bật đèn phanh)')
+	var layer = JunctionLayerScript.new()
+	add_child(layer)
+	_check(layer._roundabouts == [t.j] and layer._lights.is_empty(), 'lớp vẽ nút giao nhận ra vòng xoay ở ngã ba')
+	layer.free()
+
+
+# Ngã tư đường tự có đèn: hai trục ngang, dọc luân phiên xanh mỗi LIGHT_PHASE giây.
+func _test_light() -> void:
+	print('\n== Đèn giao thông ở ngã tư')
+	GraphManager.load_map(FIXTURE_MAP)
+	EventBus.game_started.emit()
+	var c := Vector2i(8, 14)
+	var w := GraphManager.extend_road(-1, c - Vector2i(1, 0))
+	var x := GraphManager.extend_road(w, c)
+	GraphManager.extend_road(x, c + Vector2i(1, 0))
+	var n := GraphManager.extend_road(x, c - Vector2i(0, 1))
+	GraphManager.extend_road(x, c + Vector2i(0, 1))
+	_check(RescueManager.junction_kind(x) == RescueManager.JUNCTION_LIGHT, 'ngã tư đường tự có đèn')
+	_check(RescueManager.light_green(x, Vector2.RIGHT) != RescueManager.light_green(x, Vector2.DOWN), 'mỗi lúc chỉ một trục xanh')
+	var layer = JunctionLayerScript.new()
+	add_child(layer)
+	_check(layer._lights == [x] and layer._roundabouts.is_empty() and layer.is_processing(), 'lớp vẽ nút giao nhận ra ngã tư có đèn, theo dõi đổi pha')
+	layer.free()
+	var cp: Vector2 = GraphManager.get_map_node(x).pos
+	var saved_clock: float = RescueManager._clock
+	RescueManager._clock = 0.0
+	if RescueManager.light_green(x, Vector2.RIGHT):
+		RescueManager._clock += RescueManager.LIGHT_PHASE  # bắt đầu từ pha trục ngang đỏ
+	var west = _car(20, cp - Vector2(35, 0), w, x)
+	var north = _car(21, cp - Vector2(0, 35), n, x)
+	_check(RescueManager.congestion_factor(west, [west]) == 0.0 and west.at_red, 'trục ngang đỏ: xe phía tây dừng trước vạch')
+	_check(RescueManager.congestion_factor(north, [north]) == 1.0 and not north.at_red, 'trục dọc xanh: xe phía bắc đi')
+	RescueManager._clock += RescueManager.LIGHT_PHASE
+	_check(RescueManager.congestion_factor(west, [west]) == 1.0 and not west.at_red, 'sau một pha: trục ngang xanh, xe phía tây đi')
+	_check(RescueManager.congestion_factor(north, [north]) == 0.0 and north.at_red, 'sau một pha: trục dọc đỏ, xe phía bắc dừng')
+	var crossing = _car(22, cp - Vector2(0, 10), n, x)
+	_check(RescueManager.congestion_factor(west, [west, crossing]) == 0.0, 'đèn xanh vẫn nhường xe còn trong ngã tư đi cắt ngang')
+	RescueManager._clock -= RescueManager.LIGHT_PHASE
+	var jam := RescueManager.congestion_factor(west, [west])
+	_check(west.settle_jam(jam, RescueManager.JAM_GIVE_UP + 1.0) == 0.0 and west.jammed, 'chờ đèn đỏ quá JAM_GIVE_UP vẫn không vượt')
+	var stuck = _car(23, cp - Vector2(35, 0), w, x)
+	_check(stuck.settle_jam(0.0, RescueManager.JAM_GIVE_UP + 1.0) == RescueManager.FOLLOW_SLOW,
+			'kẹt thường (không phải đèn đỏ) quá JAM_GIVE_UP thì đi chậm qua')
+	RescueManager._clock = saved_clock
+
+
+# Luật nhường cũ vẫn dùng ở điểm có từ 3 đường vào (bản đồ không có cổng) và ở chữ T trước cổng nhà.
+func _test_yield_point() -> void:
+	print('\n== Nhường theo khoảng cách ở điểm có 3 đường vào')
+	GraphManager.load_map(FIXTURE_MAP)
+	EventBus.game_started.emit()
+	var p := 5  # Bệnh viện, ô (16, 8)
+	var pc := GraphManager.cell_of(GraphManager.get_map_node(p).pos)
+	var a := GraphManager.extend_road(p, pc - Vector2i(1, 0))
+	GraphManager.extend_road(p, pc + Vector2i(1, 0))
+	var c := GraphManager.extend_road(p, pc - Vector2i(0, 1))
+	_check(GraphManager.get_edges_of(p).size() == 3 and RescueManager.junction_kind(p) == RescueManager.JUNCTION_YIELD,
+			'điểm có 3 đường vào: nhường theo khoảng cách')
+	var pp: Vector2 = GraphManager.get_map_node(p).pos
+	var west = _car(30, pp - Vector2(35, 0), a, p)
+	var inside = _car(31, pp - Vector2(0, 18), c, p)
+	_check(RescueManager.congestion_factor(west, [west, inside]) == 0.0, 'xe đang ở trong nút được đi trước, xe sắp vào phải chờ')
+	_check(RescueManager.congestion_factor(inside, [west, inside]) == 1.0, 'xe trong nút đi tiếp')
+	var far_north = _car(32, pp - Vector2(0, 42), c, p)
+	_check(RescueManager.congestion_factor(west, [west, far_north]) == 1.0
+			and RescueManager.congestion_factor(far_north, [west, far_north]) == 0.0, 'xe gần nút hơn đi trước, xe xa hơn nhường')
+	var tie_north = _car(33, pp - Vector2(0, 35), c, p)
 	_check(RescueManager.congestion_factor(west, [west, tie_north]) == 1.0
 			and RescueManager.congestion_factor(tie_north, [west, tie_north]) == 0.0, 'cách đều thì xe mã nhỏ đi trước, không cùng chờ nhau')
-	var east = _car(14, jp + Vector2(35, 0), t.e, t.j)
-	_check(RescueManager.congestion_factor(west, [west, east]) == 1.0, 'hai xe đi thẳng ngược chiều qua ngã ba không phải nhường')
+	# Chữ T trước cổng: ô đường nối điểm và hai ô đường khác (chỉ 2 nhánh đường) vẫn nhường theo khoảng cách.
+	GraphManager.extend_road(a, pc + Vector2i(-1, -1))
+	GraphManager.extend_road(a, pc + Vector2i(-1, 1))
+	_check(RescueManager.junction_kind(a) == RescueManager.JUNCTION_YIELD, 'ô đường có 2 nhánh đường và 1 lối vào điểm: nhường theo khoảng cách')
 
 
 func _test_penalty() -> void:

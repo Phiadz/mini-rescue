@@ -20,6 +20,14 @@ const JUNCTION_RADIUS := 24.0        # bán kính ngã ba, ngã tư (px)
 const JUNCTION_APPROACH := 46.0      # trong khoảng này trước ngã ba thì xét nhường đường
 const JAM_GIVE_UP := 3.0             # đứng chờ quá lâu (giây) thì đi chậm qua, tránh tắc vĩnh viễn
 const CONGESTION_PATH_COST := 1.5    # giây cộng thêm khi tìm đường qua cạnh sắp có xe đi
+# Nút giao tự động (góp ý của Lộc): ngã ba đường thành vòng xoay, ngã tư đường trở lên có đèn giao thông.
+const JUNCTION_NONE := 0             # không phải nút giao
+const JUNCTION_YIELD := 1            # nhường theo khoảng cách: điểm có từ 3 cạnh, chữ T trước cổng nhà
+const JUNCTION_ROUNDABOUT := 2       # ngã ba đường: chỉ nhường xe đang ở trong vòng
+const JUNCTION_LIGHT := 3            # ngã tư đường trở lên: đèn chia lượt theo trục ngang, dọc
+const LIGHT_PHASE := 3.0             # giây mỗi pha đèn xanh của một trục
+const ROUNDABOUT_SLOW := 0.8         # hệ số tốc độ khi đang chạy trong vòng xoay (không tính là kẹt)
+const RING_RADIUS := 12.0            # xe trong vòng xoay vẽ lệch ra vòng quanh đảo (px)
 const UNIT_EXTRA_SECONDS := Config.DELIVERY_TIME  # SOS cần nhiều phần: mỗi phần thêm cộng một lần dỡ hàng (xe xếp hàng dỡ lần lượt)
 const GRID_CELL := 40.0              # ô lưới để tìm xe ở gần khi tính kẹt xe (bằng một ô đường)
 
@@ -121,6 +129,7 @@ class Vehicle extends Node2D:
 	var _state: VehicleStateBase
 	var _lane := Vector2.ZERO     # độ lệch làn khi vẽ; position vẫn nằm giữa đường
 	var jammed := false           # đang bị kẹt (bám đuôi hoặc chờ ở ngã ba): vẽ đèn phanh
+	var at_red := false           # đang dừng trước đèn đỏ (congestion_factor đặt mỗi lần xét)
 	var _jam_time := 0.0
 
 	func set_initial_state() -> void:  # không phát tín hiệu
@@ -144,7 +153,8 @@ class Vehicle extends Node2D:
 	func _update_lane(delta: float) -> void:
 		var want := Vector2.ZERO
 		if state_id != Types.VehicleState.IDLE:
-			want = heading.rotated(PI / 2.0) * LANE_OFFSET
+			var off := RING_RADIUS if RescueManager.in_roundabout(self) else LANE_OFFSET  # trong vòng xoay: chạy quanh đảo
+			want = heading.rotated(PI / 2.0) * off
 		if _lane != want:
 			_lane = _lane.move_toward(want, LANE_OFFSET * 2.0 / LANE_SWITCH * delta)
 			queue_redraw()
@@ -160,6 +170,23 @@ class Vehicle extends Node2D:
 	# Node kế tiếp xe đang chạy tới, -1 nếu đứng yên.
 	func next_node() -> int:
 		return path.node_ids[path_index + 1] if is_moving() else -1
+
+	# Node xe vừa rời trên đường đang chạy, -1 nếu đứng yên.
+	func prev_node() -> int:
+		return path.node_ids[path_index] if is_moving() else -1
+
+	# Cộng thời gian kẹt và áp luật chờ quá JAM_GIVE_UP thì đi chậm qua (tránh tắc vĩnh viễn).
+	# Đang dừng đèn đỏ thì không vượt: đèn luôn đổi pha nên không tắc vĩnh viễn.
+	# Chạy chậm trong vòng xoay (ROUNDABOUT_SLOW) không tính là kẹt.
+	func settle_jam(jam: float, delta: float) -> float:
+		_jam_time = _jam_time + delta if jam < ROUNDABOUT_SLOW else 0.0
+		if _jam_time > JAM_GIVE_UP and not at_red:
+			jam = maxf(jam, FOLLOW_SLOW)  # chờ quá lâu: đi chậm qua
+		var stuck := jam < ROUNDABOUT_SLOW
+		if jammed != stuck:
+			jammed = stuck
+			queue_redraw()
+		return jam
 
 	func retry_if_stranded() -> void:
 		if state_id == Types.VehicleState.STRANDED and _state:
@@ -197,13 +224,7 @@ class Vehicle extends Node2D:
 		if position.distance_to(target) > ARRIVE_EPSILON:
 			heading = position.direction_to(target)
 			queue_redraw()
-		var jam := RescueManager.congestion_factor(self)
-		_jam_time = _jam_time + delta if jam < 1.0 else 0.0
-		if _jam_time > JAM_GIVE_UP:
-			jam = maxf(jam, FOLLOW_SLOW)  # chờ quá lâu: đi chậm qua
-		if jammed != (jam < 1.0):
-			jammed = jam < 1.0
-			queue_redraw()
+		var jam := settle_jam(RescueManager.congestion_factor(self), delta)
 		position = position.move_toward(target, Config.base_speed(type) * f * jam * delta)
 		if position.distance_to(target) < ARRIVE_EPSILON:
 			position = target
@@ -482,24 +503,79 @@ func congestion_penalty(exclude: Vehicle = null) -> Dictionary:
 	return pen
 
 
+# Loại nút giao, quyết định luật nhường đường (congestion_factor) và hình vẽ (JunctionLayer):
+# - ô đường nối với đúng 3 ô đường khác: vòng xoay; từ 4 ô đường trở lên: đèn giao thông;
+# - ô đường có từ 3 cạnh nhưng chỉ 2 cạnh sang ô đường (chữ T trước cổng nhà), hoặc điểm có từ 3 cạnh
+#   (bản đồ không có cổng như map_01): nhường theo khoảng cách như cũ;
+# - còn lại (đoạn thẳng, khúc cua, nút nước của ca-nô): không phải nút giao.
+func junction_kind(node_id: int) -> int:
+	var n: MapNode = g().get_map_node(node_id)
+	if n == null:
+		return JUNCTION_NONE
+	var edges: Array = g().get_edges_of(node_id)
+	if n.kind != Types.NodeKind.ROAD:
+		return JUNCTION_YIELD if edges.size() >= 3 else JUNCTION_NONE
+	var road_deg := 0
+	for eid in edges:
+		var e: Edge = g().get_edge(eid)
+		var other: MapNode = g().get_map_node(e.other_end(node_id)) if e != null else null
+		if other != null and other.kind == Types.NodeKind.ROAD:
+			road_deg += 1
+	if road_deg >= 4:
+		return JUNCTION_LIGHT
+	if road_deg == 3:
+		return JUNCTION_ROUNDABOUT
+	return JUNCTION_YIELD if edges.size() >= 3 else JUNCTION_NONE
+
+
+# Đèn ở nút node_id có xanh cho xe đi theo hướng heading không. Hai trục ngang, dọc luân phiên xanh
+# mỗi LIGHT_PHASE giây theo đồng hồ ván (_clock); mỗi ngã tư lệch pha theo mã nút để không đổi cùng lúc.
+func light_green(node_id: int, heading: Vector2) -> bool:
+	var offset := fposmod(float(node_id) * 1.7, LIGHT_PHASE * 2.0)
+	var phase := int(floor((_clock + offset) / LIGHT_PHASE)) % 2
+	var axis := 0 if absf(heading.x) >= absf(heading.y) else 1
+	return axis == phase
+
+
+# Xe đang chạy trong vòng xoay: cách tâm nút vòng xoay vừa rời hoặc sắp tới dưới JUNCTION_RADIUS.
+func in_roundabout(v: Vehicle) -> bool:
+	for id in [v.prev_node(), v.next_node()]:
+		if id == -1:
+			continue
+		var n: MapNode = g().get_map_node(id)
+		if n != null and v.position.distance_to(n.pos) < JUNCTION_RADIUS and junction_kind(id) == JUNCTION_ROUNDABOUT:
+			return true
+	return false
+
+
 # Hệ số tốc độ do kẹt xe (1 = chạy bình thường, 0 = dừng chờ), chỉ dùng khoảng cách:
 # - bám đuôi: xe phía trước cùng hướng, cùng làn, cách dưới FOLLOW_GAP thì chậm, dưới STOP_GAP thì dừng;
-# - ngã ba, ngã tư (node có từ 3 cạnh): xe sắp vào nhường xe đang ở trong ngã ba, hoặc xe từ nhánh cắt ngang
-#   ở gần ngã ba hơn; bằng nhau thì xe có mã nhỏ hơn đi trước, nên hai xe không cùng nhường nhau.
+# - nút giao (junction_kind của nút sắp tới), xét khi xe sắp vào (cách tâm từ JUNCTION_RADIUS tới JUNCTION_APPROACH):
+#   - nhường theo khoảng cách: nhường xe đang ở trong nút, hoặc xe từ nhánh cắt ngang ở gần nút hơn;
+#     bằng nhau thì xe có mã nhỏ hơn đi trước, nên hai xe không cùng nhường nhau;
+#   - vòng xoay: chỉ nhường xe đang ở trong vòng (trừ xe cùng hướng và xe đang ra theo nhánh của mình);
+#     xe đang trong vòng chạy ROUNDABOUT_SLOW;
+#   - đèn: trục của mình đang đỏ thì dừng (at_red); xanh thì vẫn nhường xe còn trong ngã tư đi cắt ngang.
 # others: danh sách xe để xét (test truyền vào); rỗng thì dùng mọi xe của RescueManager.
 func congestion_factor(v: Vehicle, others: Array = []) -> float:
+	v.at_red = false
 	if not v.is_moving():
 		return 1.0
 	var list: Array = others if not others.is_empty() else _nearby(v.position)
-	var f := 1.0
+	var f := ROUNDABOUT_SLOW if in_roundabout(v) else 1.0
 	var nxt := v.next_node()
+	var prev := v.prev_node()
+	var kind := junction_kind(nxt) if nxt != -1 else JUNCTION_NONE
 	var jpos := Vector2.ZERO
 	var dv := INF
 	var approaching := false
-	if nxt != -1 and g().get_edges_of(nxt).size() >= 3:
+	if kind != JUNCTION_NONE:
 		jpos = g().get_map_node(nxt).pos
 		dv = v.position.distance_to(jpos)
 		approaching = dv > JUNCTION_RADIUS and dv < JUNCTION_APPROACH
+	if approaching and kind == JUNCTION_LIGHT and not light_green(nxt, v.heading):
+		v.at_red = true
+		return 0.0
 	for u in list:
 		if u == v:
 			continue
@@ -520,12 +596,23 @@ func congestion_factor(v: Vehicle, others: Array = []) -> float:
 				return 0.0
 			if along < FOLLOW_GAP:
 				f = minf(f, FOLLOW_SLOW)
-		if approaching and absf(u.heading.dot(v.heading)) < 0.7:
-			var du: float = u.position.distance_to(jpos)
-			var inside: bool = du <= JUNCTION_RADIUS
-			var first: bool = u.next_node() == nxt and (du < dv or (is_equal_approx(du, dv) and u.id < v.id))
-			if inside or first:
-				f = 0.0
+		if not approaching:
+			continue
+		var du: float = u.position.distance_to(jpos)
+		var inside: bool = du <= JUNCTION_RADIUS
+		var cross: bool = absf(u.heading.dot(v.heading)) < 0.7
+		match kind:
+			JUNCTION_YIELD:
+				var first: bool = u.next_node() == nxt and (du < dv or (is_equal_approx(du, dv) and u.id < v.id))
+				if cross and (inside or first):
+					f = 0.0
+			JUNCTION_ROUNDABOUT:
+				var exiting_my_way: bool = u.prev_node() == nxt and u.next_node() == prev  # ra theo nhánh mình đang vào, làn bên kia
+				if inside and u.heading.dot(v.heading) < 0.7 and not exiting_my_way:
+					f = 0.0
+			JUNCTION_LIGHT:
+				if inside and cross:
+					f = 0.0
 	return f
 
 func _process(delta: float) -> void:

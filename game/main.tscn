@@ -7,6 +7,7 @@
 [ext_resource type="Script" uid="uid://cnqjhjdglh30g" path="res://graph/edge_drawer.gd" id="6_ioaqv"]
 [ext_resource type="PackedScene" path="res://ui/ui_root.tscn" id="7_li27q"]
 [ext_resource type="Texture2D" path="res://assets/icons/terrain/saigon_mm_base.svg" id="8_ground"]
+[ext_resource type="Script" path="res://graph/junction_layer.gd" id="9_junction"]
 
 [node name="Main" type="Node2D" unique_id=822342320]
 
@@ -24,6 +25,9 @@ script = ExtResource("1_wjctj")
 
 [node name="EdgeLayer" type="Node2D" parent="World" unique_id=1902549117]
 script = ExtResource("2_xkbyp")
+
+[node name="JunctionLayer" type="Node2D" parent="World"]
+script = ExtResource("9_junction")
 
 [node name="NodeLayer" type="Node2D" parent="World" unique_id=1215602115]
 script = ExtResource("3_lx3aj")
