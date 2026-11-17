@@ -88,6 +88,9 @@ func _on_key(key: InputEventKey) -> void:
 
 func _start_paint() -> void:
 	var cell := _paint_cell()
+	if not GameManager.is_in_play(GraphManager.cell_center(cell)):
+		_reject(cell)  # ngoài vùng đã mở
+		return
 	_last_node = GraphManager.extend_road(-1, cell)
 	if _last_node == -1:
 		_reject(cell)
@@ -98,7 +101,7 @@ func _start_paint() -> void:
 
 func _paint_to(to: Vector2i) -> void:
 	for cell in _cells_to(to):
-		var next := GraphManager.extend_road(_last_node, cell)
+		var next := GraphManager.extend_road(_last_node, cell) if GameManager.is_in_play(GraphManager.cell_center(cell)) else -1
 		if next == -1:
 			_painting = false
 			_reject(cell)

@@ -18,6 +18,7 @@
 	{"id":15,"name":"Kinh Dương Vương","kind":1,"x":140,"y":500,"elevation":36,"icon":"house_blue"},
 	{"id":16,"name":"Lê Đức Thọ","kind":1,"x":460,"y":100,"elevation":46,"icon":"house_mint"}
   ],
+  "stages": [{"center": [622, 245], "zoom": 1.8}, {"center": [738, 266], "zoom": 1.35}, {"center": [640, 360], "zoom": 1.0}],
   "terrain": {"height": "res://assets/icons/terrain/saigon_height.png", "shallow": "#8fcbe6", "deep": "#6fb2d6", "foam": "#ffffff"},
   "grid": {
     "elevation": [

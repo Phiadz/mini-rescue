@@ -21,6 +21,8 @@ var audio
 var sos: Node2D
 var flood_overlay: Node2D
 var current_view: String = "menu"
+const STAGE_REVEAL_TIME := 1.8 # khớp thời gian camera chuyển vùng (StageView.MOVE_TIME) cộng chút nghỉ
+var _last_play_rect := Rect2()
 var reward_pending: bool = false # reward offered but not chosen yet; restore its popup after pausing in a break
 
 func _ready() -> void:
@@ -66,6 +68,16 @@ func _ready() -> void:
 	EventBus.game_lost.connect(_on_lost)
 	_show("menu")
 
+# Bong bóng SOS và cảnh báo ngập vẽ theo tọa độ bản đồ: theo camera (vùng chơi theo đợt).
+# Bong bóng giữ nguyên kích thước trên màn hình dù camera phóng to.
+func _process(_delta: float) -> void:
+	var xf := get_viewport().get_canvas_transform()
+	sos.transform = xf
+	flood_overlay.transform = xf
+	var s := Vector2.ONE / xf.get_scale()
+	for m in sos.get_children():
+		m.scale = s
+
 func _mount(scene: PackedScene) -> Control:
 	var node: Control = scene.instantiate()
 	node.theme = UITheme
@@ -92,6 +104,7 @@ func _start() -> void:
 
 func _on_started() -> void:
 	reward_pending = false
+	_last_play_rect = GameManager.get_play_rect()
 	_show("hud")
 
 func _pause() -> void:
@@ -127,6 +140,12 @@ func _on_game_state_changed(state: int) -> void:
 func _on_reward_offered(options: Array) -> void:
 	reward_pending = true
 	reward.call("set_options", options)
+	if GameManager.get_play_rect() != _last_play_rect:
+		_last_play_rect = GameManager.get_play_rect()
+		# Vùng chơi vừa mở rộng: để người chơi xem camera thu ra rồi mới mở cửa hàng.
+		await get_tree().create_timer(STAGE_REVEAL_TIME, false).timeout
+		if not reward_pending or current_view != "hud":
+			return
 	_show("reward")
 
 # Mua xong một món thì cửa hàng vẫn mở để mua tiếp, chỉ cập nhật quỹ và giá.

@@ -12,8 +12,8 @@ const GRID_COLS := 32
 const GRID_ROWS := 18
 
 # --- Tốc độ phương tiện (px/giây) ---
-const TRUCK_SPEED := 120.0
-const BOAT_SPEED := 90.0
+const TRUCK_SPEED := 180.0
+const BOAT_SPEED := 135.0
 
 # --- Lũ ---
 const SHALLOW_MAX := 15.0
@@ -33,22 +33,23 @@ const BREAK_DURATION := 15.0
 const MAX_FAILED := 3
 
 # --- Giao hàng, kho, SOS ---
-const DELIVERY_TIME := 1.5
+const DELIVERY_TIME := 0.5
 const SOS_COOLDOWN := 20.0
-const STOCK_START := 6
-const STOCK_MAX := 10
-const STOCK_REGEN := 20.0
+const STOCK_START := 60
+const STOCK_MAX := 100
+const STOCK_REGEN := 2.0
 const MAX_PRIORITIZED := 2
 
 # --- Điểm ---
 const POINTS := {0: 10, 1: 20}
 const BONUS_RATIO := 1.5
 const REWARD_EDGE_BONUS := 12  # số ô đường
+const REWARD_VEHICLE_BONUS := 10  # số xe mỗi lần mua xe tải hoặc ca-nô ở cửa hàng
 
 # --- Cửa hàng cứu trợ (mở trong lượt nghỉ giữa hai đợt) ---
 # Mỗi SOS cứu được cộng vào quỹ đúng bằng số điểm nhận được; mua hàng chỉ trừ quỹ, không trừ điểm.
 # Khóa là Types.Reward: 0 MORE_EDGES (+REWARD_EDGE_BONUS ô đường), 1 EXTRA_TRUCK, 2 EXTRA_BOAT.
-const SHOP_PRICES := {0: 60, 1: 100, 2: 80}
+const SHOP_PRICES := {0: 600, 1: 1000, 2: 800}
 const FUND_UNIT_VND := 10000000  # mỗi đơn vị quỹ hiển thị là 10 triệu đồng (chỉ để hiển thị)
 const SHOP_PRICE_GROWTH := 1.5  # mỗi lần mua cùng một món trong ván, giá món đó nhân thêm (làm tròn 5)
 
@@ -60,10 +61,11 @@ const SPEED_FACTOR := {
 }
 
 # --- Các đợt lũ (chỉ số 0, 1, 2) ---
+# sos_units: số phần hàng mỗi SOS cần; mỗi xe chở 1 phần, nên SOS lớn cần nhiều xe chạy cùng lúc.
 const WAVES := [
-	{water_delta = 25.0, sos_interval = 12.0, sos_max = 4, food_ratio = 0.70, deadline_food = 60.0, deadline_medical = 45.0},
-	{water_delta = 30.0, sos_interval = 9.0, sos_max = 5, food_ratio = 0.60, deadline_food = 50.0, deadline_medical = 38.0},
-	{water_delta = 35.0, sos_interval = 7.0, sos_max = 6, food_ratio = 0.55, deadline_food = 40.0, deadline_medical = 32.0},
+	{water_delta = 25.0, sos_interval = 7.0, sos_max = 6, sos_units = 10, food_ratio = 0.70, deadline_food = 40.0, deadline_medical = 30.0},
+	{water_delta = 30.0, sos_interval = 5.0, sos_max = 8, sos_units = 10, food_ratio = 0.60, deadline_food = 34.0, deadline_medical = 26.0},
+	{water_delta = 35.0, sos_interval = 3.8, sos_max = 10, sos_units = 10, food_ratio = 0.55, deadline_food = 27.0, deadline_medical = 21.0},
 ]
 
 # --- Khảo sát: E điền link Google Form sau ---

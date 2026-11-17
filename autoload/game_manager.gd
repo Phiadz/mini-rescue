@@ -6,6 +6,7 @@ extends Node
 const MAIN_SCENE := 'res://game/main.tscn'
 const SPEEDS: Array[int] = [1, 2, 3]  # tua nhanh: phím F hoặc nút trên HUD
 const ScoreSystemScript := preload('res://game/score_system.gd')
+const StageViewScript := preload('res://game/stage_view.gd')
 
 var state: int = Types.GameState.MENU
 # Số giây nghỉ còn lại (chỉ đọc), 0 khi không ở lượt nghỉ. Bảng chọn thưởng của D đọc để đếm ngược;
@@ -26,6 +27,9 @@ var _score_system := ScoreSystemScript.new()
 # Tốc độ người chơi chọn (1, 2, 3). Chỉ đặt lại Engine.time_scale khi người chơi đã từng tua,
 # để các test tự đặt time_scale không bị ghi đè.
 var game_speed := 1
+var _stage := 0                  # vùng chơi hiện tại (chỉ số trong GraphManager.get_stages())
+var _play_rect := Rect2(Vector2.ZERO, Vector2(1280, 720))
+var _stage_view: Node2D = null
 
 
 func _ready() -> void:
@@ -79,6 +83,7 @@ func start_game() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame  # chờ scene sẵn sàng
 	GraphManager.load_map(Config.MAP_PATH)  # 1. nạp bản đồ
+	_mount_stage_view()
 	EventBus.game_started.emit()  # 2. các module tự reset, NodeLayer vẽ node
 	get_tree().paused = false
 	_score_system.enabled = true
@@ -126,9 +131,11 @@ func choose_reward(reward: int) -> bool:
 		Types.Reward.MORE_EDGES:
 			GraphManager.add_edge_limit(Config.REWARD_EDGE_BONUS)
 		Types.Reward.EXTRA_TRUCK:
-			RescueManager.add_vehicle(Types.VehicleType.TRUCK)
+			for i in Config.REWARD_VEHICLE_BONUS:
+				RescueManager.add_vehicle(Types.VehicleType.TRUCK)
 		Types.Reward.EXTRA_BOAT:
-			RescueManager.add_vehicle(Types.VehicleType.BOAT)
+			for i in Config.REWARD_VEHICLE_BONUS:
+				RescueManager.add_vehicle(Types.VehicleType.BOAT)
 	_bought[reward] = int(_bought.get(reward, 0)) + 1
 	EventBus.reward_chosen.emit(reward)
 	return true
@@ -178,6 +185,7 @@ func _end_wave() -> void:
 		return
 	_set_state(Types.GameState.WAVE_BREAK)
 	_phase_left = Config.BREAK_DURATION
+	_enter_stage(_wave + 1, true)  # mở vùng mới ngay đầu lượt nghỉ để kịp nối đường
 	EventBus.break_started.emit(Config.BREAK_DURATION)
 	EventBus.reward_offered.emit(Types.Reward.values())
 
@@ -221,6 +229,47 @@ func _reset_speed() -> void:
 		Engine.time_scale = 1.0
 
 
+# --- Vùng chơi theo đợt ---
+# Vùng đang chơi (đơn vị bản đồ). Ngoài vùng không tô đường, không sinh SOS.
+func get_play_rect() -> Rect2:
+	return _play_rect
+
+
+func is_in_play(p: Vector2) -> bool:
+	return _play_rect.has_point(p)
+
+
+func get_stage() -> int:
+	return _stage
+
+
+func _stage_data(i: int) -> Dictionary:
+	var stages: Array = GraphManager.get_stages()
+	if stages.is_empty():
+		return {center = [640, 360], zoom = 1.0}
+	return stages[clampi(i, 0, stages.size() - 1)]
+
+
+func _enter_stage(i: int, animate: bool) -> void:
+	_stage = i
+	var data := _stage_data(i)
+	_play_rect = StageViewScript.play_rect(data)
+	if _stage_view != null and is_instance_valid(_stage_view):
+		_stage_view.apply(data, animate)
+
+
+# Camera và lớp mép vùng nằm trong World (vẽ trên đường và điểm, dưới giao diện).
+func _mount_stage_view() -> void:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	_stage_view = StageViewScript.new()
+	_stage_view.name = 'StageView'
+	var world := scene.get_node_or_null('World')
+	(world if world != null else scene).add_child(_stage_view)
+	_enter_stage(0, false)
+
+
 func _set_state(s: int) -> void:
 	state = s
 	EventBus.game_state_changed.emit(s)
@@ -237,5 +286,7 @@ func _reset_counters() -> void:
 	_phase_left = 0.0
 	_time_survived = 0.0
 	_bought.clear()
+	_stage = 0
+	_play_rect = Rect2(Vector2.ZERO, Vector2(1280, 720))
 	_score_system.enabled = false
 	_score_system.reset()

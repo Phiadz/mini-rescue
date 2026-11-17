@@ -30,6 +30,7 @@ func _run() -> void:
 	await _test_pause()
 	await _test_exit_to_menu()
 	await _test_speed()
+	await _test_stages()
 	print('\nKết quả: %d đạt, %d trượt' % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
 
@@ -83,14 +84,14 @@ func _test_full_game_win() -> void:
 	_check(_last('wave_started') == ['wave_started', 1], 'sau giờ nghỉ bắt đầu đợt 1')
 
 	await _wait_state(Types.GameState.WAVE_BREAK)
-	GameManager._score_system.funds = 300
+	GameManager._score_system.funds = int(Config.SHOP_PRICES[Types.Reward.MORE_EDGES]) * 5  # đủ mua 2 lần ô đường và 1 xe tải, không đủ thêm ca-nô
 	var limit_before: int = GraphManager.get_edge_budget().limit
 	var p1 := GameManager.get_price(Types.Reward.MORE_EDGES)
 	_check(GameManager.choose_reward(Types.Reward.MORE_EDGES), 'mua +ô đường (%d)' % p1)
 	var p2 := GameManager.get_price(Types.Reward.MORE_EDGES)
 	_check(p2 > p1 and GameManager.choose_reward(Types.Reward.MORE_EDGES), 'mua lần hai, giá tăng (%d lên %d)' % [p1, p2])
 	_check(GameManager.choose_reward(Types.Reward.EXTRA_TRUCK), 'mua thêm xe tải trong cùng lượt nghỉ')
-	var left_funds: int = 300 - p1 - p2 - int(Config.SHOP_PRICES[Types.Reward.EXTRA_TRUCK])
+	var left_funds: int = int(Config.SHOP_PRICES[Types.Reward.MORE_EDGES]) * 5 - p1 - p2 - int(Config.SHOP_PRICES[Types.Reward.EXTRA_TRUCK])
 	_check(GameManager.get_funds() == left_funds, 'quỹ trừ đúng, còn %d' % GameManager.get_funds())
 	_check(not GameManager.choose_reward(Types.Reward.EXTRA_BOAT), 'không đủ quỹ thì không mua được ca-nô')
 	_check(GraphManager.get_edge_budget().limit == limit_before + 2 * Config.REWARD_EDGE_BONUS, 'hạn mức ô đường tăng 2 lần')
@@ -195,6 +196,40 @@ func _test_pause() -> void:
 	_check(_count('reward_chosen') == 0, 'không chọn được thưởng khi đang tạm dừng')
 	GameManager.resume_game()
 	_check(GameManager.state == Types.GameState.WAVE_BREAK, 'tạm dừng lúc nghỉ, tiếp tục thì về WAVE_BREAK')
+
+
+# Vùng chơi theo đợt (bản đồ khai báo stages): camera phóng to, SOS chỉ ở khu đã mở, đầu lượt nghỉ mở vùng mới.
+func _test_stages() -> void:
+	print('
+== Vùng chơi theo đợt')
+	await GameManager.start_game()
+	var stages: Array = GraphManager.get_stages()
+	if stages.is_empty():
+		_check(GameManager.get_play_rect().size == Vector2(1280, 720), 'bản đồ không có stages: chơi cả bản đồ')
+		return
+	var rect := GameManager.get_play_rect()
+	_check(GameManager.get_stage() == 0 and rect.size.x < 1280.0, 'đầu ván ở vùng 0, nhỏ hơn cả bản đồ')
+	var cam := get_viewport().get_camera_2d()
+	_check(cam != null and is_equal_approx(cam.zoom.x, float(stages[0].zoom)), 'camera phóng to %.2f lần' % float(stages[0].zoom))
+	var districts := GraphManager.get_node_ids().filter(func(id: int) -> bool:
+		return GraphManager.get_map_node(id).kind == Types.NodeKind.DISTRICT)
+	var closed := districts.filter(func(id: int) -> bool: return not rect.has_point(GraphManager.get_map_node(id).pos))
+	_check(closed.size() > 0, 'có khu chưa mở ở đợt 1 (%d khu)' % closed.size())
+	var free: Array = RescueManager._free_nodes()
+	_check(free.size() > 0 and free.all(func(id: int) -> bool: return rect.has_point(GraphManager.get_map_node(id).pos)),
+			'SOS chỉ chọn khu đã mở (%d khu)' % free.size())
+	_check(not GameManager.is_in_play(Vector2(5, 5)), 'góc bản đồ ngoài vùng chơi')
+	GameManager._phase_left = 0.01
+	await _wait_state(Types.GameState.WAVE_BREAK)
+	var rect1 := GameManager.get_play_rect()
+	_check(GameManager.get_stage() == 1 and rect1.encloses(rect), 'đầu lượt nghỉ mở vùng 1, rộng hơn và chứa vùng 0')
+	var hubs := GraphManager.get_node_ids().filter(func(id: int) -> bool: return GraphManager.get_map_node(id).kind == Types.NodeKind.HUB)
+	_check(hubs.all(func(id: int) -> bool: return rect1.has_point(GraphManager.get_map_node(id).pos)), 'vùng 1 có đủ hai kho')
+	await _wait_frames(30)
+	_check(is_equal_approx(cam.zoom.x, float(stages[1].zoom)), 'camera thu ra %.2f lần sau khi chuyển vùng (%.2f)' % [float(stages[1].zoom), cam.zoom.x])
+	GameManager._enter_stage(stages.size() - 1, false)
+	_check(GameManager.get_play_rect() == Rect2(0, 0, 1280, 720), 'vùng cuối là cả bản đồ')
+	GameManager.exit_to_menu()
 
 
 # Tua nhanh: F hoặc nút HUD đổi vòng 1 -> 2 -> 3 -> 1; về x1 khi hết ván hoặc về menu; ngoài ván không đổi.
