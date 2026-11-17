@@ -9,6 +9,7 @@ const MAP_CENTER := Vector2(640, 360)  # cổng của điểm có sẵn quay v�
 const HOUSE_ICONS := ['house_blue', 'house_coral', 'house_gold', 'house_mint']
 const WATER_ID_BASE := 2000 # mã nút nước (ô ca-nô đi được) = WATER_ID_BASE + chỉ số ô
 const WATER_VIA_BASE := 3000 # nút điểm gãy trên sông (cạnh sông vòng qua khúc quanh), không gắn với ô nào
+const FLOOD_ID_BASE := 4000  # nút vùng ngập: ô đất ngập sâu thành nước cho ca-nô = FLOOD_ID_BASE + chỉ số ô
 const BOAT_EDGE_ID_BASE := 100000  # cạnh của ca-nô đánh mã riêng, không bao giờ trùng mã cạnh đường (kể cả sau khi nạp lại bản đồ)
 
 var _nodes := {}        # id -> MapNode (cả điểm trên bản đồ và ô đường)
@@ -240,6 +241,9 @@ func _add_road(cell: Vector2i) -> int:
 	_adj[n.id] = []
 	_roads += 1
 	_link_road_to_water(n.id)
+	var f := _flood_at(cell)
+	if f != -1:
+		_add_boat_edge(n.id, f, Types.EdgeState.DEEP, false)  # tô đường lên ô đã ngập sâu
 	return n.id
 
 # Xóa ô đường và các cạnh nối vào nó, hoàn 1 hạn mức. Trả false nếu ô không có đường.
@@ -779,6 +783,47 @@ func _build_water() -> void:
 	for id in _nodes:
 		if _nodes[id].kind == Types.NodeKind.ROAD:
 			_link_road_to_water(id)
+
+# Vùng ngập cho ca-nô: ô đất ngập sâu (FloodManager báo, nước chỉ dâng nên chỉ thêm) thành nút nước ở tâm ô, nối 8 hướng
+# với ô nước kề (sông hoặc ô ngập khác; bước chéo cần ít nhất một ô góc là nước để không cắt qua đất khô), với ô đường
+# cùng ô (đường ngập ra vùng nước), và làm bến cho điểm kề bên (khu, nhà bị ngập quanh vẫn cứu được bằng ca-nô).
+func add_flood_cell(cell: Vector2i) -> void:
+	if not _in_grid(cell) or _point_cells.has(cell) or _water_at(cell) != -1 or _flood_at(cell) != -1:
+		return  # ô của điểm, hoặc ô đã là nước (sông, vùng ngập)
+	var n := MapNode.new()
+	n.id = FLOOD_ID_BASE + _cell_index(cell)
+	n.kind = Types.NodeKind.WATER
+	n.pos = cell_center(cell)
+	_water[n.id] = n
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			if dx == 0 and dy == 0:
+				continue
+			var c := cell + Vector2i(dx, dy)
+			var w := _wet_at(c)
+			if w != -1 and (dx == 0 or dy == 0 or _wet_at(cell + Vector2i(dx, 0)) != -1 or _wet_at(cell + Vector2i(0, dy)) != -1):
+				_add_boat_edge(n.id, w, Types.EdgeState.DEEP, false)
+			var p: int = _point_cells.get(c, -1)
+			if p != -1 and not _boat_linked(p, n.id):
+				_add_boat_edge(p, n.id, Types.EdgeState.DEEP, false)  # bến tạm cho điểm kề vùng ngập
+	var r := road_at(cell)
+	if r != -1:
+		_add_boat_edge(r, n.id, Types.EdgeState.DEEP, false)  # đường ngập sâu ra thẳng vùng nước
+
+func _flood_at(cell: Vector2i) -> int:
+	if not _in_grid(cell):
+		return -1
+	var id := FLOOD_ID_BASE + _cell_index(cell)
+	return id if _water.has(id) else -1
+
+# Nút nước bất kỳ tại ô (sông hoặc vùng ngập), -1 nếu không có.
+func _wet_at(cell: Vector2i) -> int:
+	var w := _water_at(cell)
+	return w if w != -1 else _flood_at(cell)
+
+# Nút vùng ngập (để RescueManager không đặt chỗ đỗ ca-nô ở bến kho lên vùng ngập: vùng ngập thêm dần trong ván).
+func is_flood_node(id: int) -> bool:
+	return id >= FLOOD_ID_BASE and _water.has(id)
 
 # Nút nước tại ô, hoặc -1.
 func _water_at(cell: Vector2i) -> int:

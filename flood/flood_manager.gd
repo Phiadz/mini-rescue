@@ -22,6 +22,7 @@ var _level := PackedFloat32Array()   # mặt nước từng ô, luôn >= nền
 var _prev := PackedFloat32Array()    # mặt nước ở lần cập nhật trước, để ước lượng tốc độ dâng
 var _sea := PackedByteArray()        # 1 nếu ô là biển
 var _last_dt := 0.0
+var _flooded := PackedByteArray()  # 1 nếu ô đất đã ngập sâu và đã báo GraphManager thành vùng nước cho ca-nô
 
 
 func _ready() -> void:
@@ -45,6 +46,8 @@ func reset() -> void:
 	_ground.resize(n)
 	_deck.resize(n)
 	_sea.resize(n)
+	_flooded.resize(n)
+	_flooded.fill(0)
 	for i in n:
 		var g := GraphManager.cell_elevation(_cell(i)) if has_node("/root/GraphManager") else 50.0
 		var river := has_node("/root/GraphManager") and GraphManager.cell_is_water(_cell(i))
@@ -209,6 +212,17 @@ func _update_edges() -> void:
 		var link_state := state_for_depth(depth_at(GraphManager.cell_of(road.pos)))
 		if link.state != link_state:
 			GraphManager.set_edge_state(eid, link_state)
+	_update_flood_cells()
+
+
+# Ô đất vừa ngập sâu: báo GraphManager thành vùng nước cho ca-nô (nước chỉ dâng nên mỗi ô báo một lần mỗi ván).
+func _update_flood_cells() -> void:
+	if not GraphManager.has_method('add_flood_cell') or _flooded.size() != _level.size():
+		return
+	for i in _level.size():
+		if _flooded[i] == 0 and _level[i] - _deck[i] >= Config.SHALLOW_MAX:
+			_flooded[i] = 1
+			GraphManager.add_flood_cell(_cell(i))
 
 
 func _mean_depth(cells: Array) -> float:

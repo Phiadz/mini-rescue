@@ -26,6 +26,7 @@ func _run() -> void:
 	_test_river()
 	_test_on_water()
 	_test_flood_links()
+	_test_flood_area()
 	_test_heap_matches_old()
 	_test_tree()
 	_test_timing()
@@ -240,6 +241,37 @@ func _old_cost(from_id: int, to_id: int, vehicle_type: int) -> float:
 			if dist[u] + cost < dist[v]:
 				dist[v] = dist[u] + cost
 	return dist[to_id]
+
+
+# Vùng ngập: ô đất ngập sâu thành nước cho ca-nô, nên ca-nô chạy thẳng qua vùng lũ (không chỉ sông, đường) tới khu bị ngập quanh.
+func _test_flood_area() -> void:
+	print('
+== Ca-nô chạy qua vùng ngập')
+	_fresh_saigon()
+	var inland := 15  # Kinh Dương Vương: không sát sông
+	_check(not GraphManager.has_dock(inland) and not GraphManager.find_path(CAT_LAI, inland, BOAT).found,
+			'lúc khô: ca-nô không tới được khu không sát sông, không có đường')
+	var flood_nodes := func() -> int: return GraphManager._water.keys().filter(func(id: int) -> bool: return GraphManager.is_flood_node(id)).size()
+	_check(flood_nodes.call() == 0, 'lúc khô: chưa có ô vùng ngập nào')
+	FloodManager.fill_all(100.0)  # ngập sâu cả bản đồ
+	FloodManager._update_edges()
+	var n: int = flood_nodes.call()
+	_check(n > 200, 'ngập sâu: ô đất thành vùng nước cho ca-nô (%d ô)' % n)
+	var on_points := false
+	for id in GraphManager.get_node_ids():
+		on_points = on_points or GraphManager._flood_at(GraphManager.cell_of(GraphManager.get_map_node(id).pos)) != -1
+	_check(not on_points, 'ô của kho, khu, nhà không thành nút nước')
+	var p := GraphManager.find_path(CAT_LAI, inland, BOAT)
+	_check(p.found and p.node_ids.any(func(id: int) -> bool: return GraphManager.is_flood_node(id)),
+			'ngập sâu: ca-nô từ Cát Lái chạy qua vùng ngập tới Kinh Dương Vương mà không cần đường (%.1f giây)' % p.cost)
+	_check(not GraphManager.find_path(TAN_SON_NHAT, inland, TRUCK).found, 'xe tải vẫn không chạy qua vùng ngập')
+	var before: int = flood_nodes.call()
+	FloodManager._update_edges()
+	_check(flood_nodes.call() == before, 'mỗi ô chỉ thêm một lần')
+	_check(RescueManager._dock_slots(CAT_LAI).all(func(id: int) -> bool: return not GraphManager.is_flood_node(id)),
+			'chỗ đỗ ở bến kho vẫn trên sông, không dời sang vùng ngập')
+	_fresh_saigon()
+	_check(flood_nodes.call() == 0, 'ván mới: vùng ngập xóa sạch')
 
 
 func _test_heap_matches_old() -> void:

@@ -834,7 +834,7 @@ func _dock_slots(hub_id: int) -> Array[int]:
 	var h: MapNode = g().get_map_node(hub_id)
 	if h == null:
 		return out
-	var nodes: Array = g().get_dock_nodes(hub_id)
+	var nodes: Array = g().get_dock_nodes(hub_id).filter(func(id: int) -> bool: return not g().is_flood_node(id))  # chỉ trên sông: vùng ngập thêm dần
 	var dir := func(id: int) -> Vector2: return (g().get_map_node(id).pos - h.pos).normalized()
 	var ok := func(id: int) -> bool: return dir.call(id).y <= DOCK_MAX_DOWN  # không chĩa xuống chỗ tên kho, nhãn hàng
 	nodes = nodes.filter(ok)
@@ -852,7 +852,7 @@ func _dock_slots(hub_id: int) -> Array[int]:
 		for w in g().get_water_neighbors(out[k]):
 			if out.size() >= DOCK_SLOTS:
 				break
-			if not out.has(w) and ok.call(w) and g().get_map_node(w).pos.distance_to(h.pos) <= DOCK_REACH:
+			if not out.has(w) and not g().is_flood_node(w) and ok.call(w) and g().get_map_node(w).pos.distance_to(h.pos) <= DOCK_REACH:
 				out.append(w)
 		k += 1
 	return out
