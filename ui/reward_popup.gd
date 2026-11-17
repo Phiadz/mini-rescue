@@ -52,6 +52,7 @@ func _ready() -> void:
 	done.focus_mode = Control.FOCUS_NONE
 	done.pressed.connect(func() -> void: done_pressed.emit())
 	refresh()
+	Style.pop_in(self)
 
 
 # Đổi đơn vị quỹ sang tiền Việt: dưới 1 tỷ ghi "600 triệu", từ 1 tỷ ghi "1,35 tỷ" (dấu phẩy thập phân, bỏ số 0 thừa).
