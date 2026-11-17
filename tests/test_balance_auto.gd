@@ -2,6 +2,7 @@ extends Node
 # Tự chơi nhiều ván trên mạng đường cố định để chỉnh hạn mức, đồng thời đo thời gian tìm đường.
 # Không có kiểm tra đạt/trượt: chỉ in số liệu. Chạy headless (từ thư mục project):
 #   Godot_v4.7.2-stable_win64_console.exe --headless --fixed-fps 60 --path . res://tests/test_balance_auto.tscn
+# Chạy ít ván hơn để dò nhanh: thêm "-- games=4" vào cuối lệnh.
 # Cách chơi cố định: nối sẵn 10 đường, không sửa đường, không chọn thưởng. Không thay cho người chơi thật.
 
 const SPEED := 10.0
@@ -34,10 +35,14 @@ func _run() -> void:
 		_won = false)
 	EventBus.wave_ended.connect(_print_states)
 	Engine.time_scale = SPEED
+	var games := GAMES
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("games="):
+			games = maxi(1, int(arg.trim_prefix("games=")))
 	var wins := 0
 	var scores := 0
 	var jam_total := 0.0
-	for i in GAMES:
+	for i in games:
 		_stats = {}
 		await GameManager.start_game()
 		_build()
@@ -57,7 +62,7 @@ func _run() -> void:
 			i + 1, 'thắng' if _won else 'thua', _stats.score, _stats.saved, _stats.failed, _stats.time_survived, used, 100.0 * _jammed / maxf(_moving, 0.001)])
 		print('        khung hình: trung bình %.2f ms, lâu nhất %.1f ms' % [_frame_ms / maxf(_frames, 1), _frame_max])
 	print('Tổng: thắng %d/%d, điểm trung bình %.0f, kẹt trung bình %.1f%% thời gian chạy (%d xe tải, %d ca-nô lúc đầu)' % [
-			wins, GAMES, float(scores) / GAMES, 100.0 * jam_total / GAMES, RescueManager.START_TRUCKS, RescueManager.START_BOATS])
+			wins, games, float(scores) / games, 100.0 * jam_total / games, RescueManager.START_TRUCKS, RescueManager.START_BOATS])
 	_time_find_path()
 	get_tree().quit()
 

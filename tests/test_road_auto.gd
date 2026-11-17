@@ -227,10 +227,11 @@ func _test_vehicle_lane() -> void:
 	var truck := _truck()
 	_sos(100)
 	await _wait(func() -> bool: return truck.state_id == Types.VehicleState.EN_ROUTE and truck.path_index >= 1)
-	await _frames(20)
+	# Chờ làn xe ổn định (ở chỗ rẽ làn đổi dần trong LANE_SWITCH) trong lúc xe vẫn chạy, không phụ thuộc tốc độ xe.
+	var in_lane := func() -> bool: return truck.lane_offset().distance_to(truck.heading.rotated(PI / 2.0) * RescueManager.Vehicle.LANE_OFFSET) < 0.5
+	await _wait(func() -> bool: return truck.state_id != Types.VehicleState.EN_ROUTE or (truck.path_index >= 1 and in_lane.call()))
 	_check(truck.state_id == Types.VehicleState.EN_ROUTE, 'xe tải nhận SOS và chạy trên đường ô')
-	var want := truck.heading.rotated(PI / 2.0) * RescueManager.Vehicle.LANE_OFFSET
-	_check(truck.lane_offset().distance_to(want) < 0.5, 'xe chạy lệch sang bên phải hướng đi')
+	_check(in_lane.call(), 'xe chạy lệch sang bên phải hướng đi')
 	_check(_on_road(truck.position), 'vị trí tính đường của xe vẫn nằm giữa đường')
 	await _wait(func() -> bool: return _rescued > 0)
 	_check(_rescued == 1, 'xe giao hàng tới nơi')
@@ -360,6 +361,14 @@ func _test_multi_unit() -> void:
 	await _frames(3)
 	_check(req3.assigned == can_send and req3.state == Types.SosState.PENDING,
 			'cần nhiều phần hơn số xe, số hàng: giao hết những gì có (%d), SOS vẫn chờ thêm' % can_send)
+
+	# SOS sinh ra theo đợt: thời hạn cộng thêm cho mỗi phần, và đồng hồ bắt đầu đầy (time_left = time_total).
+	var made = RescueManager.SosFactory.create(300, 0, [3])
+	var w: Dictionary = Config.WAVES[0]
+	var base: float = w.deadline_food if made.supply == Types.SupplyType.FOOD else w.deadline_medical
+	_check(made.units == int(w.sos_units) and is_equal_approx(made.time_total, base + RescueManager.UNIT_EXTRA_SECONDS * (made.units - 1)),
+			'SOS %d phần: thời hạn cộng thêm %.1f giây' % [made.units, made.time_total - base])
+	_check(is_equal_approx(made.time_left, made.time_total), 'SOS mới: đồng hồ đếm bắt đầu đầy, hạn thật có phần cộng thêm')
 
 
 func _fresh() -> void:

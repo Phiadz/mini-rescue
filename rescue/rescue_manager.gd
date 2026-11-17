@@ -20,7 +20,7 @@ const JUNCTION_RADIUS := 24.0        # bán kính ngã ba, ngã tư (px)
 const JUNCTION_APPROACH := 46.0      # trong khoảng này trước ngã ba thì xét nhường đường
 const JAM_GIVE_UP := 3.0             # đứng chờ quá lâu (giây) thì đi chậm qua, tránh tắc vĩnh viễn
 const CONGESTION_PATH_COST := 1.5    # giây cộng thêm khi tìm đường qua cạnh sắp có xe đi
-const UNIT_EXTRA_SECONDS := 2.0      # SOS cần nhiều phần: mỗi phần thêm cộng 2 giây (xe xếp hàng dỡ hàng lần lượt)
+const UNIT_EXTRA_SECONDS := Config.DELIVERY_TIME  # SOS cần nhiều phần: mỗi phần thêm cộng một lần dỡ hàng (xe xếp hàng dỡ lần lượt)
 const GRID_CELL := 40.0              # ô lưới để tìm xe ở gần khi tính kẹt xe (bằng một ô đường)
 
 # Nguồn đồ thị. null = dùng GraphManager thật. Scene thử gán đồ thị giả vào đây.
@@ -93,9 +93,9 @@ class SosFactory extends RefCounted:
 			req.time_total = w.deadline_food
 		else:
 			req.time_total = w.deadline_medical
-		req.time_left = req.time_total
 		req.units = int(w.get("sos_units", 1))
 		req.time_total += UNIT_EXTRA_SECONDS * (req.units - 1)  # nhiều xe phải xếp hàng dỡ hàng
+		req.time_left = req.time_total  # gán sau khi cộng thêm, để vòng đếm giờ bắt đầu đầy và hạn thật có phần cộng thêm
 		return req
 
 # ===== VEHICLE =====
