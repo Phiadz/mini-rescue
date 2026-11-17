@@ -8,7 +8,6 @@ const START_TRUCKS := 12             # số xe tải lúc đầu ván (ở kho c
 const START_BOATS := 8               # số ca-nô lúc đầu ván (ở kho thấp nhất)
 const PARK_GAP := 10.0               # điểm có cổng: xe giao hàng đỗ ở lối vào, cách mép trước tòa nhà chừng này (px)
 const HUB_HIDE_RADIUS := 20.0        # xe trong bán kính này quanh kho của nó thì ẩn (đang ở trong kho)
-const HOUSE_TRIES := 12              # số lần thử chọn ô cho một nhà mới mỗi lượt
 const LOT_SLOTS := 6                 # chỗ đỗ xe tải trong bãi của kho: 3 chỗ mỗi bên lối đi giữa
 const DOCK_SLOTS := 4                # chỗ đỗ ca-nô ở bến của kho
 const DOCK_MAX_DOWN := 0.3           # chỗ đỗ ca-nô không chĩa xuống quá mức này (dưới kho là tên kho và nhãn hàng)
@@ -900,7 +899,7 @@ func _tick_houses(delta: float) -> void:
 	try_spawn_house()
 
 # Chọn ngẫu nhiên một khu đã mở còn chưa đủ HOUSE_MAX_PER_DISTRICT nhà, đặt nhà ở ô khô trong vùng chơi
-# cách khu tối đa HOUSE_RADIUS ô. Trả id nhà mới, -1 nếu thử HOUSE_TRIES lần không được.
+# cách khu tối đa HOUSE_RADIUS ô. Trả id nhà mới, -1 nếu không khu nào còn ô hợp lệ.
 func try_spawn_house() -> int:
 	var houses := {}  # khu mẹ -> số nhà
 	for id in g().get_node_ids():
@@ -915,14 +914,20 @@ func try_spawn_house() -> int:
 			districts.append(id)
 	if districts.is_empty():
 		return -1
+	# Chọn khu ngẫu nhiên, rồi ô ngẫu nhiên trong số mọi ô hợp lệ quanh khu đó (chọn ô hú họa hay trượt hết lượt
+	# dù còn chỗ). Khu không còn ô nào thì thử khu khác.
 	var r := Config.HOUSE_RADIUS
-	for i in HOUSE_TRIES:
-		var d: int = districts[randi() % districts.size()]
-		var cell: Vector2i = g().cell_of(g().get_map_node(d).pos) + Vector2i(randi_range(-r, r), randi_range(-r, r))
-		if not GameManager.is_in_play(g().cell_center(cell)) or FloodManager.depth_at(cell) >= 0.05:
-			continue
-		if g().can_place_house(cell):
-			return g().add_house(cell, d)
+	districts.shuffle()
+	for d in districts:
+		var center: Vector2i = g().cell_of(g().get_map_node(d).pos)
+		var cells: Array[Vector2i] = []
+		for dy in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				var cell := center + Vector2i(dx, dy)
+				if GameManager.is_in_play(g().cell_center(cell)) and FloodManager.depth_at(cell) < 0.05 and g().can_place_house(cell):
+					cells.append(cell)
+		if not cells.is_empty():
+			return g().add_house(cells[randi() % cells.size()], d)
 	return -1
 
 # Số xe đang đỗ ở kho hub_id theo loại (nhãn ở kho), và số xe thuộc kho đó.

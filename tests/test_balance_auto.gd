@@ -159,15 +159,32 @@ func _build_gated() -> void:
 		if i >= TREE_ROUTES and b.limit - b.used <= HOUSE_RESERVE:
 			return  # chừa hạn mức cho nhà mọc thêm
 		var r: Array = ROUTES[i]
-		var to: int = GraphManager.get_gate_node(r[1])
-		_connect(GraphManager.get_gate_node(r[0]), func(c: Vector2i) -> bool: return GraphManager.road_at(c) == to, 64)
+		var to: int = _entry(r[1])
+		_connect(_entry(r[0]), func(c: Vector2i) -> bool: return GraphManager.road_at(c) == to, 64)
 
 
-# Nhà mới mọc: nối ô cổng của nhà tới ô đường gần nhất đã nối vào mạng (không phải cổng còn lẻ).
+# Ô đường ngay trước lối vào của điểm: kho có ô cổng sẵn; khu, nhà chưa nối thì tô một ô theo hướng lối vào
+# (thử các hướng khác nếu ô đó không tô được). -1 nếu không tô được.
+func _entry(id: int) -> int:
+	var g := GraphManager.get_gate_node(id)
+	if g != -1:
+		return g
+	var n := GraphManager.get_map_node(id)
+	var c := GraphManager.cell_of(n.pos)
+	for d in [n.gate, Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		if d == Vector2i.ZERO:
+			continue
+		var r := GraphManager.extend_road(id, c + d)
+		if r != -1:
+			return r
+	return -1
+
+
+# Nhà mới mọc: tô ô trước lối vào rồi nối tới ô đường gần nhất đã nối vào mạng (không phải ô còn lẻ).
 func _link_house(id: int) -> void:
-	var gate := GraphManager.get_gate_node(id)
-	if gate == -1:
-		return
+	var gate := _entry(id)
+	if gate == -1 or GraphManager.get_edges_of(gate).size() >= 2:
+		return  # không tô được, hoặc nhà mọc sát đường: ô trước lối vào đã nằm trong mạng
 	_connect(gate, func(c: Vector2i) -> bool:
 		var road := GraphManager.road_at(c)
 		return road != -1 and road != gate and GraphManager.get_edges_of(road).size() >= 2, HOUSE_LINK_MAX)

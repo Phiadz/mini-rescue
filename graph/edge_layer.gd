@@ -22,6 +22,7 @@ const SHALLOW_MARK_WIDTH := 4.0
 const DASH := 10.0
 const SHALLOW_DASH := 9.0
 const DRIVEWAY_TUCK := 3.0  # lối vào lấn vào dưới mép icon vài px cho liền với tòa nhà
+const DRIVEWAY_STUB := 9.0  # khu, nhà chưa nối đường: lối vào nhô ra khỏi mép nhà chừng này px (như Mini Motorways)
 
 
 func _ready() -> void:
@@ -36,6 +37,7 @@ func _draw() -> void:
 			var p := GraphManager.get_map_node(id).pos
 			draw_circle(p, CASING_WIDTH / 2.0, DRY_CASING)
 			draw_circle(p, ROAD_WIDTH / 2.0, DRY_COLOR)
+	_draw_stubs()
 	var edges := GraphManager.get_edge_ids()
 	for eid in edges:
 		var e := GraphManager.get_edge(eid)
@@ -45,6 +47,24 @@ func _draw() -> void:
 		_stroke(e, _fill(e.state), ROAD_WIDTH)
 	for eid in edges:
 		_mark(GraphManager.get_edge(eid))
+
+
+# Lối vào ngắn của khu, nhà chưa nối đường (bản đồ có cổng): từ mép nhà nhô ra một chút theo hướng gate, đầu bo tròn.
+# Nối đường vào từ cạnh nào thì GraphManager xoay gate về cạnh đó; đã nối thì đoạn đường nối thay cho lối vào này.
+func _draw_stubs() -> void:
+	if not GraphManager.uses_gates():
+		return
+	for id in GraphManager.get_node_ids():
+		var n := GraphManager.get_map_node(id)
+		if n == null or n.kind == Types.NodeKind.HUB or n.gate == Vector2i.ZERO or GraphManager.get_gate_node(id) != -1:
+			continue
+		var d := Vector2(n.gate)
+		var r := GraphManager.point_radius(id)
+		var a := n.pos + d * (r - DRIVEWAY_TUCK)
+		var b := n.pos + d * (r + DRIVEWAY_STUB)
+		for pass_ in [[DRY_CASING, CASING_WIDTH], [DRY_COLOR, ROAD_WIDTH]]:
+			draw_line(a, b, pass_[0], pass_[1])
+			draw_circle(b, pass_[1] / 2.0, pass_[0])
 
 
 func _casing(state: int) -> Color:

@@ -212,8 +212,8 @@ func extend_road(from_id: int, cell: Vector2i) -> int:
 	if from_id != -1 and not (_nodes.has(from_id) and _next_to(cell_of(_nodes[from_id].pos), cell)):
 		return -1
 	var to_id: int = _point_cells.get(cell, road_at(cell))
-	if not _gate_allows(from_id, to_id):
-		return -1  # có cổng: điểm chỉ nối với ô cổng của nó
+	if not _gate_allows(from_id, to_id, cell):
+		return -1  # có cổng: kho chỉ nối qua ô cổng; khu, nhà chỉ một lối vào, nối từ một cạnh
 	var created := false
 	if to_id == -1:
 		if _roads >= _limit:
@@ -260,8 +260,10 @@ func _after_road_edit() -> void:
 	EventBus.road_changed.emit()
 
 # --- Cổng và nhà (chỉ khi bản đồ bật "gates") ---
-# Mỗi điểm có một ô cổng kề cạnh (4 hướng). Ô cổng là ô đường dựng sẵn: không tính hạn mức, không xóa được.
-# Đường chỉ nối vào điểm qua ô cổng, nên xe không đi xuyên qua nhà, và xe ra vào điểm theo một lối.
+# Kho: ô bãi rồi ô cổng thẳng hàng; ô cổng là ô đường dựng sẵn (không tính hạn mức, không xóa được), đường chỉ nối
+# vào kho qua ô cổng. Khu, nhà (như nhà trong Mini Motorways): không dựng sẵn ô nào, chỉ có lối vào ngắn nhô ra một chút
+# theo hướng gate; vẽ đường vào từ cạnh nào (4 hướng) cũng được, lối vào xoay về phía đó. Mỗi điểm chỉ một lối vào,
+# nên xe không đi xuyên qua nhà.
 func _build_gates(notify := true) -> void:
 	_gate_cells.clear()
 	_lot_cells.clear()
@@ -281,6 +283,8 @@ func _make_gate(id: int, max_level := 2) -> bool:
 	n.gate = dir
 	if dir == Vector2i.ZERO:
 		return false
+	if n.kind != Types.NodeKind.HUB:
+		return true  # khu, nhà: chỉ hướng lối vào mặc định, không dựng ô cổng
 	var reach := _gate_reach(id)
 	var gcell := cell + dir * reach
 	if reach == 2:
@@ -318,8 +322,11 @@ func _choose_gate(id: int, cell: Vector2i, max_level: int) -> Vector2i:
 			return best
 	return Vector2i.ZERO
 
-# Hướng d dùng được cho điểm id: ô cổng (và với kho, cả ô bãi ở giữa) đều hợp lệ.
+# Hướng d dùng được cho điểm id: kho cần ô bãi và ô cổng hợp lệ; khu, nhà chỉ cần ô trước lối vào không phải sông,
+# điểm khác hay bãi (ô đó có đường sẵn cũng được: nhà mọc cạnh đường thì lối vào chĩa ra đường).
 func _dir_ok(id: int, cell: Vector2i, d: Vector2i, level: int) -> bool:
+	if _nodes.has(id) and _nodes[id].kind != Types.NodeKind.HUB:
+		return _drive_ok(cell + d)
 	for k in range(1, _gate_reach(id) + 1):
 		if not _gate_ok(cell + d * k, id, level):
 			return false
@@ -338,6 +345,10 @@ func _gate_ok(gcell: Vector2i, owner: int, level: int) -> bool:
 	if level < 2 and cell_is_boat(gcell):
 		return false
 	return level >= 1 or not _near_point(gcell, owner)
+
+# Ô trước lối vào của khu, nhà: trong lưới, không phải ô sông, ô của điểm, ô cổng hay ô bãi của kho.
+func _drive_ok(c: Vector2i) -> bool:
+	return _in_grid(c) and not cell_is_water(c) and not _point_cells.has(c) and not _gate_cells.has(c) and not _lot_cells.has(c)
 
 # Ô cell có trùng hoặc kề (8 hướng) một điểm nào khác điểm except không.
 func _near_point(cell: Vector2i, except: int) -> bool:
@@ -364,17 +375,44 @@ func _new_edge(a: int, b: int) -> int:
 func _is_gated(id: int) -> bool:
 	return _nodes.has(id) and _nodes[id].kind != Types.NodeKind.ROAD and _nodes[id].gate != Vector2i.ZERO
 
-# Có cổng thì cạnh giữa from_id và to_id (-1: ô chưa có đường) chỉ được nối nếu đầu là điểm thì đầu kia là ô cổng của nó.
-func _gate_allows(from_id: int, to_id: int) -> bool:
+# Có cổng thì cạnh giữa from_id và ô cell (nút to_id, -1 nếu ô chưa có đường) chỉ được nối nếu:
+# - kho: đầu kia là ô cổng của kho;
+# - khu, nhà: đầu kia kề cạnh (4 hướng), và điểm chưa nối đường nào (hoặc đang nối đúng ô đó); không nối thẳng hai điểm.
+func _gate_allows(from_id: int, to_id: int, cell: Vector2i) -> bool:
 	if not _gates_enabled or from_id == -1 or from_id == to_id:
 		return true
-	if _is_gated(from_id) and to_id != get_gate_node(from_id):
+	if _is_gated(from_id) and _is_gated(to_id):
+		return false  # hai điểm phải nối qua ít nhất một ô đường
+	if _is_gated(from_id) and not _point_link_ok(from_id, to_id, cell):
 		return false
-	return not (to_id != -1 and _is_gated(to_id) and from_id != get_gate_node(to_id))
+	return not (to_id != -1 and _is_gated(to_id) and not _point_link_ok(to_id, from_id, cell_of(_nodes[from_id].pos)))
 
-# Nút ô cổng của điểm, -1 nếu điểm không có cổng.
+# Điểm p (có cổng) nối được với ô other_cell (nút other_id, -1 nếu chưa có đường) không.
+func _point_link_ok(p: int, other_id: int, other_cell: Vector2i) -> bool:
+	if _nodes[p].kind == Types.NodeKind.HUB:
+		return other_id != -1 and other_id == get_gate_node(p)
+	var d := other_cell - cell_of(_nodes[p].pos)
+	if absi(d.x) + absi(d.y) != 1:
+		return false  # lối vào chỉ theo 4 hướng
+	var linked := get_gate_node(p)
+	return linked == -1 or (other_id != -1 and linked == other_id)
+
+# Khu, nhà vừa nối đường: lối vào xoay về phía ô đường đó (như nhà trong Mini Motorways).
+func _turn_driveway(p: int, other: int) -> void:
+	if not _is_gated(p) or _nodes[p].kind == Types.NodeKind.HUB or not _nodes.has(other):
+		return
+	var d := cell_of(_nodes[other].pos) - cell_of(_nodes[p].pos)
+	if absi(d.x) + absi(d.y) == 1:
+		_nodes[p].gate = d
+
+# Nút đường ngay trước lối vào của điểm: kho là ô cổng dựng sẵn; khu, nhà là ô đường đang nối vào (-1 nếu chưa nối).
+# -1 nếu điểm không có cổng.
 func get_gate_node(point_id: int) -> int:
 	if not _is_gated(point_id):
+		return -1
+	if _nodes[point_id].kind != Types.NodeKind.HUB:
+		for eid in _adj.get(point_id, []):
+			return _edges[eid].other_end(point_id)
 		return -1
 	return road_at(cell_of(_nodes[point_id].pos) + _nodes[point_id].gate * _gate_reach(point_id))
 
@@ -417,7 +455,7 @@ func is_gate_cell(cell: Vector2i) -> bool:
 	return _gate_cells.has(cell)
 
 # Ô đặt được nhà: trong lưới, đất liền (không phải ô sông hay ô ca-nô), chưa có đường, không phải điểm hay cổng,
-# không kề điểm khác, và có ô cổng hợp lệ chưa có đường.
+# không kề điểm khác, không sát bãi kho, và có một hướng hợp lệ cho lối vào (nhà mọc sát đường cũng được).
 func can_place_house(cell: Vector2i) -> bool:
 	if not _gates_enabled or not _in_grid(cell) or cell_is_water(cell) or cell_is_boat(cell):
 		return false
@@ -428,8 +466,8 @@ func can_place_house(cell: Vector2i) -> bool:
 			if _lot_cells.has(cell + Vector2i(dx, dy)):
 				return false  # không đặt nhà sát bãi đỗ của kho
 	for d in GATE_DIRS:
-		if _gate_ok(cell + d, -1, 1):
-			return true
+		if _drive_ok(cell + d):
+			return true  # có hướng cho lối vào
 	return false
 
 # Thêm một nhà (điểm DISTRICT không tên) ở ô cell, thuộc khu parent_id. Trả id nhà, -1 nếu ô không hợp lệ.
@@ -514,6 +552,8 @@ func add_edge(a: int, b: int) -> int:
 	_edges[e.id] = e
 	_adj[a].append(e.id)
 	_adj[b].append(e.id)
+	_turn_driveway(a, b)
+	_turn_driveway(b, a)
 	_refresh_segments()
 	EventBus.edge_added.emit(e.id)
 	EventBus.edge_budget_changed.emit(_roads, _limit)
