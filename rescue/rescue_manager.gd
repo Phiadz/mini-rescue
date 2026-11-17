@@ -38,7 +38,7 @@ const JUNCTION_ROUNDABOUT := 2       # ngã ba đường: chỉ nhường xe đa
 const JUNCTION_LIGHT := 3            # ngã tư đường trở lên: đèn chia lượt theo trục ngang, dọc
 const LIGHT_PHASE := 3.0             # giây mỗi pha đèn xanh của một trục
 const ROUNDABOUT_SLOW := 0.8         # hệ số tốc độ khi đang chạy trong vòng xoay (không tính là kẹt)
-const RING_RADIUS := 12.0            # xe trong vòng xoay vẽ lệch ra vòng quanh đảo (px)
+const RING_RADIUS := 9.0             # xe trong vòng xoay vẽ lệch ra vòng quanh đảo (px)
 const UNIT_EXTRA_SECONDS := Config.DELIVERY_TIME  # SOS cần nhiều phần: mỗi phần thêm cộng một lần dỡ hàng (xe xếp hàng dỡ lần lượt)
 const GRID_CELL := 40.0              # ô lưới để tìm xe ở gần khi tính kẹt xe (bằng một ô đường)
 
@@ -122,9 +122,9 @@ class Vehicle extends Node2D:
 	# Hình xe SVG của D (cùng bộ với icon tòa nhà trên bản đồ), đầu xe quay sang phải.
 	const TRUCK_ICON := preload('res://assets/icons/truck.svg')
 	const BOAT_ICON := preload('res://assets/icons/boat.svg')
-	const ICON_SIZE := Vector2(24, 16)  # giữ tỉ lệ 96 × 64 của file SVG
+	const ICON_SIZE := Vector2(21, 14)  # giữ tỉ lệ 96 × 64 của file SVG, vừa một làn của đường rộng 22 px
 	const PARK_OFFSET := 18.0  # lúc đỗ ở kho: xe tải lệch trái, ca-nô lệch phải để không chồng nhau
-	const LANE_OFFSET := 7.0   # xe chạy lệch sang phải hướng đi, mỗi chiều một làn
+	const LANE_OFFSET := 5.5   # xe chạy lệch sang phải hướng đi, mỗi chiều một làn (đường rộng 22 px)
 	const LANE_SWITCH := 0.15  # giây để đổi làn ở chỗ rẽ
 
 	var id: int

@@ -6,7 +6,7 @@ extends Node2D
 
 const ISLAND_COLOR := Color('#cfe3b4')
 const ISLAND_EDGE := Color('#a9c78c')
-const ISLAND_RADIUS := 7.0
+const ISLAND_RADIUS := 5.5
 const ISLAND_EDGE_WIDTH := 1.5
 const GREEN := Color('#34c759')
 const RED := Color('#ff3b30')
@@ -14,10 +14,10 @@ const POLE_COLOR := Color('#33485a')
 const POLE_OFFSET := Vector2(15, -15)  # góc trên bên phải của ô
 const POLE_SIZE := Vector2(8, 15)
 const DOT_RADIUS := 2.6
-const BAR_DIST := 18.0      # vạch dừng cách tâm nút (px), ngay trước vùng nút giao
-const BAR_HALF := 5.0       # nửa chiều dài vạch, vừa một làn
+const BAR_DIST := 15.0      # vạch dừng cách tâm nút (px), ngay trước vùng nút giao
+const BAR_HALF := 4.0       # nửa chiều dài vạch, vừa một làn
 const BAR_WIDTH := 3.0
-const LANE := 7.0           # làn vào lệch phải hướng đi, như Vehicle.LANE_OFFSET
+const LANE := 5.5           # làn vào lệch phải hướng đi, như Vehicle.LANE_OFFSET
 
 var _roundabouts: Array[int] = []
 var _lights: Array[int] = []
