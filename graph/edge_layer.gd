@@ -23,7 +23,6 @@ const DASH := 8.0
 const SHALLOW_DASH := 9.0
 const DRIVEWAY_TUCK := 3.0  # lối vào lấn vào dưới mép icon vài px cho liền với tòa nhà
 const CURVE_STEPS := 6  # số đoạn thẳng xấp xỉ mỗi nửa đường cong ở chỗ rẽ
-const DRIVEWAY_STUB := 9.0  # khu, nhà chưa nối đường: lối vào nhô ra khỏi mép nhà chừng này px (như Mini Motorways)
 
 
 func _ready() -> void:
@@ -131,7 +130,8 @@ func _dashed(pts: PackedVector2Array, color: Color, width: float, dash: float) -
 				left = dash
 
 
-# Lối vào ngắn của khu, nhà chưa nối đường (bản đồ có cổng): từ mép nhà nhô ra một chút theo hướng gate, đầu bo tròn.
+# Lối vào ngắn của khu, nhà chưa nối đường (bản đồ có cổng): từ mép lô đất tới đúng mép ô theo hướng gate, đầu vuông,
+# nằm gọn trong ô của nhà (không lòi sang ô bên cạnh).
 # Nối đường vào từ cạnh nào thì GraphManager xoay gate về cạnh đó; đã nối thì đoạn đường nối thay cho lối vào này.
 func _draw_stubs() -> void:
 	if not GraphManager.uses_gates():
@@ -143,10 +143,9 @@ func _draw_stubs() -> void:
 		var d := Vector2(n.gate)
 		var r := GraphManager.point_radius(id)
 		var a := n.pos + d * (r - DRIVEWAY_TUCK)
-		var b := n.pos + d * (r + DRIVEWAY_STUB)
+		var b := n.pos + d * (Config.CELL_SIZE / 2.0)
 		for pass_ in [[DRY_CASING, CASING_WIDTH], [DRY_COLOR, ROAD_WIDTH]]:
 			draw_line(a, b, pass_[0], pass_[1])
-			draw_circle(b, pass_[1] / 2.0, pass_[0])
 
 
 func _casing(state: int) -> Color:

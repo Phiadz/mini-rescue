@@ -452,7 +452,7 @@ func point_radius(id: int) -> float:
 		return 0.0
 	if n.kind == Types.NodeKind.HUB:
 		return 28.0
-	return 18.0  # khu và nhà cùng cỡ icon 36 px
+	return 16.0  # khu và nhà: nửa lô đất 32 px (icon 30 px nằm trong lô)
 
 # Ô bãi đỗ của kho (giữa kho và cổng), Vector2i(-1, -1) nếu kho không có bãi.
 func get_lot_cell(hub_id: int) -> Vector2i:

@@ -5,7 +5,7 @@ extends Node2D
 
 const ICON_PATH := 'res://assets/icons/%s.svg'
 const HUB_ICON_SIZE := 56.0
-const DISTRICT_ICON_SIZE := 36.0  # khu và nhà mọc thêm cùng cỡ để các nhà to nhỏ đều nhau (kho to hơn)
+const DISTRICT_ICON_SIZE := 30.0  # khu và nhà mọc thêm cùng cỡ để các nhà to nhỏ đều nhau (kho to hơn); vừa lô đất PLOT_SIZE
 const HOUSE_ICON_SIZE := DISTRICT_ICON_SIZE  # nhà mọc thêm trong ván (điểm không tên): cùng cỡ khu, không nhãn
 
 const SHAPE_COLOR := Color('#E8E8E8')
@@ -171,6 +171,7 @@ const PIER_POST := Color('#8c6a42')
 # đường (mặt, viền theo độ ngập của đoạn nối vào), cạnh có lối vào không viền để lô liền với đường. Vẽ trên lớp đường,
 # nhà vẽ đè lên lô.
 const PLOT_RADIUS := 6
+const PLOT_SIZE := 32.0  # lô nhỏ hơn ô 40 px để lối vào nằm gọn trong ô (khớp GraphManager.point_radius)
 
 func _draw_plot(n: MapNode) -> void:
 	if not GraphManager.uses_gates():
@@ -186,11 +187,10 @@ func _draw_plot(n: MapNode) -> void:
 	var border := int((Road.CASING_WIDTH - Road.ROAD_WIDTH) / 2.0)
 	box.set_border_width_all(border)
 	box.set_corner_radius_all(PLOT_RADIUS)
-	var cell := GraphManager.cell_of(n.pos)
-	draw_style_box(box, Rect2(Vector2(cell * Config.CELL_SIZE), Vector2.ONE * Config.CELL_SIZE))
+	draw_style_box(box, Rect2(n.pos - Vector2.ONE * PLOT_SIZE / 2.0, Vector2.ONE * PLOT_SIZE))
 	if n.gate != Vector2i.ZERO:  # cạnh có lối vào (đường nối hoặc lối vào ngắn): xóa viền đúng bề rộng mặt đường
 		var d := Vector2(n.gate)
-		var edge := n.pos + d * (Config.CELL_SIZE / 2.0 - border / 2.0)
+		var edge := n.pos + d * (PLOT_SIZE / 2.0 - border / 2.0)
 		var gap := Vector2(border + 2.0, Road.ROAD_WIDTH) if d.y == 0.0 else Vector2(Road.ROAD_WIDTH, border + 2.0)
 		draw_rect(Rect2(edge - gap / 2.0, gap), c[0])
 

@@ -38,7 +38,7 @@ const JUNCTION_ROUNDABOUT := 2       # ngã ba đường: chỉ nhường xe đa
 const JUNCTION_LIGHT := 3            # ngã tư đường trở lên: đèn chia lượt theo trục ngang, dọc
 const LIGHT_PHASE := 3.0             # giây mỗi pha đèn xanh của một trục
 const ROUNDABOUT_SLOW := 0.8         # hệ số tốc độ khi đang chạy trong vòng xoay (không tính là kẹt)
-const RING_RADIUS := 9.0             # xe trong vòng xoay vẽ lệch ra vòng quanh đảo (px)
+const RING_RADIUS := 12.0            # xe trong vòng xoay vẽ lệch ra vòng quanh đảo (px), khớp vạch vòng của JunctionLayer
 const UNIT_EXTRA_SECONDS := Config.DELIVERY_TIME  # SOS cần nhiều phần: mỗi phần thêm cộng một lần dỡ hàng (xe xếp hàng dỡ lần lượt)
 const GRID_CELL := 40.0              # ô lưới để tìm xe ở gần khi tính kẹt xe (bằng một ô đường)
 
