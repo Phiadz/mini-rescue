@@ -1,6 +1,7 @@
 # BÁO CÁO TIẾN ĐỘ & HƯỚNG DẪN HOÀN THIỆN CÁC TÍNH NĂNG MỚI (OVERHAUL ROADMAP)
 **Dự án:** Floodline (Cứu hộ 0 giờ) | **Nhánh kiểm tra:** `feat/saigon-lu` (`current branch/mini-rescue`)  
-**Ngày cập nhật:** 17/11/2026
+**Ngày cập nhật:** 17/11/2026  
+**Cập nhật lần 2 (E, 17/11/2026):** đã gộp `feat/ket-xe` vào `feat/saigon-lu` (merge `4406cf7`). Feature B và C đã xong, đã tích ở mục IV; chỗ nào làm khác hướng dẫn có ghi chú "→". Feature D (phao) chưa làm.
 
 ---
 
@@ -13,8 +14,8 @@
 | **01** | **Khung kiến trúc (SVG, No TileMap, Grid 32×18)** | **100%** | **Rất tốt:** Giữ nguyên nền vector phẳng `saigon_mm_base.svg`, dữ liệu lưới 32×18 (`CELL_SIZE = 40px`), vẽ đường bằng CanvasItem `_draw()`. |
 | **02** | **Feature A: Cellular Automata River Flooding** | **100%** | **ĐÃ HOÀN TẤT XUẤT SẮC:** Lũ lan 4 hướng từ ô sông/biển, phân biệt mặt cầu và lòng sông, hiển thị bằng Shader đường đồng mức `water.gdshader`. |
 | **03** | **Cửa hàng Cứu trợ (Shop System) & Tua nhanh** | **100%** | **ĐÃ LÀM XONG:** Đã có cơ chế mua ô đường, thêm xe bằng tiền Quỹ cứu trợ (đơn vị 10 triệu VNĐ) giữa các đợt lũ, nút tua nhanh x1/x2/x3. |
-| **04** | **Feature C: Lightweight Traffic Congestion** | **0%** | **CHƯA LÀM:** Xe vẫn chạy xuyên nhau, chưa có cơ chế giảm tốc khi bám đuôi hay dừng chờ ở nút giao. |
-| **05** | **Feature B: Wave-based Expansion & Zoom** | **0%** | **CHƯA LÀM:** Chưa có `Camera2D`, bản đồ và 17 điểm mở cố định từ đầu, chưa có zoom out mở rộng map theo từng đợt lũ. |
+| **04** | **Feature C: Lightweight Traffic Congestion** | **100%** | **ĐÃ LÀM XONG (E, `c714dea`):** Bám đuôi cùng làn (dưới 34 px chạy 50%, dưới 20 px dừng), nhường đường ở ngã ba/ngã tư, chờ quá 3 giây thì đi chậm qua, tìm đường né cạnh đông xe, đèn phanh khi kẹt. Không dùng node vật lý: tìm xe ở gần bằng lưới ô 40 px. |
+| **05** | **Feature B: Wave-based Expansion & Zoom** | **100%** | **ĐÃ LÀM XONG (E, `944704e`), theo hướng khác:** dùng chính map Sài Gòn chia 3 vùng thay vì vẽ map to hơn. Camera phóng to rồi thu ra dần (zoom 1,8 → 1,35 → 1), mở 8 → 12 → 15 khu. Ngoài vùng chơi không tô đường, không sinh SOS. |
 | **06** | **Feature D: Multi-Modal Logistics (Hệ thống Phao)** | **20%** | **CHƯA CÓ PHAO:** Mới chỉ có giải pháp tình thế cho Ca-nô đi trên đường khô ở 25% tốc độ (`SPEED_FACTOR = 0.25`). Chưa có logic trung chuyển hàng Xe tải ↔ Ca-nô qua sông. |
 
 ---
@@ -30,6 +31,24 @@
 2. **Cơ chế Kinh tế & Cửa hàng cứu trợ:**
    - Thay thế việc chọn ngẫu nhiên 1 trong 3 thẻ bài bằng **Cửa hàng cứu trợ**: Người chơi tích lũy điểm cứu trợ thành Quỹ tiền tệ (10 triệu VNĐ/đơn vị) để chủ động mua ô đường, xe tải hoặc ca-nô.
    - Hỗ trợ nút tua nhanh x1, x2, x3 giúp trải nghiệm chơi mượt và giảm thời gian chờ đợi.
+
+3. **Kẹt xe thuần logic (E, `c714dea`):**
+   - `RescueManager.congestion_factor(v)` trả hệ số tốc độ (0 / 0,5 / 1) mỗi khung hình; `Vehicle.advance` nhân tốc độ với hệ số này.
+   - Bám đuôi: xe phía trước cùng hướng, cùng làn, cách dưới `FOLLOW_GAP` 34 px thì chạy 50%, dưới `STOP_GAP` 20 px thì dừng.
+   - Ngã ba, ngã tư (node có từ 3 cạnh): xe sắp vào (trong 46 px) nhường xe đang ở trong nút, hoặc xe từ nhánh cắt ngang ở gần nút hơn. Nếu bằng nhau thì xe mã nhỏ đi trước, nên hai xe không bao giờ cùng nhường nhau. Chờ quá `JAM_GIVE_UP` 3 giây thì đi chậm qua.
+   - Tìm đường né chỗ đông: `GraphManager.find_path(..., edge_penalty)` cộng 1,5 giây cho mỗi xe sắp đi qua một cạnh.
+   - Tìm xe ở gần bằng lưới ô 40 px, mỗi xe chỉ so với xe ở các ô quanh nó, nên 200 xe vẫn nhẹ. Test: `tests/test_traffic_auto` (16 kiểm tra).
+
+4. **Vùng chơi theo đợt & camera (E, `944704e`):**
+   - `game/stage_view.gd`: Camera2D tạo bằng code (GameManager thêm vào World mỗi ván); các vùng lấy từ khóa `stages` trong `map_saigon.json`.
+   - Đợt 1 zoom 1,8 (8 khu trung tâm và Kho Tân Sơn Nhất), đợt 2 zoom 1,35 (12 khu, thêm Kho Cát Lái), đợt 3 zoom 1 (cả 15 khu). Camera chuyển vùng bằng Tween 1,6 giây ở đầu lượt nghỉ; cửa hàng mở sau khi camera chuyển xong.
+   - Ngoài vùng chơi: phủ lớp tối nhẹ, không tô đường, không sinh SOS (`GameManager.is_in_play`).
+
+5. **Phát sinh thêm ngoài lộ trình (E, 17/11), để kẹt xe xuất hiện rõ hơn:**
+   - Mỗi SOS cần 10 phần hàng; mỗi xe chở 1 phần, các xe dỡ hàng lần lượt.
+   - Đầu ván có 200 xe (100 xe tải, 100 ca-nô); mua ở cửa hàng được +10 xe.
+   - Xe chạy nhanh hơn 1,5 lần (180 / 135 px/s), dỡ hàng 0,5 giây. SOS dày hơn, hạn ngắn hơn để giữ độ khó.
+   - Bot `tests/test_balance_auto` (10 ván, map Sài Gòn): thắng 7/10, xe bị kẹt khoảng 51% thời gian chạy.
 
 ---
 
@@ -61,6 +80,8 @@
 ---
 
 ### 2. FEATURE C: CƠ CHẾ KẸT XE THUẦN TOÁN HỌC (LIGHTWEIGHT TRAFFIC) (ƯU TIÊN SỐ 2)
+> **ĐÃ LÀM (E, `c714dea`), xem mục II.3.** Khác hướng dẫn ở hai chỗ: (1) không lọc theo `edge_id`, vì trên đường ô mỗi ô là một cạnh nên xe đổi cạnh liên tục; thay vào đó xét xe cùng hướng, cùng làn qua lưới ô; (2) ở nút giao, xe dừng hẳn để nhường theo thứ tự ai gần hơn đi trước (không giảm còn 30%), chờ quá 3 giây thì đi chậm qua.
+
 > **Yêu cầu nghiêm ngặt:** **TUYỆT ĐỐI KHÔNG DÙNG** các node vật lý của Godot (`Area2D`, `RayCast2D`, `CharacterBody2D`, `RigidBody2D`) vì sẽ gây nặng máy và xung đột logic với Graph.
 
 #### A. Bám đuôi cùng làn (Tailgating):
@@ -79,6 +100,8 @@
 ---
 
 ### 3. FEATURE B: CAMERA ZOOM & MỞ RỘNG BẢN ĐỒ THEO WAVE (ƯU TIÊN SỐ 3)
+> **ĐÃ LÀM (E, `944704e`), xem mục II.4.** Khác hướng dẫn: không zoom out ra ngoài bản đồ (1,0 → 0,85 → 0,70) mà phóng to vào trung tâm rồi thu ra dần (1,8 → 1,35 → 1). Zoom luôn ≥ 1 nên không cần vẽ nền SVG to hơn, không lộ viền đen, và chữ, biểu tượng không bao giờ nhỏ hơn kích thước gốc.
+
 > **Mục tiêu:** Tạo cảm giác quy mô thành phố và vùng lũ mở rộng dần theo thời gian.
 
 #### A. Cấu trúc Camera:
@@ -113,13 +136,14 @@ Các đầu việc được xếp theo thứ tự ưu tiên triển khai để n
   - [ ] Cập nhật logic điều phối `RescueManager._dispatch()` cho quy trình dỡ/bốc hàng tại Phao.
   - [ ] Viết thuật toán Auto-fallback: Phao tự động lùi về ô cạn gần nhất khi ô hiện tại bị ngập `DEEP`.
 
-- [ ] **2. Cơ chế Kẹt xe thuần Logic (Traffic Congestion):**
-  - [ ] Thêm logic kiểm tra bám đuôi (tailgating) trên cùng `edge_id` trong `Vehicle.advance()` để giảm 50% tốc độ xe sau.
-  - [ ] Thêm logic giảm 30% tốc độ hoặc dừng nhường đường khi xe tiếp cận nút giao có xe khác đang rẽ.
+- [x] **2. Cơ chế Kẹt xe thuần Logic (Traffic Congestion):** (E, `c714dea`)
+  - [x] Thêm logic kiểm tra bám đuôi (tailgating) trên cùng `edge_id` trong `Vehicle.advance()` để giảm 50% tốc độ xe sau. → Xét xe cùng hướng, cùng làn qua lưới ô 40 px thay vì `edge_id`; dưới 34 px chạy 50%, dưới 20 px dừng.
+  - [x] Thêm logic giảm 30% tốc độ hoặc dừng nhường đường khi xe tiếp cận nút giao có xe khác đang rẽ. → Dừng nhường, xe gần nút hơn đi trước; chờ quá 3 giây thì đi chậm qua.
+  - [x] (Thêm) Tìm đường né cạnh đông xe (`find_path` có `edge_penalty`); đèn phanh khi xe bị kẹt.
 
-- [ ] **3. Camera Zoom & Mở rộng Bản đồ (Wave Expansion):**
-  - [ ] Thêm node `Camera2D` vào `main.tscn`.
-  - [ ] Viết Tween nội suy `Camera2D.zoom` mượt mà khi bắt đầu Wave mới.
-  - [ ] Cập nhật logic sinh SOS: Wave 1 chỉ mở các điểm trung tâm, Wave 2 và 3 mới mở các điểm rìa ngoại ô.
-  - [ ] Mở rộng viền canvas hoặc kích thước ảnh nền SVG để tránh viền đen khi zoom out.
-  - [ ] Gắn cơ chế Clamped Scale cho `sos_marker.gd` để icon SOS không bị bé li ti khi zoom xa.
+- [x] **3. Camera Zoom & Mở rộng Bản đồ (Wave Expansion):** (E, `944704e`)
+  - [x] Thêm node `Camera2D` vào `main.tscn`. → Tạo bằng code trong `game/stage_view.gd`, không sửa `main.tscn`.
+  - [x] Viết Tween nội suy `Camera2D.zoom` mượt mà khi bắt đầu Wave mới. → Phóng to rồi thu ra: zoom 1,8 → 1,35 → 1; Tween 1,6 giây ở đầu lượt nghỉ.
+  - [x] Cập nhật logic sinh SOS: Wave 1 chỉ mở các điểm trung tâm, Wave 2 và 3 mới mở các điểm rìa ngoại ô. → Đợt 1: Calmette, Nguyễn Hữu Cảnh, BV Gia Định, Thảo Điền, Thanh Đa, Hàng Xanh, Mai Chí Thọ, Lê Đức Thọ; đợt 2 thêm Huỳnh Tấn Phát, Võ Nguyên Giáp, Đỗ Xuân Hợp, Trần Xuân Soạn và Kho Cát Lái; đợt 3 thêm Quốc lộ 50, Nhà Bè, Kinh Dương Vương.
+  - [x] Mở rộng viền canvas hoặc kích thước ảnh nền SVG để tránh viền đen khi zoom out. → Không cần: zoom luôn ≥ 1, đợt cuối thấy đúng cả bản đồ 1280×720 nên không lộ viền.
+  - [x] Gắn cơ chế Clamped Scale cho `sos_marker.gd` để icon SOS không bị bé li ti khi zoom xa. → Làm trong `ui/ui_root.gd`: bong bóng SOS có `scale = 1 / zoom`, giữ nguyên kích thước trên màn hình.
