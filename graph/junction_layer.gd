@@ -7,7 +7,7 @@ extends Node2D
 
 const ISLAND_COLOR := Color('#cfe3b4')
 const ISLAND_EDGE := Color('#a9c78c')
-const ISLAND_RADIUS := {2: 8.0, 3: 18.0}  # đảo vòng 2×2 ở góc chung bốn ô; vòng 3×3 ở ô giữa
+const ISLAND_RADIUS := {2: 8.0, 3: 24.0}  # đảo vòng 2×2 ở góc chung bốn ô; vòng 3×3 ở ô giữa, sát mép trong của vòng
 const ARROW_COLOR := Color('#9fb3bd')
 const ARROW_SIZE := 4.0
 const ISLAND_EDGE_WIDTH := 1.5

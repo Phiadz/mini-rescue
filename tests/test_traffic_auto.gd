@@ -158,8 +158,14 @@ func _test_ring() -> void:
 	last = GraphManager.extend_road(last, cells[0])
 	var big := GraphManager.ring_of(GraphManager.road_at(o))
 	_check(big != -1 and big != ring and GraphManager.get_rings()[big].size == 3, 'tám ô quanh ô trống thành vòng xoay 3×3')
+	var mid: Vector2 = GraphManager.cell_center(o + Vector2i(1, 1))
+	var round := cells.all(func(c: Vector2i) -> bool: return absf(GraphManager.get_map_node(GraphManager.road_at(c)).pos.distance_to(mid) - GraphManager.RING3_RADIUS) < 0.01)
+	_check(round, 'vòng 3×3 tròn: 8 nút cách đều tâm vòng %d px (ô góc dời vào trong)' % int(GraphManager.RING3_RADIUS))
+	var corner := GraphManager.road_at(o)
+	_check(GraphManager.cell_of(GraphManager.get_map_node(corner).pos) == o, 'nút ô góc dời vào trong nhưng vẫn nằm trong ô của nó')
 	GraphManager.extend_road(-1, o + Vector2i(1, 1))
 	_check(GraphManager.ring_of(GraphManager.road_at(o)) == -1, 'tô cả ô giữa thì không còn là vòng xoay 3×3')
+	_check(GraphManager.get_map_node(corner).pos == GraphManager.cell_center(o), 'vòng bị phá: nút ô góc về lại tâm ô')
 
 
 # Ngã tư đường tự có đèn: hai trục ngang, dọc luân phiên xanh mỗi LIGHT_PHASE giây.

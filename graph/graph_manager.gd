@@ -32,6 +32,7 @@ var _segments := {}             # id đoạn -> Array các id cạnh
 var _rings: Array = []          # vòng xoay người chơi vẽ: [{center: Vector2, size: 2 | 3, nodes: Array id ô đường}]
 var _ring_of := {}              # id ô đường -> chỉ số vòng trong _rings
 var _ring_from := {}            # id cạnh vòng -> nút được đi từ đó (vòng một chiều, ngược kim đồng hồ trên màn hình)
+const RING3_RADIUS := 40.0      # vòng 3×3: 8 nút cách đều tâm vòng chừng này px (ô cạnh giữ nguyên, ô góc dời vào trong)
 var _gate_cells := {}           # ô cổng -> id điểm (ô cổng là ô đường dựng sẵn, không tính hạn mức, không xóa được)
 var _lot_cells := {}            # ô bãi đỗ -> id kho: kho có bãi nằm giữa kho và cổng (kho, bãi, cổng thẳng hàng)
 var _gate_override := {}        # id điểm -> hướng cổng ghi trong json (trường "gate": "E"/"W"/"N"/"S")
@@ -553,12 +554,16 @@ func _detect_rings() -> void:
 	_rings.clear()
 	_ring_of.clear()
 	_ring_from.clear()
+	for id in _nodes:  # ô đường về tâm ô (vòng 3×3 cũ có thể đã dời nút; ô vẫn đúng vì nút dời chưa ra khỏi ô)
+		if _nodes[id].kind == Types.NodeKind.ROAD:
+			_nodes[id].pos = cell_center(cell_of(_nodes[id].pos))
 	for id in _nodes:
 		if _nodes[id].kind != Types.NodeKind.ROAD:
 			continue
 		var tl := cell_of(_nodes[id].pos)
 		for size in [3, 2]:
 			_try_ring(tl, size)
+	_fix_lengths()
 
 # Các ô của vòng có góc trên trái tl, theo đúng chiều chạy (bắt đầu ở góc trên phải).
 func _ring_cells(tl: Vector2i, size: int) -> Array[Vector2i]:
@@ -588,6 +593,21 @@ func _try_ring(tl: Vector2i, size: int) -> void:
 		_ring_of[r] = idx
 	for l in links:
 		_ring_from[l[0]] = l[1]
+	if size == 3:  # dời nút 4 ô góc vào trong để 8 nút cách đều tâm vòng: vòng tròn, không vuông bo góc
+		var c := cell_center(tl + Vector2i(1, 1))
+		for r in ids:
+			_nodes[r].pos = c + c.direction_to(_nodes[r].pos) * RING3_RADIUS
+		for r in ids:
+			for eid in _adj[r]:
+				var e: Edge = _edges[eid]
+				e.length = _nodes[e.node_a].pos.distance_to(_nodes[e.node_b].pos)
+
+# Ô đường từng thuộc vòng 3×3 rồi vòng bị phá: nút đã về tâm ô, tính lại độ dài các cạnh của nó.
+func _fix_lengths() -> void:
+	for eid in _edges:
+		if not _boat_edges.has(eid):
+			var e: Edge = _edges[eid]
+			e.length = _nodes[e.node_a].pos.distance_to(_nodes[e.node_b].pos)
 
 func _edge_between(a: int, b: int) -> int:
 	for eid in _adj.get(a, []):
