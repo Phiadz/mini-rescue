@@ -7,6 +7,8 @@ const GATE_DIRS: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0,
 const GATE_NAMES := {'E': Vector2i(1, 0), 'W': Vector2i(-1, 0), 'N': Vector2i(0, -1), 'S': Vector2i(0, 1)}
 const MAP_CENTER := Vector2(640, 360)  # cổng của điểm có sẵn quay về phía tâm bản đồ
 const HOUSE_ICONS := ['house_blue', 'house_coral', 'house_gold', 'house_mint']
+const WATER_ID_BASE := 2000 # mã nút nước (ô ca-nô đi được) = WATER_ID_BASE + chỉ số ô
+const BOAT_EDGE_ID_BASE := 100000  # cạnh của ca-nô đánh mã riêng, không bao giờ trùng mã cạnh đường (kể cả sau khi nạp lại bản đồ)
 
 var _nodes := {}        # id -> MapNode (cả điểm trên bản đồ và ô đường)
 var _edges := {}        # id -> Edge
@@ -26,15 +28,24 @@ var _segments := {}             # id đoạn -> Array các id cạnh
 var _gate_cells := {}           # ô cổng -> id điểm (ô cổng là ô đường dựng sẵn, không tính hạn mức, không xóa được)
 var _gate_override := {}        # id điểm -> hướng cổng ghi trong json (trường "gate": "E"/"W"/"N"/"S")
 var _next_house_id := HOUSE_ID_BASE
+# Đồ thị riêng của ca-nô: nút nước và cạnh boat_only (sông, bến, lối xuống nước). Không nằm trong _nodes/_adj,
+# nên các module vẽ đường, tính lũ, tính ngã ba không thấy; chỉ find_path và xe dùng.
+var _water := {}                # id nút nước -> MapNode (kind WATER)
+var _badj := {}                 # id node -> Array id cạnh boat_only kề
+var _boat_edges := {}           # id cạnh boat_only -> true
+var _flood_links := {}          # id cạnh lối xuống nước (ô đường ↔ nút nước) -> true; FloodManager đặt trạng thái theo ô đường
+var _next_boat_edge := 0        # mã cạnh ca-nô kế tiếp = BOAT_EDGE_ID_BASE + số này
 
 func _ready() -> void:
 	_limit = Config.EDGE_LIMIT_START
 	EventBus.game_started.connect(_on_game_started)
+	EventBus.point_added.connect(_add_docks)
 
 func _on_game_started() -> void:
 	_clear_edges()
 	_build_gates()
 	EventBus.edge_budget_changed.emit(0, _limit)
+	_build_water()
 
 func _clear_edges() -> void:
 	_edges.clear()
@@ -48,6 +59,11 @@ func _clear_edges() -> void:
 	_roads = 0
 	_next_edge_id = 0
 	_limit = Config.EDGE_LIMIT_START
+	# _edges vừa xóa cả cạnh ca-nô: dọn luôn kề của chúng để ô cổng dựng lại ngay sau đây không gặp mã cạnh cũ.
+	# Nút nước giữ nguyên; _build_water() dựng lại cạnh sông, bến và lối xuống nước.
+	_badj.clear()
+	_boat_edges.clear()
+	_flood_links.clear()
 
 # --- Nạp bản đồ (gọi nhiều lần vẫn đúng: luôn xóa dữ liệu cũ trước) ---
 func load_map(path: String) -> void:
@@ -84,22 +100,30 @@ func load_map(path: String) -> void:
 		if GATE_NAMES.has(str(d.get('gate', ''))):
 			_gate_override[n.id] = GATE_NAMES[str(d['gate'])]
 	_build_gates(false)  # chưa phát tín hiệu: game_started sẽ dựng lại cổng và phát road_changed
+	_build_water()
 
 # --- Truy vấn ---
 # Chỉ các điểm trên bản đồ, không gồm ô đường.
 func get_node_ids() -> Array[int]:
 	return _points.duplicate()
 
+# Điểm, ô đường, hoặc nút nước của ca-nô.
 func get_map_node(id: int) -> MapNode:
-	return _nodes.get(id)
+	var n: MapNode = _nodes.get(id)
+	return n if n != null else _water.get(id)
+
+func _has_node(id: int) -> bool:
+	return _nodes.has(id) or _water.has(id)
 
 func get_edge(edge_id: int) -> Edge:
 	return _edges.get(edge_id)
 
+# Chỉ cạnh đường bộ (đường–đường, điểm–đường); cạnh boat_only của ca-nô không có ở đây.
 func get_edge_ids() -> Array[int]:
 	var out: Array[int] = []
 	for k in _edges.keys():
-		out.append(k)
+		if not _boat_edges.has(k):
+			out.append(k)
 	return out
 
 func get_edges_of(node_id: int) -> Array[int]:
@@ -207,6 +231,7 @@ func _add_road(cell: Vector2i) -> int:
 	_nodes[n.id] = n
 	_adj[n.id] = []
 	_roads += 1
+	_link_road_to_water(n.id)
 	return n.id
 
 # Xóa ô đường và các cạnh nối vào nó, hoàn 1 hạn mức. Trả false nếu ô không có đường.
@@ -214,6 +239,7 @@ func remove_road(cell: Vector2i) -> bool:
 	var id := road_at(cell)
 	if id == -1 or _gate_cells.has(cell):
 		return false  # ô cổng thuộc về điểm, không xóa được
+	_unlink_road_from_water(id)
 	for eid in _adj[id].duplicate():
 		_unlink(eid)
 	_nodes.erase(id)
@@ -382,7 +408,7 @@ func _refresh_segments() -> void:
 				if not seen.has(eid):
 					_walk(id, eid, seen)
 	for eid in _edges:                      # còn lại là vòng kín, không có đầu mút
-		if not seen.has(eid):
+		if not seen.has(eid) and not _boat_edges.has(eid):
 			_walk(_edges[eid].node_a, eid, seen)
 
 func _is_end(id: int) -> bool:
@@ -460,42 +486,105 @@ func add_edge_limit(n: int) -> void:
 func get_edge_budget() -> Dictionary:
 	return {used = _roads, limit = _limit}
 
-# --- Dijkstra ---
-# edge_penalty (tùy chọn): số giây cộng thêm cho từng cạnh, RescueManager dùng để né chỗ đang đông xe.
-func find_path(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictionary = {}) -> PathResult:
-	var res := PathResult.new()
-	if not _nodes.has(from_id) or not _nodes.has(to_id):
-		return res
-	var dist := {}
+# --- Dijkstra (hàng đợi ưu tiên) ---
+# Chi phí cạnh = thời gian đi (giây) theo tốc độ xe và trạng thái cạnh, cộng edge_penalty nếu có.
+# Duyệt cả cạnh đường bộ (_adj) lẫn cạnh của ca-nô (_badj); xe tải gặp cạnh boat_only thì hệ số 0, bỏ qua.
+
+# Heap nhị phân nhỏ nhất, mỗi phần tử [chi phí, id nút]. Cho phép đẩy trùng nút (bỏ bản cũ lúc lấy ra).
+class MinHeap extends RefCounted:
+	var _a: Array = []
+
+	func size() -> int:
+		return _a.size()
+
+	func push(cost: float, id: int) -> void:
+		_a.append([cost, id])
+		var i := _a.size() - 1
+		while i > 0:
+			var p := (i - 1) >> 1
+			if _a[p][0] <= _a[i][0]:
+				break
+			var t: Array = _a[p]
+			_a[p] = _a[i]
+			_a[i] = t
+			i = p
+
+	func pop() -> Array:
+		var top: Array = _a[0]
+		var last: Array = _a.pop_back()
+		if not _a.is_empty():
+			_a[0] = last
+			var i := 0
+			var n := _a.size()
+			while true:
+				var l := 2 * i + 1
+				var m := i
+				if l < n and _a[l][0] < _a[m][0]:
+					m = l
+				if l + 1 < n and _a[l + 1][0] < _a[m][0]:
+					m = l + 1
+				if m == i:
+					break
+				var t: Array = _a[m]
+				_a[m] = _a[i]
+				_a[i] = t
+				i = m
+		return top
+
+# to_id = -1: tính cho mọi nút tới được (cây đường ngắn nhất); khác -1 thì dừng sớm khi tới đích.
+func _dijkstra(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictionary) -> Dictionary:
+	var dist := {from_id: 0.0}
 	var prev_node := {}
 	var prev_edge := {}
-	var unvisited: Array = _nodes.keys()
-	for id in unvisited:
-		dist[id] = INF
-	dist[from_id] = 0.0
-	while not unvisited.is_empty():
-		var u := -1
-		var best := INF
-		for id in unvisited:
-			if dist[id] < best:
-				best = dist[id]
-				u = id
-		if u == -1 or u == to_id:
+	var done := {}
+	var speed: float = Config.base_speed(vehicle_type)
+	var heap := MinHeap.new()
+	heap.push(0.0, from_id)
+	while heap.size() > 0:
+		var u: int = heap.pop()[1]
+		if done.has(u):
+			continue                            # bản cũ của nút đã chốt
+		done[u] = true
+		if u == to_id:
 			break
-		unvisited.erase(u)
-		for eid in _adj[u]:
-			var e: Edge = _edges[eid]
-			var factor := e.speed_factor(vehicle_type)
-			if factor <= 0.0:
-				continue                    # xe này không đi được cạnh này
-			var v := e.other_end(u)
-			var cost := e.length / (Config.base_speed(vehicle_type) * factor) + float(edge_penalty.get(eid, 0.0))
-			if dist[u] + cost < dist[v]:
-				dist[v] = dist[u] + cost
-				prev_node[v] = u
-				prev_edge[v] = eid
-	if dist[to_id] == INF:
+		var du: float = dist[u]
+		for list in [_adj.get(u, []), _badj.get(u, [])]:
+			for eid in list:
+				var e: Edge = _edges[eid]
+				var factor := e.speed_factor(vehicle_type)
+				if factor <= 0.0:
+					continue                    # xe này không đi được cạnh này
+				var v := e.other_end(u)
+				if done.has(v):
+					continue
+				var nd := du + e.length / (speed * factor) + float(edge_penalty.get(eid, 0.0))
+				if nd < float(dist.get(v, INF)):
+					dist[v] = nd
+					prev_node[v] = u
+					prev_edge[v] = eid
+					heap.push(nd, v)
+	return {from = from_id, dist = dist, prev_node = prev_node, prev_edge = prev_edge}
+
+# edge_penalty (tùy chọn): số giây cộng thêm cho từng cạnh, RescueManager dùng để né chỗ đang đông xe.
+func find_path(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictionary = {}) -> PathResult:
+	if not _has_node(from_id) or not _has_node(to_id):
+		return PathResult.new()
+	return path_from_tree(_dijkstra(from_id, to_id, vehicle_type, edge_penalty), from_id, to_id)
+
+# Cây đường ngắn nhất từ from_id tới mọi nút (dist, prev_node, prev_edge). RescueManager tính một lần
+# cho mỗi (kho, loại xe) trong một lượt điều phối, rồi lấy đường tới từng SOS bằng path_from_tree.
+func shortest_tree(from_id: int, vehicle_type: int, edge_penalty: Dictionary = {}) -> Dictionary:
+	if not _has_node(from_id):
+		return {from = from_id, dist = {}, prev_node = {}, prev_edge = {}}
+	return _dijkstra(from_id, -1, vehicle_type, edge_penalty)
+
+func path_from_tree(tree: Dictionary, from_id: int, to_id: int) -> PathResult:
+	var res := PathResult.new()
+	var dist: Dictionary = tree.get('dist', {})
+	if int(tree.get('from', -1)) != from_id or not dist.has(to_id):
 		return res
+	var prev_node: Dictionary = tree.prev_node
+	var prev_edge: Dictionary = tree.prev_edge
 	var cur := to_id
 	while cur != from_id:
 		res.node_ids.push_front(cur)
@@ -505,3 +594,114 @@ func find_path(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictio
 	res.found = true
 	res.cost = dist[to_id]
 	return res
+
+# --- Đồ thị của ca-nô: sông (grid.boat), bến, lối xuống nước ---
+# Dựng lại toàn bộ: nút nước cho mọi ô ca-nô, cạnh sông giữa hai ô ca-nô kề 8 hướng (luôn DEEP),
+# bến cho mọi điểm sát sông, lối xuống nước cho mọi ô đường sát sông. Gọi sau khi nạp bản đồ và sau game_started.
+func _build_water() -> void:
+	for eid in _boat_edges:
+		_edges.erase(eid)
+	_boat_edges.clear()
+	_flood_links.clear()
+	_badj.clear()
+	_water.clear()
+	_next_boat_edge = 0
+	for i in _cell_boat.size():
+		if int(_cell_boat[i]) != 1:
+			continue
+		var n := MapNode.new()
+		n.id = WATER_ID_BASE + i
+		n.kind = Types.NodeKind.WATER
+		n.pos = cell_center(Vector2i(i % Config.GRID_COLS, i / Config.GRID_COLS))
+		_water[n.id] = n
+	for id in _water:
+		var c := cell_of(_water[id].pos)
+		for d in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(-1, 1)]:  # mỗi cặp kề chỉ xét một lần
+			var other := _water_at(c + d)
+			if other != -1:
+				_add_boat_edge(id, other, Types.EdgeState.DEEP, false)
+	for p in _points:
+		_add_docks(p)
+	for id in _nodes:
+		if _nodes[id].kind == Types.NodeKind.ROAD:
+			_link_road_to_water(id)
+
+# Nút nước tại ô, hoặc -1.
+func _water_at(cell: Vector2i) -> int:
+	if not _in_grid(cell):
+		return -1
+	var id := WATER_ID_BASE + _cell_index(cell)
+	return id if _water.has(id) else -1
+
+func _add_boat_edge(a: int, b: int, state: int, flood_link: bool) -> int:
+	var e := Edge.new()
+	e.id = BOAT_EDGE_ID_BASE + _next_boat_edge
+	_next_boat_edge += 1
+	e.node_a = a
+	e.node_b = b
+	e.length = get_map_node(a).pos.distance_to(get_map_node(b).pos)
+	e.state = state
+	e.boat_only = true
+	_edges[e.id] = e
+	_boat_edges[e.id] = true
+	if flood_link:
+		_flood_links[e.id] = true
+	for id in [a, b]:
+		if not _badj.has(id):
+			_badj[id] = []
+		_badj[id].append(e.id)
+	return e.id
+
+func _boat_linked(a: int, b: int) -> bool:
+	for eid in _badj.get(a, []):
+		if _edges[eid].other_end(a) == b:
+			return true
+	return false
+
+# Bến: điểm (kho, khu, nhà) có chính ô của nó hoặc ô kề 8 hướng là ô ca-nô thì nối với các nút nước đó (luôn DEEP).
+# Gọi khi dựng lại đồ thị ca-nô và khi có nhà mới (EventBus.point_added).
+func _add_docks(point_id: int) -> void:
+	var n: MapNode = _nodes.get(point_id)
+	if n == null or n.kind == Types.NodeKind.ROAD:
+		return
+	var c := cell_of(n.pos)
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			var w := _water_at(c + Vector2i(dx, dy))
+			if w != -1 and not _boat_linked(point_id, w):
+				_add_boat_edge(point_id, w, Types.EdgeState.DEEP, false)
+
+# Điểm có bến: ca-nô cập được mà không cần đường ngập.
+func has_dock(point_id: int) -> bool:
+	return not _badj.get(point_id, []).is_empty() and _nodes.has(point_id) and _nodes[point_id].kind != Types.NodeKind.ROAD
+
+# Lối xuống nước: ô đường kề 8 hướng với ô ca-nô (không tính chính ô của nó, ô cầu không nối xuống sông bên dưới).
+# Trạng thái cạnh theo độ ngập của ô đường (FloodManager đặt), khô thì ca-nô không qua.
+func _link_road_to_water(road_id: int) -> void:
+	var c := cell_of(_nodes[road_id].pos)
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			if dx == 0 and dy == 0:
+				continue
+			var w := _water_at(c + Vector2i(dx, dy))
+			if w != -1 and not _boat_linked(road_id, w):
+				_add_boat_edge(road_id, w, Types.EdgeState.DRY, true)
+
+# Gỡ lối xuống nước của ô đường sắp xóa; phát edge_removed để xe đang đi trên đó tính lại đường.
+func _unlink_road_from_water(road_id: int) -> void:
+	for eid in _badj.get(road_id, []).duplicate():
+		var e: Edge = _edges[eid]
+		var w := e.other_end(road_id)
+		_badj[w].erase(eid)
+		_edges.erase(eid)
+		_boat_edges.erase(eid)
+		_flood_links.erase(eid)
+		EventBus.edge_removed.emit(eid)
+	_badj.erase(road_id)
+
+# Cạnh lối xuống nước (node_a là ô đường), để FloodManager đặt trạng thái theo độ ngập ô đường.
+func get_flood_links() -> Array[int]:
+	var out: Array[int] = []
+	for k in _flood_links:
+		out.append(k)
+	return out

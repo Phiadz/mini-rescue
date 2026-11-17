@@ -95,7 +95,7 @@ func _run_checks() -> void:
 	var cost_detour := (_d(0, 2) + _d(2, 4) + _d(4, 5) + _d(5, 7)) / Config.TRUCK_SPEED
 	_check(absf(pt2.cost - cost_detour) < 0.02, 'chi phí mới xấp xỉ %.2f giây' % cost_detour)
 	var pboat := GraphManager.find_path(0, 7, Types.VehicleType.BOAT)
-	_check(pboat.found and pboat.cost > pt2.cost, 'ca-nô đi được đường khô nhưng chậm hơn xe tải (%.1f so với %.1f giây)' % [pboat.cost, pt2.cost])
+	_check(not pboat.found, 'ca-nô không đi đường khô: chỉ một cạnh ngập thì chưa có đường')
 	for eid in GraphManager.get_edge_ids():
 		GraphManager.set_edge_state(eid, Types.EdgeState.DEEP)
 	_check(not GraphManager.find_path(0, 7, Types.VehicleType.TRUCK).found, 'mọi cạnh ngập sâu: xe tải không có đường')

@@ -760,6 +760,11 @@ func _dispatch() -> void:
 		if a.prioritized != b.prioritized:
 			return a.prioritized
 		return a.time_left < b.time_left)
+	# Đồ thị thật: mỗi (kho, loại xe) chỉ tính một cây đường ngắn nhất cho cả lượt (lúc cần tới), rồi lấy
+	# đường tới từng SOS từ cây đó. Chi phí chỗ đông lấy lúc đầu lượt. Scene thử (đường giả, đồ thị giả) tính từng cặp như cũ.
+	var use_tree: bool = not path_provider.is_valid() and graph == null
+	var trees := {}
+	var pen := {}
 	for r in pending:
 		# SOS lớn cần nhiều xe: giao thêm xe rảnh cho tới khi đủ số phần. Xe sau tính đường có cộng
 		# chi phí chỗ đông (congestion_penalty) nên có thể tự chọn đường vòng.
@@ -776,7 +781,15 @@ func _dispatch() -> void:
 				if tried.has(key):
 					continue
 				tried[key] = true
-				var p: PathResult = find_path(v.hub_id, r.node_id, v.type)
+				var p: PathResult
+				if use_tree:
+					if not trees.has(key):
+						if trees.is_empty():
+							pen = congestion_penalty()
+						trees[key] = g().shortest_tree(v.hub_id, v.type, pen)
+					p = g().path_from_tree(trees[key], v.hub_id, r.node_id)
+				else:
+					p = find_path(v.hub_id, r.node_id, v.type)
 				if p.found and (best_v == null or p.cost < best_p.cost):
 					best_v = v
 					best_p = p
@@ -848,9 +861,17 @@ func add_vehicle(type: int) -> int:
 
 
 # Xe tải về kho cao nhất vì đường quanh đó khô lâu; ca-nô về kho thấp nhất vì đường quanh đó ngập sớm.
+# Bản đồ có sông cho ca-nô: ca-nô chỉ về kho có bến (sát sông), chọn kho thấp nhất trong số đó.
 func _hub_for(type: int) -> int:
+	var docked := {}
+	if type == Types.VehicleType.BOAT and g().has_method('has_dock'):
+		for hid in _hubs:
+			if g().has_dock(hid):
+				docked[hid] = true
 	var best := -1
 	for hid in _hubs:
+		if not docked.is_empty() and not docked.has(hid):
+			continue
 		if best == -1:
 			best = hid
 			continue

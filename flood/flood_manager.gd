@@ -200,6 +200,15 @@ func _update_edges() -> void:
 			GraphManager.set_edge_state(eid, state)
 		var key: int = e.segment if e.segment >= 0 else -1 - eid
 		_check_warning(key, [eid], cells, state)
+	# Lối xuống nước của ca-nô (ô đường ↔ ô sông): ngập theo chính ô đường, khô thì ca-nô không lên được. Không cảnh báo.
+	for eid in GraphManager.get_flood_links():
+		var link = GraphManager.get_edge(eid)
+		var road = GraphManager.get_map_node(link.node_a) if link != null else null
+		if road == null:
+			continue
+		var link_state := state_for_depth(depth_at(GraphManager.cell_of(road.pos)))
+		if link.state != link_state:
+			GraphManager.set_edge_state(eid, link_state)
 
 
 func _mean_depth(cells: Array) -> float:

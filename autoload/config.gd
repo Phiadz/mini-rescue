@@ -57,7 +57,7 @@ const SHOP_PRICE_GROWTH := 1.5  # mỗi lần mua cùng một món trong ván, g
 # Loại xe: 0 TRUCK, 1 BOAT. Trạng thái tuyến: 0 DRY, 1 SHALLOW, 2 DEEP
 const SPEED_FACTOR := {
 	0: [1.0, 0.5, 0.0],
-	1: [0.25, 0.5, 1.0],  # ca-nô đi được đường khô ở 25% tốc độ (kéo bằng rơ-moóc ra chỗ ngập)
+	1: [0.0, 0.5, 1.0],  # ca-nô không đi đường khô: chỉ chạy trên sông (cạnh boat_only, luôn DEEP) và đường đã ngập
 }
 
 # --- Các đợt lũ (chỉ số 0, 1, 2) ---
