@@ -24,6 +24,7 @@ func _ready() -> void:
 
 func _run() -> void:
 	_test_river()
+	_test_on_water()
 	_test_flood_links()
 	_test_heap_matches_old()
 	_test_tree()
@@ -46,7 +47,8 @@ func _test_river() -> void:
 		for x in Config.GRID_COLS:
 			if GraphManager.cell_is_boat(Vector2i(x, y)):
 				boat_cells += 1
-	_check(GraphManager._water.size() == boat_cells and boat_cells > 0, 'mỗi ô ca-nô có một nút nước (%d nút)' % boat_cells)
+	var cell_nodes := GraphManager._water.keys().filter(func(id: int) -> bool: return id < GraphManager.WATER_VIA_BASE).size()
+	_check(cell_nodes == boat_cells and boat_cells > 0, 'mỗi ô ca-nô có một nút nước (%d nút, thêm %d nút điểm gãy)' % [boat_cells, GraphManager._water.size() - cell_nodes])
 	# Bản đồ Sài Gòn có cổng: lúc đầu chỉ có các ô cổng dựng sẵn là ô đường.
 	var only_gates := GraphManager.get_road_ids().all(func(id: int) -> bool: return GraphManager.is_gate_cell(GraphManager.cell_of(GraphManager.get_map_node(id).pos)))
 	_check(GraphManager.get_node_ids().size() == 17 and only_gates, 'nút nước không lẫn vào danh sách điểm và ô đường (chỉ có ô cổng)')
@@ -63,6 +65,96 @@ func _test_river() -> void:
 		var on_water := p.found and p.node_ids.slice(1, p.node_ids.size() - 1).all(func(id: int) -> bool: return id >= GraphManager.WATER_ID_BASE)
 		_check(on_water, 'chưa có đường nào, ca-nô vẫn đi dọc sông từ Cát Lái tới %s (%.1f giây)' % [GraphManager.get_map_node(target).name, p.cost])
 	_check(not GraphManager.find_path(CAT_LAI, CALMETTE, TRUCK).found, 'xe tải không đi cạnh sông')
+
+
+# Ảnh độ cao của bản đồ Sài Gòn: điểm ảnh sông có giá trị 16 bit (R byte cao, G byte thấp) đúng bằng 10944.
+var _height: Image
+
+func _river(p: Vector2) -> bool:
+	var x := int(floor(p.x))
+	var y := int(floor(p.y))
+	if _height == null or x < 0 or y < 0 or x >= _height.get_width() or y >= _height.get_height():
+		return false
+	var c := _height.get_pixel(x, y)
+	return roundi(c.r * 255.0) * 256 + roundi(c.g * 255.0) <= 10944
+
+# Tỷ lệ mẫu (mỗi 2 px) nằm trên sông dọc đoạn a-b.
+func _water_frac(a: Vector2, b: Vector2) -> float:
+	var n := maxi(2, ceili(a.distance_to(b) / 2.0))
+	var w := 0
+	for s in n + 1:
+		if _river(a.lerp(b, float(s) / n)):
+			w += 1
+	return float(w) / (n + 1)
+
+
+func _test_on_water() -> void:
+	print('\n== Ca-nô ở trên nước, không lên cạn')
+	_fresh_saigon()
+	_height = Image.load_from_file(ProjectSettings.globalize_path('res://assets/icons/terrain/saigon_height.png'))
+	_check(_height != null and _height.get_width() == 1280, 'đọc được ảnh độ cao để biết chỗ nào là sông')
+	var nodes: Array = GraphManager._water.keys()
+	var off := nodes.filter(func(id: int) -> bool: return not _river(GraphManager.get_map_node(id).pos))
+	_check(off.is_empty(), 'mọi nút nước (%d nút) nằm trên sông%s' % [nodes.size(), '' if off.is_empty() else ', lệch: %s' % str(off)])
+	# Mỗi đoạn sông giữa hai nút ô: đi thẳng, hoặc vòng qua một nút điểm gãy (chấm cả đường gấp khúc như lúc tính dữ liệu).
+	var low := 0
+	var worst := 1.0
+	var count := 0
+	for eid in GraphManager._boat_edges:
+		var e: Edge = GraphManager.get_edge(eid)
+		var a := GraphManager.get_map_node(e.node_a)
+		var b := GraphManager.get_map_node(e.node_b)
+		if a.kind != Types.NodeKind.WATER or b.kind != Types.NodeKind.WATER or a.id >= GraphManager.WATER_VIA_BASE or b.id >= GraphManager.WATER_VIA_BASE:
+			continue  # bến, lối xuống nước xét riêng; nửa đoạn qua điểm gãy xét ở vòng dưới
+		count += 1
+		var f := _water_frac(a.pos, b.pos)
+		worst = minf(worst, f)
+		if f < 0.9:
+			low += 1
+	for m in nodes:
+		if m < GraphManager.WATER_VIA_BASE:
+			continue
+		var ends: Array = GraphManager._badj[m].map(func(eid: int) -> Vector2: return GraphManager.get_map_node(GraphManager.get_edge(eid).other_end(m)).pos)
+		var mp: Vector2 = GraphManager.get_map_node(m).pos
+		var la := maxi(2, ceili(ends[0].distance_to(mp) / 2.0))
+		var lb := maxi(2, ceili(mp.distance_to(ends[1]) / 2.0))
+		var f := (_water_frac(ends[0], mp) * (la + 1) + _water_frac(mp, ends[1]) * (lb + 1)) / (la + lb + 2)
+		count += 1
+		worst = minf(worst, f)
+		if f < 0.9:
+			low += 1
+	_check(count > 0 and low <= 2 and worst >= 0.75,
+			'đoạn sông (%d đoạn) nằm trên sông: %d đoạn dưới 90%% nước (nối chỗ ảnh sông bị đứt), thấp nhất %d%%' % [count, low, roundi(worst * 100.0)])
+	_check(Config.SPEED_FACTOR[BOAT][Types.EdgeState.SHALLOW] == 0.0 and Config.SPEED_FACTOR[BOAT][Types.EdgeState.DRY] == 0.0,
+			'ca-nô không đi đường khô, không đi đường ngập nhẹ ("cạn")')
+	# Ca-nô cập bến một điểm từ nút nước: dừng trên nước.
+	var stops := 0
+	var dry := []
+	for p in GraphManager.get_node_ids():
+		for w in GraphManager.get_dock_nodes(p):
+			var v = RescueManager.Vehicle.new()
+			v.type = BOAT
+			v.hub_id = CAT_LAI
+			var path := PathResult.new()
+			path.found = true
+			path.node_ids.append(w)
+			path.node_ids.append(p)
+			path.edge_ids.append(-1)
+			v.path = path
+			v.path_index = 0
+			var s: Vector2 = RescueManager.boat_stop_pos(v, p)
+			stops += 1
+			if not _river(s):
+				dry.append(p)
+			v.free()
+	_check(stops > 0 and dry.is_empty(), 'ca-nô cập bến dừng trên nước (%d bến)%s' % [stops, '' if dry.is_empty() else ', lên cạn ở: %s' % str(dry)])
+	var n := RescueManager.slot_count(CAT_LAI, BOAT)
+	var slot_ok := n > 0
+	for i in n:
+		slot_ok = slot_ok and _river(RescueManager.slot_point(CAT_LAI, BOAT, i))
+	_check(slot_ok, 'chỗ đỗ ca-nô ở bến Cát Lái (%d chỗ) đều nằm trên sông' % n)
+	var parked := RescueManager._vehicles.values().filter(func(x) -> bool: return x.type == BOAT and x.slot >= 0)
+	_check(not parked.is_empty() and parked.all(func(x) -> bool: return _river(x.position)), 'ca-nô đang đỗ ở bến nằm trên nước')
 
 
 # Hai ô đất kề nhau a, b: b sát sông (kề 8 hướng với ô ca-nô), a không sát sông; cả hai cách mọi điểm từ 2 ô
@@ -239,10 +331,14 @@ func _test_dispatch() -> void:
 		return
 	_check(v.path.edge_ids.all(func(eid: int) -> bool: return GraphManager.get_edge(eid).boat_only), 'ca-nô chỉ đi cạnh sông và bến')
 	var frames := 0
+	var landed := 0  # số khung hình ca-nô (đang chạy, giao hàng) nằm ngoài sông
 	while not rescued[0] and frames < 1800:
 		await get_tree().process_frame
 		frames += 1
+		if v.state_id == Types.VehicleState.DELIVERING and not _river(v.position):
+			landed += 1
 	_check(rescued[0], 'ca-nô chạy dọc sông tới nơi và giao hàng (%d khung hình)' % frames)
+	_check(landed == 0, 'ca-nô giao hàng dừng trên nước (không lên bờ)')
 	EventBus.sos_rescued.disconnect(on_rescued)
 	RescueManager._requests.clear()
 

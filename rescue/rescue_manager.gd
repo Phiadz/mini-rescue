@@ -731,7 +731,7 @@ func slot_count(hub_id: int, type: int) -> int:
 		return 0
 	if type == Types.VehicleType.TRUCK:
 		return LOT_SLOTS if g().get_lot_cell(hub_id) != Vector2i(-1, -1) else 0
-	return DOCK_SLOTS if g().get_dock_dir(hub_id) != Vector2.ZERO else 0
+	return _dock_slots(hub_id).size()
 
 # Giữ một chỗ trống cho xe (khi xe mới vào kho hoặc bắt đầu về kho). Hết chỗ thì xe vào trong kho.
 func reserve_slot(v: Vehicle) -> void:
@@ -780,14 +780,15 @@ func slot_point(hub_id: int, type: int, i: int) -> Vector2:
 		var f := _lot_frame(hub_id)
 		var side := -1.0 if i < LOT_SLOTS / 2 else 1.0
 		return f[0] + f[1] * (float(i % (LOT_SLOTS / 2)) - 1.0) * SLOT_PITCH + f[2] * side * SLOT_DEPTH
-	var w: Vector2 = g().get_dock_dir(hub_id)
-	return n.pos + w * DOCK_OUT + Vector2(-w.y, w.x) * (float(i) - (DOCK_SLOTS - 1) / 2.0) * (SLOT_PITCH + 2.0)
+	var docks := _dock_slots(hub_id)
+	return g().get_map_node(docks[i]).pos if i < docks.size() else n.pos  # đỗ ngay tại nút nước nối bến: luôn trên sông
 
 func slot_heading(hub_id: int, type: int, i: int) -> Vector2:
 	if type == Types.VehicleType.TRUCK:
 		var f := _lot_frame(hub_id)
 		return f[2] * (-1.0 if i < LOT_SLOTS / 2 else 1.0)  # đầu xe hướng vào trong chỗ đỗ
-	return g().get_dock_dir(hub_id)  # mũi ca-nô hướng ra sông
+	var h: MapNode = g().get_map_node(hub_id)
+	return (slot_point(hub_id, type, i) - h.pos).normalized()  # mũi ca-nô hướng ra sông, đuôi về phía kho
 
 func slot_pos(v: Vehicle) -> Vector2:
 	return slot_point(v.hub_id, v.type, v.slot)
@@ -799,6 +800,8 @@ func aisle_pos(hub_id: int, i: int) -> Vector2:
 
 # Đích của xe khi tới node: về kho có chỗ giữ sẵn thì xe tải tới lối đi cạnh chỗ đó, ca-nô tới thẳng chỗ ở bến.
 func arrive_pos(v: Vehicle, node_id: int) -> Vector2:
+	if v.type == Types.VehicleType.BOAT:
+		return boat_stop_pos(v, node_id)
 	if node_id == v.hub_id and v.slot >= 0 and v.path != null and v.path_index == v.path.edge_ids.size() - 1:
 		return aisle_pos(v.hub_id, v.slot) if v.type == Types.VehicleType.TRUCK else slot_pos(v)
 	return stop_pos(node_id)
@@ -814,11 +817,56 @@ func in_lot(v: Vehicle) -> bool:
 func draw_scale(v: Vehicle) -> float:
 	if in_lot(v):
 		return PARKED_SCALE
-	if v.type == Types.VehicleType.BOAT and slot_count(v.hub_id, v.type) > 0:
-		var h: MapNode = g().get_map_node(v.hub_id)
-		if h != null and v.position.distance_to(h.pos) < DOCK_OUT + 12.0:
-			return PARKED_SCALE
+	if v.type == Types.VehicleType.BOAT and v.slot >= 0 and v.position.distance_to(slot_pos(v)) < 12.0:
+		return PARKED_SCALE  # ca-nô đỗ ở bến
 	return 1.0
+
+# ----- Ca-nô: đỗ và cập bến trên nước, không lên bờ -----
+# Chỗ đỗ ca-nô ở bến kho: các nút nước nối bến, ưu tiên hướng ít chĩa xuống (dưới kho là tên kho và nhãn hàng),
+# bỏ nút nằm thẳng phía dưới kho; tối đa DOCK_SLOTS chỗ.
+func _dock_slots(hub_id: int) -> Array[int]:
+	var out: Array[int] = []
+	if not g().has_method('get_dock_nodes'):
+		return out
+	var h: MapNode = g().get_map_node(hub_id)
+	if h == null:
+		return out
+	var nodes: Array = g().get_dock_nodes(hub_id)
+	var dir := func(id: int) -> Vector2: return (g().get_map_node(id).pos - h.pos).normalized()
+	nodes = nodes.filter(func(id: int) -> bool: return dir.call(id).y <= 0.9)
+	nodes.sort_custom(func(a: int, b: int) -> bool:
+		var da: Vector2 = dir.call(a)
+		var db: Vector2 = dir.call(b)
+		return da.y < db.y - 0.01 or (absf(da.y - db.y) <= 0.01 and a < b))
+	for id in nodes:
+		if out.size() >= DOCK_SLOTS:
+			break
+		out.append(id)
+	return out
+
+# Đích của ca-nô khi tới node: về kho có chỗ thì tới chỗ đỗ ở bến; cập bến một điểm (kho, khu, nhà) từ nút nước thì
+# dừng ngay trên nút nước đó (đã bảo đảm nằm trên sông), không chạy lên bờ tới tâm điểm.
+func boat_stop_pos(v: Vehicle, node_id: int) -> Vector2:
+	var n: MapNode = g().get_map_node(node_id)
+	if n == null:
+		return Vector2.ZERO
+	var last: bool = v.path != null and v.path_index == v.path.edge_ids.size() - 1
+	if node_id == v.hub_id and v.slot >= 0 and last:
+		return slot_pos(v)
+	if n.kind == Types.NodeKind.HUB or n.kind == Types.NodeKind.DISTRICT:
+		var prev: int = v.path.node_ids[v.path_index] if v.path != null and v.path_index < v.path.node_ids.size() else -1
+		var w: MapNode = g().get_map_node(prev) if prev != -1 else null
+		if w != null and w.kind == Types.NodeKind.WATER:
+			return w.pos
+	return stop_pos(node_id)
+
+# Ca-nô trong kho (bến đầy) nhận nhiệm vụ: ra thẳng nút nước nối bến đầu tiên trên đường, không chạy qua đất từ tâm kho.
+func _boat_depart(v: Vehicle) -> void:
+	if v.type != Types.VehicleType.BOAT or v.slot >= 0 or v.path == null or v.path.node_ids.size() < 2:
+		return
+	var w: MapNode = g().get_map_node(v.path.node_ids[1])
+	if w != null and w.kind == Types.NodeKind.WATER:
+		v.position = w.pos
 
 func _uses_gates() -> bool:
 	return g().has_method('uses_gates') and g().uses_gates()
@@ -949,6 +997,7 @@ func _assign(r: SosRequest, v: Vehicle, p: PathResult) -> void:
 	var h: Hub = _hubs[v.hub_id]
 	h.stock[r.supply] -= 1
 	EventBus.stock_changed.emit(h.id, r.supply, h.stock[r.supply])
+	_boat_depart(v)
 	_leave_slot(v)
 	v.change_state(EnRouteState.new(), Types.VehicleState.EN_ROUTE)
 	EventBus.sos_assigned.emit(r.id, v.id)

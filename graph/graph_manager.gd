@@ -8,6 +8,7 @@ const GATE_NAMES := {'E': Vector2i(1, 0), 'W': Vector2i(-1, 0), 'N': Vector2i(0,
 const MAP_CENTER := Vector2(640, 360)  # cổng của điểm có sẵn quay về phía tâm bản đồ
 const HOUSE_ICONS := ['house_blue', 'house_coral', 'house_gold', 'house_mint']
 const WATER_ID_BASE := 2000 # mã nút nước (ô ca-nô đi được) = WATER_ID_BASE + chỉ số ô
+const WATER_VIA_BASE := 3000 # nút điểm gãy trên sông (cạnh sông vòng qua khúc quanh), không gắn với ô nào
 const BOAT_EDGE_ID_BASE := 100000  # cạnh của ca-nô đánh mã riêng, không bao giờ trùng mã cạnh đường (kể cả sau khi nạp lại bản đồ)
 
 var _nodes := {}        # id -> MapNode (cả điểm trên bản đồ và ô đường)
@@ -20,6 +21,8 @@ var _point_cells := {}          # ô -> id điểm
 var _cell_elevation: Array = [] # độ cao từng ô, khóa "grid" của bản đồ
 var _cell_water: Array = []     # 1 nếu ô là sông (grid.water), bản đồ không có thì rỗng
 var _cell_boat: Array = []      # 1 nếu ca-nô đi được trên ô (grid.boat: ít nhất 10% diện tích ô là sông), rỗng nếu bản đồ không có
+var _boat_pos: Array = []       # grid.boat_pos: [chỉ số ô, x, y] vị trí nút nước (tâm phần sông trong ô, luôn trên sông)
+var _boat_links: Array = []     # grid.boat_links: [i, j] hoặc [i, j, x, y] (vòng qua điểm gãy) — cạnh sông đã kiểm tra nằm trên sông
 var _gates_enabled := false     # khóa "gates": mỗi điểm có một ô cổng, đường chỉ nối vào điểm qua ô đó
 var _stages: Array = []         # khóa "stages": vùng camera theo đợt (GameManager dùng)
 var _terrain: Dictionary = {}   # khóa "terrain" của bản đồ: ảnh độ cao và màu nước cho FloodOverlay
@@ -83,6 +86,8 @@ func load_map(path: String) -> void:
 	_cell_elevation = data.get('grid', {}).get('elevation', [])
 	_cell_water = data.get('grid', {}).get('water', [])
 	_cell_boat = data.get('grid', {}).get('boat', [])
+	_boat_pos = data.get('grid', {}).get('boat_pos', [])
+	_boat_links = data.get('grid', {}).get('boat_links', [])
 	_gates_enabled = bool(data.get('gates', false))
 	_terrain = data.get('terrain', {})
 	_stages = data.get('stages', [])
@@ -595,6 +600,8 @@ func _dijkstra(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictio
 		done[u] = true
 		if u == to_id:
 			break
+		if _gates_enabled and vehicle_type == Types.VehicleType.BOAT and u != from_id and _nodes.has(u) and _nodes[u].kind != Types.NodeKind.ROAD:
+			continue  # bản đồ có cổng: ca-nô chỉ xuất phát hoặc cập bến ở điểm, không đi xuyên qua (vào bến này ra bến kia là chạy qua đất)
 		var du: float = dist[u]
 		for list in [_adj.get(u, []), _badj.get(u, [])]:
 			for eid in list:
@@ -644,8 +651,11 @@ func path_from_tree(tree: Dictionary, from_id: int, to_id: int) -> PathResult:
 	return res
 
 # --- Đồ thị của ca-nô: sông (grid.boat), bến, lối xuống nước ---
-# Dựng lại toàn bộ: nút nước cho mọi ô ca-nô, cạnh sông giữa hai ô ca-nô kề 8 hướng (luôn DEEP),
-# bến cho mọi điểm sát sông, lối xuống nước cho mọi ô đường sát sông. Gọi sau khi nạp bản đồ và sau game_started.
+# Dựng lại toàn bộ: nút nước cho mọi ô ca-nô, cạnh sông (luôn DEEP), bến cho mọi điểm sát sông,
+# lối xuống nước cho mọi ô đường sát sông. Gọi sau khi nạp bản đồ và sau game_started.
+# Bản đồ có grid.boat_pos / grid.boat_links (tính sẵn từ ảnh độ cao): nút nước đặt ở tâm phần sông của ô (không phải tâm ô,
+# vì ô ca-nô chỉ cần 10% là sông nên tâm ô hay nằm trên đất), cạnh sông chỉ gồm các đoạn đã kiểm tra nằm trên sông,
+# đoạn qua khúc quanh thì vòng qua một nút điểm gãy. Không có hai khóa đó thì như cũ: tâm ô, nối 8 hướng.
 func _build_water() -> void:
 	for eid in _boat_edges:
 		_edges.erase(eid)
@@ -654,20 +664,42 @@ func _build_water() -> void:
 	_badj.clear()
 	_water.clear()
 	_next_boat_edge = 0
+	var at := {}  # chỉ số ô -> vị trí nút nước trên sông
+	for e in _boat_pos:
+		at[int(e[0])] = Vector2(float(e[1]), float(e[2]))
 	for i in _cell_boat.size():
 		if int(_cell_boat[i]) != 1:
 			continue
 		var n := MapNode.new()
 		n.id = WATER_ID_BASE + i
 		n.kind = Types.NodeKind.WATER
-		n.pos = cell_center(Vector2i(i % Config.GRID_COLS, i / Config.GRID_COLS))
+		n.pos = at.get(i, cell_center(Vector2i(i % Config.GRID_COLS, i / Config.GRID_COLS)))
 		_water[n.id] = n
-	for id in _water:
-		var c := cell_of(_water[id].pos)
-		for d in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(-1, 1)]:  # mỗi cặp kề chỉ xét một lần
-			var other := _water_at(c + d)
-			if other != -1:
-				_add_boat_edge(id, other, Types.EdgeState.DEEP, false)
+	if _boat_links.is_empty():
+		for id in _water.keys():
+			var c := cell_of(_water[id].pos)
+			for d in [Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(-1, 1)]:  # mỗi cặp kề chỉ xét một lần
+				var other := _water_at(c + d)
+				if other != -1:
+					_add_boat_edge(id, other, Types.EdgeState.DEEP, false)
+	else:
+		var via := 0
+		for l in _boat_links:
+			var a: int = WATER_ID_BASE + int(l[0])
+			var b: int = WATER_ID_BASE + int(l[1])
+			if not (_water.has(a) and _water.has(b)):
+				continue
+			if l.size() >= 4:  # vòng qua điểm gãy trên sông
+				var m := MapNode.new()
+				m.id = WATER_VIA_BASE + via
+				via += 1
+				m.kind = Types.NodeKind.WATER
+				m.pos = Vector2(float(l[2]), float(l[3]))
+				_water[m.id] = m
+				_add_boat_edge(a, m.id, Types.EdgeState.DEEP, false)
+				_add_boat_edge(m.id, b, Types.EdgeState.DEEP, false)
+			else:
+				_add_boat_edge(a, b, Types.EdgeState.DEEP, false)
 	for p in _points:
 		_add_docks(p)
 	for id in _nodes:
@@ -718,6 +750,17 @@ func _add_docks(point_id: int) -> void:
 			var w := _water_at(c + Vector2i(dx, dy))
 			if w != -1 and not _boat_linked(point_id, w):
 				_add_boat_edge(point_id, w, Types.EdgeState.DEEP, false)
+
+# Các nút nước nối bến với điểm point_id (ca-nô cập bến đỗ trên nước tại đây), rỗng nếu điểm không có bến.
+func get_dock_nodes(point_id: int) -> Array[int]:
+	var out: Array[int] = []
+	if not _nodes.has(point_id) or _nodes[point_id].kind == Types.NodeKind.ROAD:
+		return out
+	for eid in _badj.get(point_id, []):
+		var w: int = _edges[eid].other_end(point_id)
+		if _water.has(w):
+			out.append(w)
+	return out
 
 # Điểm có bến: ca-nô cập được mà không cần đường ngập.
 func has_dock(point_id: int) -> bool:

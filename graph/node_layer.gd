@@ -151,19 +151,17 @@ func _draw_lot(hub: MapNode) -> void:
 			draw_line(center + d * a + p * side * 9.0, center + d * a + p * side * (RescueManager.SLOT_DEPTH + 11.0), c[2], Road.MARK_WIDTH)
 
 # Bến ca-nô: cầu tàu gỗ dọc bờ phía sông của kho, cọc ngăn giữa các chỗ đỗ.
+# Mỗi chỗ đỗ ca-nô (nằm trên sông, tại nút nước nối bến) có một cầu tàu ngắn từ mép kho ra, cọc ở đầu cầu.
 func _draw_dock(hub: MapNode) -> void:
-	if RescueManager.slot_count(hub.id, Types.VehicleType.BOAT) == 0:
-		return
-	var w := GraphManager.get_dock_dir(hub.id)
-	var pw := Vector2(-w.y, w.x)
-	var n := RescueManager.DOCK_SLOTS
-	var pitch := RescueManager.SLOT_PITCH + 2.0
-	var base := hub.pos + w * (RescueManager.DOCK_OUT - 11.0)
-	var half_len := (n * pitch) / 2.0 + 3.0
-	draw_line(base - pw * half_len, base + pw * half_len, PIER_COLOR, 6.0)
-	for k in n + 1:
-		var o := (float(k) - n / 2.0) * pitch
-		draw_line(base + pw * o, base + pw * o + w * 13.0, PIER_POST, 2.0)
+	for i in RescueManager.slot_count(hub.id, Types.VehicleType.BOAT):
+		var s := RescueManager.slot_point(hub.id, Types.VehicleType.BOAT, i)
+		var dir := (s - hub.pos).normalized()
+		var from := hub.pos + dir * (HUB_ICON_SIZE / 2.0 - 6.0)
+		var to := s - dir * 8.0  # dừng trước chỗ ca-nô đỗ
+		if hub.pos.distance_to(to) <= hub.pos.distance_to(from):
+			continue  # chỗ đỗ sát kho: không cần cầu
+		draw_line(from, to, PIER_COLOR, 5.0)
+		draw_circle(to, 2.5, PIER_POST)
 
 
 # Chỉ vẽ lại khi cạnh đổi trạng thái là đoạn kho–cổng (đi qua bãi đỗ).
