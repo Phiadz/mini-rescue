@@ -31,6 +31,7 @@ func _run() -> void:
 	_test_tree()
 	_test_timing()
 	await _test_dispatch()
+	await _test_unconnected()
 	print('\nKết quả: %d đạt, %d trượt' % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
 
@@ -401,6 +402,73 @@ func _test_dispatch() -> void:
 	_check(landed == 0, 'ca-nô giao hàng dừng trên nước (không lên bờ)')
 	EventBus.sos_rescued.disconnect(on_rescued)
 	RescueManager._requests.clear()
+
+
+# Nhà, khu chưa nối đường: ca-nô cứu được khi sát sông hoặc xung quanh đã ngập sâu; trong đất liền còn khô thì không xe nào.
+func _test_unconnected() -> void:
+	print('
+== Ca-nô cứu nhà, khu chưa nối đường')
+	_fresh_saigon()
+	var inland := 15  # Kinh Dương Vương: không sát sông
+	var dry_req := _sos(901, inland)
+	RescueManager._dispatch()
+	_check(dry_req.assigned == 0 and dry_req.vehicle_id == -1, 'khu trong đất liền còn khô, chưa nối đường: không xe nào nhận')
+	RescueManager._requests.clear()
+	FloodManager.fill_all(100.0)
+	FloodManager._update_edges()
+	var flood_req := _sos(902, inland)
+	RescueManager._dispatch()
+	var fv = RescueManager._vehicles.get(flood_req.vehicle_id)
+	_check(fv != null and fv.type == BOAT, 'khu đó ngập sâu xung quanh: ca-nô nhận SOS dù chưa có đường')
+	if fv != null:
+		_check(await _until_rescued(902), 'ca-nô chạy qua vùng ngập tới giao hàng xong')
+	RescueManager._requests.clear()
+	_fresh_saigon()
+	var cell := Vector2i(-1, -1)
+	for y in Config.GRID_ROWS:
+		for x in Config.GRID_COLS:
+			var c := Vector2i(x, y)
+			if cell != Vector2i(-1, -1) or not GraphManager.can_place_house(c) or not GameManager.is_in_play(GraphManager.cell_center(c)):
+				continue
+			for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+				if GraphManager.cell_is_boat(c + d):
+					cell = c
+	var house := GraphManager.add_house(cell, CALMETTE) if cell != Vector2i(-1, -1) else -1
+	_check(house != -1 and GraphManager.get_gate_node(house) == -1 and GraphManager.has_dock(house), 'nhà mọc sát sông, chưa nối đường, có bến (ô %s)' % cell)
+	if house == -1:
+		return
+	var house_req := _sos(903, house)
+	RescueManager._dispatch()
+	var hv = RescueManager._vehicles.get(house_req.vehicle_id)
+	_check(hv != null and hv.type == BOAT, 'SOS ở nhà đó được giao cho ca-nô')
+	if hv != null:
+		_check(await _until_rescued(903), 'ca-nô chạy dọc sông tới nhà giao hàng xong')
+	RescueManager._requests.clear()
+
+
+func _sos(id: int, node: int) -> RescueManager.SosRequest:
+	var req := RescueManager.SosRequest.new()
+	req.id = id
+	req.node_id = node
+	req.supply = Types.SupplyType.FOOD
+	req.time_total = 600.0
+	req.time_left = 600.0
+	RescueManager._requests[id] = req
+	return req
+
+
+func _until_rescued(id: int) -> bool:
+	var done := [false]
+	var on := func(rid: int, _p: int) -> void:
+		if rid == id:
+			done[0] = true
+	EventBus.sos_rescued.connect(on)
+	var frames := 0
+	while not done[0] and frames < 2400:
+		await get_tree().process_frame
+		frames += 1
+	EventBus.sos_rescued.disconnect(on)
+	return done[0]
 
 
 func _check(ok: bool, label: String) -> void:
