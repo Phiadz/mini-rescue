@@ -46,6 +46,7 @@ var _hover_id := -1
 func _ready() -> void:
 	EventBus.game_started.connect(queue_redraw)
 	EventBus.point_added.connect(queue_redraw.unbind(1))
+	EventBus.road_changed.connect(queue_redraw)  # lối vào khu, nhà xoay theo đường vừa nối
 	EventBus.edge_state_changed.connect(_on_edge_state)  # bãi đỗ đổi màu theo đoạn kho–cổng khi ngập
 	add_child(_badges)
 	_badges.draw.connect(_draw_badges)
@@ -166,23 +167,42 @@ func _draw_house(p: Vector2) -> void:
 const Road := preload('res://graph/edge_layer.gd')
 const PIER_COLOR := Color('#b48c5c')
 const PIER_POST := Color('#8c6a42')
-# Lô đất của khu, nhà (bản đồ có cổng): nền vuông đúng một ô lưới quanh nhà, màu đất (không phải màu đường), viền nhạt,
-# như nhà trong Mini Motorways. Vẽ trên lớp đường nên đường nối vào dừng ở mép lô, nhà vẽ đè lên lô.
-const PLOT_FILL := Color('#ebe3d2')
-const PLOT_BORDER := Color('#d3c6ab')
-const PLOT_BORDER_WIDTH := 2
+# Lô đất của khu, nhà (bản đồ có cổng): nền vuông đúng một ô lưới quanh nhà, như nhà trong Mini Motorways. Cùng màu
+# đường (mặt, viền theo độ ngập của đoạn nối vào), cạnh có lối vào không viền để lô liền với đường. Vẽ trên lớp đường,
+# nhà vẽ đè lên lô.
 const PLOT_RADIUS := 6
 
 func _draw_plot(n: MapNode) -> void:
 	if not GraphManager.uses_gates():
 		return
+	var state := Types.EdgeState.DRY
+	var link := GraphManager.get_edges_of(n.id)
+	if not link.is_empty():
+		state = GraphManager.get_edge(link[0]).state
+	var c: Array = _road_colors(state)
 	var box := StyleBoxFlat.new()
-	box.bg_color = PLOT_FILL
-	box.border_color = PLOT_BORDER
-	box.set_border_width_all(PLOT_BORDER_WIDTH)
+	box.bg_color = c[0]
+	box.border_color = c[1]
+	var border := int((Road.CASING_WIDTH - Road.ROAD_WIDTH) / 2.0)
+	box.set_border_width_all(border)
 	box.set_corner_radius_all(PLOT_RADIUS)
 	var cell := GraphManager.cell_of(n.pos)
 	draw_style_box(box, Rect2(Vector2(cell * Config.CELL_SIZE), Vector2.ONE * Config.CELL_SIZE))
+	if n.gate != Vector2i.ZERO:  # cạnh có lối vào (đường nối hoặc lối vào ngắn): xóa viền đúng bề rộng mặt đường
+		var d := Vector2(n.gate)
+		var edge := n.pos + d * (Config.CELL_SIZE / 2.0 - border / 2.0)
+		var gap := Vector2(border + 2.0, Road.ROAD_WIDTH) if d.y == 0.0 else Vector2(Road.ROAD_WIDTH, border + 2.0)
+		draw_rect(Rect2(edge - gap / 2.0, gap), c[0])
+
+
+# Màu mặt đường, viền, vạch theo trạng thái ngập (đúng màu EdgeLayer).
+func _road_colors(state: int) -> Array:
+	match state:
+		Types.EdgeState.SHALLOW:
+			return [Road.SHALLOW_COLOR, Road.SHALLOW_CASING, Road.SHALLOW_MARK_COLOR]
+		Types.EdgeState.DEEP:
+			return [Road.DEEP_COLOR, Road.DEEP_CASING, Road.DEEP_MARK_COLOR]
+	return [Road.DRY_COLOR, Road.DRY_CASING, Road.DRY_MARK_COLOR]
 
 func _draw_lot(hub: MapNode) -> void:
 	var lot := GraphManager.get_lot_cell(hub.id)
@@ -239,14 +259,14 @@ func _draw_dock(hub: MapNode) -> void:
 		draw_circle(to, 2.5, PIER_POST)
 
 
-# Chỉ vẽ lại khi cạnh đổi trạng thái là đoạn kho–cổng (đi qua bãi đỗ).
+# Chỉ vẽ lại khi cạnh đổi trạng thái là đoạn nối vào kho (qua bãi), khu hoặc nhà (lô đất đổi màu theo).
 func _on_edge_state(edge_id: int, _state: int) -> void:
 	var e := GraphManager.get_edge(edge_id)
 	if e == null:
 		return
 	for id in [e.node_a, e.node_b]:
 		var n := GraphManager.get_map_node(id)
-		if n != null and n.kind == Types.NodeKind.HUB:
+		if n != null and n.kind != Types.NodeKind.ROAD and n.kind != Types.NodeKind.WATER:  # bãi kho, lô đất khu, nhà
 			queue_redraw()
 			return
 
