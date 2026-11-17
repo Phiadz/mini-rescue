@@ -1,17 +1,15 @@
 extends Node2D
 # Chủ sở hữu: E. Vẽ nút giao tự động lên trên đường (dưới điểm và xe), loại nút do RescueManager.junction_kind quyết định:
-# - vòng xoay (ngã ba đường): vòng đường tròn rộng hơn đường (cùng màu đường theo độ ngập, có viền), đảo cỏ ở giữa,
-#   vạch đứt chạy vòng; xe trong vòng chạy lệch ra vòng (RescueManager.RING_RADIUS);
+# - vòng xoay: vòng đường người chơi vẽ (2×2 hoặc 3×3 quanh ô trống, GraphManager.get_rings): đảo cỏ ở giữa vòng,
+#   mũi tên nhỏ chỉ chiều chạy (ngược kim đồng hồ) trên từng cạnh vòng. Giao lộ một ô không phải vòng xoay;
 # - đèn giao thông (ngã tư đường trở lên): vạch dừng màu xanh hoặc đỏ ở làn vào của từng nhánh,
 #   cột đèn nhỏ ở góc ô với hai chấm (trên: trục ngang, dưới: trục dọc). Chỉ vẽ lại khi có đèn đổi pha.
 
 const ISLAND_COLOR := Color('#cfe3b4')
 const ISLAND_EDGE := Color('#a9c78c')
-const ISLAND_RADIUS := 6.0
-const RING_OUTER := 18.0      # bán kính mặt đường của vòng xoay (đường rộng 22 px nên vòng nhìn rõ hơn đường)
-const RING_MARK := 12.0       # vạch đứt chạy vòng, đúng chỗ xe chạy
-const RING_DASHES := 10
-const Road := preload('res://graph/edge_layer.gd')
+const ISLAND_RADIUS := {2: 8.0, 3: 18.0}  # đảo vòng 2×2 ở góc chung bốn ô; vòng 3×3 ở ô giữa
+const ARROW_COLOR := Color('#9fb3bd')
+const ARROW_SIZE := 4.0
 const ISLAND_EDGE_WIDTH := 1.5
 const GREEN := Color('#34c759')
 const RED := Color('#ff3b30')
@@ -24,7 +22,7 @@ const BAR_HALF := 4.0       # nửa chiều dài vạch, vừa một làn
 const BAR_WIDTH := 3.0
 const LANE := 5.5           # làn vào lệch phải hướng đi, như Vehicle.LANE_OFFSET
 
-var _roundabouts: Array[int] = []
+var _rings: Array = []
 var _lights: Array[int] = []
 var _phases := {}  # nút đèn -> trục ngang đang xanh không (lúc vẽ lần trước)
 
@@ -32,21 +30,15 @@ var _phases := {}  # nút đèn -> trục ngang đang xanh không (lúc vẽ l�
 func _ready() -> void:
 	EventBus.road_changed.connect(_rebuild)
 	EventBus.game_started.connect(_rebuild)
-	EventBus.edge_state_changed.connect(func(_id: int, _state: int) -> void:
-		if not _roundabouts.is_empty():
-			queue_redraw())  # vòng xoay đổi màu theo độ ngập
 	_rebuild()
 
 
 func _rebuild() -> void:
-	_roundabouts.clear()
+	_rings = GraphManager.get_rings().duplicate()
 	_lights.clear()
 	for id in GraphManager.get_road_ids():
-		match RescueManager.junction_kind(id):
-			RescueManager.JUNCTION_ROUNDABOUT:
-				_roundabouts.append(id)
-			RescueManager.JUNCTION_LIGHT:
-				_lights.append(id)
+		if RescueManager.junction_kind(id) == RescueManager.JUNCTION_LIGHT:
+			_lights.append(id)
 	set_process(not _lights.is_empty())
 	queue_redraw()
 
@@ -60,27 +52,18 @@ func _process(_delta: float) -> void:
 
 func _draw() -> void:
 	_phases.clear()
-	for id in _roundabouts:
-		var n := GraphManager.get_map_node(id)
-		if n == null:
-			continue
-		var state := Types.EdgeState.DRY  # vòng xoay ngập theo nhánh ngập nặng nhất
-		for eid in GraphManager.get_edges_of(id):
-			state = maxi(state, GraphManager.get_edge(eid).state)
-		var colors := {
-			Types.EdgeState.DRY: [Road.DRY_COLOR, Road.DRY_CASING, Road.DRY_MARK_COLOR],
-			Types.EdgeState.SHALLOW: [Road.SHALLOW_COLOR, Road.SHALLOW_CASING, Road.SHALLOW_MARK_COLOR],
-			Types.EdgeState.DEEP: [Road.DEEP_COLOR, Road.DEEP_CASING, Road.DEEP_MARK_COLOR],
-		}
-		var c: Array = colors[state]
-		var casing := (Road.CASING_WIDTH - Road.ROAD_WIDTH) / 2.0
-		draw_circle(n.pos, RING_OUTER + casing, c[1])
-		draw_circle(n.pos, RING_OUTER, c[0])
-		for k in RING_DASHES:  # vạch đứt chạy vòng
-			var a0 := TAU * k / RING_DASHES
-			draw_arc(n.pos, RING_MARK, a0, a0 + TAU / RING_DASHES * 0.5, 4, c[2], Road.MARK_WIDTH)
-		draw_circle(n.pos, ISLAND_RADIUS + ISLAND_EDGE_WIDTH, ISLAND_EDGE)
-		draw_circle(n.pos, ISLAND_RADIUS, ISLAND_COLOR)
+	for r in _rings:
+		var radius: float = ISLAND_RADIUS[r.size]
+		draw_circle(r.center, radius + ISLAND_EDGE_WIDTH, ISLAND_EDGE)
+		draw_circle(r.center, radius, ISLAND_COLOR)
+		var ids: Array = r.nodes
+		for k in ids.size():  # mũi tên chiều chạy ở giữa mỗi cạnh vòng
+			var a: Vector2 = GraphManager.get_map_node(ids[k]).pos
+			var b: Vector2 = GraphManager.get_map_node(ids[(k + 1) % ids.size()]).pos
+			var d := a.direction_to(b)
+			var p := d.rotated(PI / 2.0)
+			var m := (a + b) / 2.0
+			draw_colored_polygon(PackedVector2Array([m + d * ARROW_SIZE, m - d * ARROW_SIZE + p * ARROW_SIZE, m - d * ARROW_SIZE - p * ARROW_SIZE]), ARROW_COLOR)
 	for id in _lights:
 		var n := GraphManager.get_map_node(id)
 		if n == null:

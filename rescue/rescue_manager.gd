@@ -34,11 +34,11 @@ const CONGESTION_PATH_COST := 1.5    # giây cộng thêm khi tìm đường qua
 # Nút giao tự động (góp ý của Lộc): ngã ba đường thành vòng xoay, ngã tư đường trở lên có đèn giao thông.
 const JUNCTION_NONE := 0             # không phải nút giao
 const JUNCTION_YIELD := 1            # nhường theo khoảng cách: điểm có từ 3 cạnh, chữ T trước cổng nhà
-const JUNCTION_ROUNDABOUT := 2       # ngã ba đường: chỉ nhường xe đang ở trong vòng
+const JUNCTION_RING := 2             # ô thuộc vòng xoay người chơi vẽ (2×2, 3×3): xe từ ngoài vào nhường xe trên vòng
 const JUNCTION_LIGHT := 3            # ngã tư đường trở lên: đèn chia lượt theo trục ngang, dọc
 const LIGHT_PHASE := 3.0             # giây mỗi pha đèn xanh của một trục
-const ROUNDABOUT_SLOW := 0.8         # hệ số tốc độ khi đang chạy trong vòng xoay (không tính là kẹt)
-const RING_RADIUS := 12.0            # xe trong vòng xoay vẽ lệch ra vòng quanh đảo (px), khớp vạch vòng của JunctionLayer
+const ROUNDABOUT_SLOW := 0.8         # hệ số dưới mức này mới tính là kẹt (bật đèn phanh)
+const RING_YIELD := 30.0             # xe trên vòng cách chỗ nhập dưới mức này (px) thì xe ngoài vào phải nhường
 const UNIT_EXTRA_SECONDS := Config.DELIVERY_TIME  # SOS cần nhiều phần: mỗi phần thêm cộng một lần dỡ hàng (xe xếp hàng dỡ lần lượt)
 const GRID_CELL := 40.0              # ô lưới để tìm xe ở gần khi tính kẹt xe (bằng một ô đường)
 
@@ -175,8 +175,7 @@ class Vehicle extends Node2D:
 	func _update_lane(delta: float) -> void:
 		var want := Vector2.ZERO
 		if state_id != Types.VehicleState.IDLE and not RescueManager.in_lot(self):  # trong bãi: đi giữa lối, không lệch làn
-			var off := RING_RADIUS if RescueManager.in_roundabout(self) else LANE_OFFSET  # trong vòng xoay: chạy quanh đảo
-			want = heading.rotated(PI / 2.0) * off
+			want = heading.rotated(PI / 2.0) * LANE_OFFSET
 		if _lane != want:
 			_lane = _lane.move_toward(want, LANE_OFFSET * 2.0 / LANE_SWITCH * delta)
 			queue_redraw()
@@ -565,6 +564,8 @@ func junction_kind(node_id: int) -> int:
 	var n: MapNode = g().get_map_node(node_id)
 	if n == null:
 		return JUNCTION_NONE
+	if g().has_method('ring_of') and g().ring_of(node_id) != -1:
+		return JUNCTION_RING
 	var edges: Array = g().get_edges_of(node_id)
 	if n.kind != Types.NodeKind.ROAD:
 		return JUNCTION_YIELD if edges.size() >= 3 else JUNCTION_NONE
@@ -576,9 +577,7 @@ func junction_kind(node_id: int) -> int:
 			road_deg += 1
 	if road_deg >= 4:
 		return JUNCTION_LIGHT
-	if road_deg == 3:
-		return JUNCTION_ROUNDABOUT
-	return JUNCTION_YIELD if edges.size() >= 3 else JUNCTION_NONE
+	return JUNCTION_YIELD if edges.size() >= 3 else JUNCTION_NONE  # ngã ba một ô: nhường theo khoảng cách
 
 
 # Đèn ở nút node_id có xanh cho xe đi theo hướng heading không. Hai trục ngang, dọc luân phiên xanh
@@ -591,14 +590,12 @@ func light_green(node_id: int, heading: Vector2) -> bool:
 
 
 # Xe đang chạy trong vòng xoay: cách tâm nút vòng xoay vừa rời hoặc sắp tới dưới JUNCTION_RADIUS.
-func in_roundabout(v: Vehicle) -> bool:
-	for id in [v.prev_node(), v.next_node()]:
-		if id == -1:
-			continue
-		var n: MapNode = g().get_map_node(id)
-		if n != null and v.position.distance_to(n.pos) < JUNCTION_RADIUS and junction_kind(id) == JUNCTION_ROUNDABOUT:
-			return true
-	return false
+# Xe u đang chạy trên một cạnh của vòng xoay ring.
+func _on_ring(u: Vehicle, ring: int) -> bool:
+	if not u.is_moving():
+		return false
+	var eid: int = u.path.edge_ids[u.path_index]
+	return g().is_ring_edge(eid) and g().ring_of(u.next_node()) == ring
 
 
 # Hệ số tốc độ do kẹt xe (1 = chạy bình thường, 0 = dừng chờ), chỉ dùng khoảng cách:
@@ -606,8 +603,8 @@ func in_roundabout(v: Vehicle) -> bool:
 # - nút giao (junction_kind của nút sắp tới), xét khi xe sắp vào (cách tâm từ JUNCTION_RADIUS tới JUNCTION_APPROACH):
 #   - nhường theo khoảng cách: nhường xe đang ở trong nút, hoặc xe từ nhánh cắt ngang ở gần nút hơn;
 #     bằng nhau thì xe có mã nhỏ hơn đi trước, nên hai xe không cùng nhường nhau;
-#   - vòng xoay: chỉ nhường xe đang ở trong vòng (trừ xe cùng hướng và xe đang ra theo nhánh của mình);
-#     xe đang trong vòng chạy ROUNDABOUT_SLOW;
+#   - vòng xoay (vòng đường 2×2, 3×3 người chơi vẽ): xe từ ngoài nhập vào nhường xe đang chạy trên vòng ở gần
+#     chỗ nhập (RING_YIELD); xe trên vòng chạy tiếp;
 #   - đèn: trục của mình đang đỏ thì dừng (at_red); xanh thì vẫn nhường xe còn trong ngã tư đi cắt ngang.
 # others: danh sách xe để xét (test truyền vào); rỗng thì dùng mọi xe của RescueManager.
 func congestion_factor(v: Vehicle, others: Array = []) -> float:
@@ -615,9 +612,8 @@ func congestion_factor(v: Vehicle, others: Array = []) -> float:
 	if not v.is_moving():
 		return 1.0
 	var list: Array = others if not others.is_empty() else _nearby(v.position)
-	var f := ROUNDABOUT_SLOW if in_roundabout(v) else 1.0
+	var f := 1.0
 	var nxt := v.next_node()
-	var prev := v.prev_node()
 	var kind := junction_kind(nxt) if nxt != -1 else JUNCTION_NONE
 	var jpos := Vector2.ZERO
 	var dv := INF
@@ -626,6 +622,8 @@ func congestion_factor(v: Vehicle, others: Array = []) -> float:
 		jpos = g().get_map_node(nxt).pos
 		dv = v.position.distance_to(jpos)
 		approaching = dv > JUNCTION_RADIUS and dv < JUNCTION_APPROACH
+	var ring: int = g().ring_of(nxt) if kind == JUNCTION_RING else -1
+	var entering_ring: bool = ring != -1 and not g().is_ring_edge(v.path.edge_ids[v.path_index])  # từ ngoài nhập vào vòng
 	if approaching and kind == JUNCTION_LIGHT and not light_green(nxt, v.heading):
 		v.at_red = true
 		return 0.0
@@ -659,10 +657,9 @@ func congestion_factor(v: Vehicle, others: Array = []) -> float:
 				var first: bool = u.next_node() == nxt and (du < dv or (is_equal_approx(du, dv) and u.id < v.id))
 				if cross and (inside or first):
 					f = 0.0
-			JUNCTION_ROUNDABOUT:
-				var exiting_my_way: bool = u.prev_node() == nxt and u.next_node() == prev  # ra theo nhánh mình đang vào, làn bên kia
-				if inside and u.heading.dot(v.heading) < 0.7 and not exiting_my_way:
-					f = 0.0
+			JUNCTION_RING:
+				if entering_ring and _on_ring(u, ring) and u.position.distance_to(jpos) < RING_YIELD:
+					f = 0.0  # xe trên vòng được đi trước
 			JUNCTION_LIGHT:
 				if inside and cross:
 					f = 0.0

@@ -21,6 +21,7 @@ func _run() -> void:
 	EventBus.game_started.emit()
 	_test_follow()
 	_test_junction()
+	_test_ring()
 	_test_light()
 	_test_yield_point()
 	_test_penalty()
@@ -92,37 +93,73 @@ func _test_follow() -> void:
 
 # Ngã ba đường tự thành vòng xoay: xe sắp vào chỉ nhường xe đang ở trong vòng, không còn luật ai gần hơn đi trước.
 func _test_junction() -> void:
-	print('\n== Vòng xoay ở ngã ba')
+	print('\n== Ngã ba một ô: nhường theo khoảng cách (không phải vòng xoay)')
 	GraphManager.load_map(FIXTURE_MAP)
 	EventBus.game_started.emit()
 	var t := _t_junction()
 	_check(GraphManager.get_edges_of(t.j).size() == 3, 'ô (19, 14) là ngã ba')
-	_check(RescueManager.junction_kind(t.j) == RescueManager.JUNCTION_ROUNDABOUT, 'ngã ba đường tự thành vòng xoay')
+	_check(RescueManager.junction_kind(t.j) == RescueManager.JUNCTION_YIELD, 'ngã ba một ô chỉ là giao lộ: nhường theo khoảng cách')
 	_check(RescueManager.junction_kind(t.w) == RescueManager.JUNCTION_NONE, 'đầu đường không phải nút giao')
 	var jp: Vector2 = GraphManager.get_map_node(t.j).pos
 	var west = _car(10, jp - Vector2(35, 0), t.w, t.j)
 	var inside = _car(11, jp - Vector2(0, 18), t.n, t.j)
-	_check(RescueManager.congestion_factor(west, [west, inside]) == 0.0, 'xe sắp vào vòng xoay chờ xe đang ở trong vòng')
-	_check(RescueManager.congestion_factor(inside, [west, inside]) == RescueManager.ROUNDABOUT_SLOW,
-			'xe trong vòng không phải chờ, chạy chậm %.1f' % RescueManager.ROUNDABOUT_SLOW)
-	_check(RescueManager.in_roundabout(inside) and not RescueManager.in_roundabout(west), 'phân biệt xe ở trong vòng và xe sắp vào')
+	_check(RescueManager.congestion_factor(west, [west, inside]) == 0.0, 'xe đang ở trong ngã ba được đi trước, xe sắp vào phải chờ')
 	var far_north = _car(12, jp - Vector2(0, 42), t.n, t.j)
 	_check(RescueManager.congestion_factor(west, [west, far_north]) == 1.0
-			and RescueManager.congestion_factor(far_north, [west, far_north]) == 1.0, 'hai xe cùng sắp vào vòng xoay thì không ai phải chờ')
-	var east = _car(14, jp + Vector2(35, 0), t.e, t.j)
-	_check(RescueManager.congestion_factor(west, [west, east]) == 1.0, 'hai xe ngược chiều sắp vào không phải nhường')
-	var leaving = _car(15, jp - Vector2(12, 0), t.j, t.w)
-	_check(RescueManager.congestion_factor(west, [west, leaving]) == 1.0, 'xe đang ra theo nhánh mình vào (làn bên kia) không làm mình chờ')
-	inside._update_lane(1.0)
-	_check(inside.lane_offset().distance_to(inside.heading.rotated(PI / 2.0) * RescueManager.RING_RADIUS) < 0.01,
-			'xe trong vòng xoay vẽ lệch ra vòng quanh đảo')
-	var slowed = _car(16, jp - Vector2(0, 18), t.n, t.j)
-	slowed.settle_jam(RescueManager.ROUNDABOUT_SLOW, 1.0)
-	_check(not slowed.jammed, 'chạy chậm trong vòng xoay không tính là kẹt (không bật đèn phanh)')
+			and RescueManager.congestion_factor(far_north, [west, far_north]) == 0.0, 'xe gần ngã ba hơn đi trước, xe xa hơn nhường')
 	var layer = JunctionLayerScript.new()
 	add_child(layer)
-	_check(layer._roundabouts == [t.j] and layer._lights.is_empty(), 'lớp vẽ nút giao nhận ra vòng xoay ở ngã ba')
+	_check(layer._rings.is_empty() and layer._lights.is_empty(), 'ngã ba một ô không vẽ vòng xoay, không đèn')
 	layer.free()
+
+
+# Vòng xoay là vòng đường người chơi vẽ: 2×2 (bốn ô nối kín) hoặc 3×3 (tám ô quanh ô trống). Một chiều, ngược kim
+# đồng hồ trên màn hình; xe từ ngoài nhập vào nhường xe đang chạy trên vòng.
+func _test_ring() -> void:
+	print('\n== Vòng xoay 2×2 và 3×3')
+	GraphManager.load_map(FIXTURE_MAP)
+	EventBus.game_started.emit()
+	var tl := Vector2i(6, 15)
+	var c := {tl = tl, tr = tl + Vector2i(1, 0), br = tl + Vector2i(1, 1), bl = tl + Vector2i(0, 1)}
+	var tlid := GraphManager.extend_road(-1, c.tl)
+	var trid := GraphManager.extend_road(tlid, c.tr)
+	var brid := GraphManager.extend_road(trid, c.br)
+	var blid := GraphManager.extend_road(brid, c.bl)
+	_check(GraphManager.ring_of(tlid) == -1, 'chưa khép vòng: chưa là vòng xoay')
+	GraphManager.extend_road(blid, c.tl)
+	var ring := GraphManager.ring_of(tlid)
+	_check(ring != -1 and [trid, brid, blid].all(func(id: int) -> bool: return GraphManager.ring_of(id) == ring), 'bốn ô 2×2 nối kín thành vòng xoay')
+	_check(RescueManager.junction_kind(tlid) == RescueManager.JUNCTION_RING, 'ô thuộc vòng là nút vòng xoay')
+	var p := GraphManager.find_path(tlid, trid, Types.VehicleType.TRUCK)
+	_check(p.found and p.node_ids == [tlid, blid, brid, trid], 'chạy một chiều ngược kim đồng hồ: từ trên trái sang trên phải phải đi vòng qua dưới')
+	var back := GraphManager.find_path(trid, tlid, Types.VehicleType.TRUCK)
+	_check(back.found and back.node_ids == [trid, tlid], 'đi đúng chiều thì đi thẳng')
+	var entry := GraphManager.extend_road(-1, c.tl - Vector2i(1, 0))
+	GraphManager.extend_road(entry, c.tl)
+	_check(GraphManager.ring_of(tlid) != -1 and GraphManager.ring_of(entry) == -1, 'nối đường vào vòng vẫn là vòng xoay, đường vào không thuộc vòng')
+	var tp: Vector2 = GraphManager.get_map_node(tlid).pos
+	var coming = _car(20, tp - Vector2(30, 0), entry, tlid)
+	var circling = _car(21, tp + Vector2(15, 0), trid, tlid)
+	_check(RescueManager.congestion_factor(coming, [coming, circling]) == 0.0, 'xe nhập vào vòng nhường xe đang chạy trên vòng')
+	_check(RescueManager.congestion_factor(circling, [coming, circling]) == 1.0, 'xe trên vòng chạy tiếp, không nhường xe ngoài')
+	var far = _car(22, tp + Vector2(38, 0), trid, tlid)
+	_check(RescueManager.congestion_factor(coming, [coming, far]) == 1.0, 'xe trên vòng còn xa chỗ nhập thì xe ngoài được vào')
+	var layer = JunctionLayerScript.new()
+	add_child(layer)
+	_check(layer._rings.size() == 1 and layer._rings[0].size == 2, 'lớp vẽ có một vòng xoay 2×2 (đảo ở giữa)')
+	layer.free()
+	# Vòng 3×3 quanh ô trống
+	var o := Vector2i(13, 13)
+	var cells: Array[Vector2i] = [o, o + Vector2i(1, 0), o + Vector2i(2, 0), o + Vector2i(2, 1), o + Vector2i(2, 2),
+			o + Vector2i(1, 2), o + Vector2i(0, 2), o + Vector2i(0, 1)]
+	var last := -1
+	for cell in cells:
+		last = GraphManager.extend_road(last, cell)
+	last = GraphManager.extend_road(last, cells[0])
+	var big := GraphManager.ring_of(GraphManager.road_at(o))
+	_check(big != -1 and big != ring and GraphManager.get_rings()[big].size == 3, 'tám ô quanh ô trống thành vòng xoay 3×3')
+	GraphManager.extend_road(-1, o + Vector2i(1, 1))
+	_check(GraphManager.ring_of(GraphManager.road_at(o)) == -1, 'tô cả ô giữa thì không còn là vòng xoay 3×3')
 
 
 # Ngã tư đường tự có đèn: hai trục ngang, dọc luân phiên xanh mỗi LIGHT_PHASE giây.
@@ -140,7 +177,7 @@ func _test_light() -> void:
 	_check(RescueManager.light_green(x, Vector2.RIGHT) != RescueManager.light_green(x, Vector2.DOWN), 'mỗi lúc chỉ một trục xanh')
 	var layer = JunctionLayerScript.new()
 	add_child(layer)
-	_check(layer._lights == [x] and layer._roundabouts.is_empty() and layer.is_processing(), 'lớp vẽ nút giao nhận ra ngã tư có đèn, theo dõi đổi pha')
+	_check(layer._lights == [x] and layer._rings.is_empty() and layer.is_processing(), 'lớp vẽ nút giao nhận ra ngã tư có đèn, theo dõi đổi pha')
 	layer.free()
 	var cp: Vector2 = GraphManager.get_map_node(x).pos
 	var saved_clock: float = RescueManager._clock

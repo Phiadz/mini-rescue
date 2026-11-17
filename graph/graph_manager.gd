@@ -29,6 +29,9 @@ var _stages: Array = []         # khóa "stages": vùng camera theo đợt (Game
 var _terrain: Dictionary = {}   # khóa "terrain" của bản đồ: ảnh độ cao và màu nước cho FloodOverlay
 var _roads := 0                 # số ô đường đã tô
 var _segments := {}             # id đoạn -> Array các id cạnh
+var _rings: Array = []          # vòng xoay người chơi vẽ: [{center: Vector2, size: 2 | 3, nodes: Array id ô đường}]
+var _ring_of := {}              # id ô đường -> chỉ số vòng trong _rings
+var _ring_from := {}            # id cạnh vòng -> nút được đi từ đó (vòng một chiều, ngược kim đồng hồ trên màn hình)
 var _gate_cells := {}           # ô cổng -> id điểm (ô cổng là ô đường dựng sẵn, không tính hạn mức, không xóa được)
 var _lot_cells := {}            # ô bãi đỗ -> id kho: kho có bãi nằm giữa kho và cổng (kho, bãi, cổng thẳng hàng)
 var _gate_override := {}        # id điểm -> hướng cổng ghi trong json (trường "gate": "E"/"W"/"N"/"S")
@@ -226,6 +229,7 @@ func extend_road(from_id: int, cell: Vector2i) -> int:
 	if from_id != -1 and from_id != to_id and add_edge(from_id, to_id) != -1:
 		return to_id
 	if created:
+		_detect_rings()  # ô lẻ mới tô có thể lấp ô giữa của vòng 3×3
 		EventBus.edge_budget_changed.emit(_roads, _limit)
 		EventBus.road_changed.emit()
 	return to_id
@@ -539,6 +543,71 @@ func _refresh_segments() -> void:
 	for eid in _edges:                      # còn lại là vòng kín, không có đầu mút
 		if not seen.has(eid) and not _boat_edges.has(eid):
 			_walk(_edges[eid].node_a, eid, seen)
+	_detect_rings()
+
+# --- Vòng xoay do người chơi vẽ ---
+# Vòng 2×2: bốn ô đường nối thành vòng kín. Vòng 3×3: tám ô đường bao quanh một ô không có đường (đảo).
+# Xe chạy một chiều ngược kim đồng hồ (giao thông bên phải): trên màn hình (y hướng xuống) là trên sang trái, trái xuống
+# dưới, dưới sang phải, phải lên trên. Giao lộ một ô (ngã ba, ngã tư) không phải vòng xoay. Mỗi ô thuộc tối đa một vòng.
+func _detect_rings() -> void:
+	_rings.clear()
+	_ring_of.clear()
+	_ring_from.clear()
+	for id in _nodes:
+		if _nodes[id].kind != Types.NodeKind.ROAD:
+			continue
+		var tl := cell_of(_nodes[id].pos)
+		for size in [3, 2]:
+			_try_ring(tl, size)
+
+# Các ô của vòng có góc trên trái tl, theo đúng chiều chạy (bắt đầu ở góc trên phải).
+func _ring_cells(tl: Vector2i, size: int) -> Array[Vector2i]:
+	if size == 2:
+		return [tl + Vector2i(1, 0), tl, tl + Vector2i(0, 1), tl + Vector2i(1, 1)]
+	return [tl + Vector2i(2, 0), tl + Vector2i(1, 0), tl, tl + Vector2i(0, 1), tl + Vector2i(0, 2),
+			tl + Vector2i(1, 2), tl + Vector2i(2, 2), tl + Vector2i(2, 1)]
+
+func _try_ring(tl: Vector2i, size: int) -> void:
+	if size == 3 and road_at(tl + Vector2i(1, 1)) != -1:
+		return  # vòng 3×3 cần ô giữa trống làm đảo
+	var ids: Array[int] = []
+	for c in _ring_cells(tl, size):
+		var r := road_at(c)
+		if r == -1 or _ring_of.has(r):
+			return
+		ids.append(r)
+	var links := []
+	for k in ids.size():
+		var eid := _edge_between(ids[k], ids[(k + 1) % ids.size()])
+		if eid == -1:
+			return
+		links.append([eid, ids[k]])
+	var idx := _rings.size()
+	_rings.append({center = (cell_center(tl) + cell_center(tl + Vector2i(size - 1, size - 1))) / 2.0, size = size, nodes = ids})
+	for r in ids:
+		_ring_of[r] = idx
+	for l in links:
+		_ring_from[l[0]] = l[1]
+
+func _edge_between(a: int, b: int) -> int:
+	for eid in _adj.get(a, []):
+		if _edges[eid].other_end(a) == b:
+			return eid
+	return -1
+
+# Chỉ số vòng xoay chứa ô đường node_id, -1 nếu không thuộc vòng nào.
+func ring_of(node_id: int) -> int:
+	return _ring_of.get(node_id, -1)
+
+func is_ring_edge(edge_id: int) -> bool:
+	return _ring_from.has(edge_id)
+
+# Nút được đi từ đó trên cạnh vòng (đi theo chiều vòng), -1 nếu không phải cạnh vòng.
+func ring_from(edge_id: int) -> int:
+	return _ring_from.get(edge_id, -1)
+
+func get_rings() -> Array:
+	return _rings
 
 func _is_end(id: int) -> bool:
 	return _nodes[id].kind != Types.NodeKind.ROAD or _adj[id].size() != 2
@@ -684,6 +753,8 @@ func _dijkstra(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictio
 		for list in [_adj.get(u, []), _badj.get(u, [])]:
 			for eid in list:
 				var e: Edge = _edges[eid]
+				if _ring_from.has(eid) and _ring_from[eid] != u:
+					continue                    # vòng xoay một chiều: không đi ngược
 				var factor := e.speed_factor(vehicle_type)
 				if factor <= 0.0:
 					continue                    # xe này không đi được cạnh này
