@@ -60,10 +60,11 @@ const SPEED_FACTOR := {
 }
 
 # --- Các đợt lũ (chỉ số 0, 1, 2) ---
+# sos_units: số phần hàng tối đa một SOS cần (ngẫu nhiên 1..sos_units); mỗi xe chở 1 phần, nên SOS lớn cần nhiều xe chạy cùng lúc.
 const WAVES := [
-	{water_delta = 25.0, sos_interval = 12.0, sos_max = 4, food_ratio = 0.70, deadline_food = 60.0, deadline_medical = 45.0},
-	{water_delta = 30.0, sos_interval = 9.0, sos_max = 5, food_ratio = 0.60, deadline_food = 50.0, deadline_medical = 38.0},
-	{water_delta = 35.0, sos_interval = 7.0, sos_max = 6, food_ratio = 0.55, deadline_food = 40.0, deadline_medical = 32.0},
+	{water_delta = 25.0, sos_interval = 12.0, sos_max = 4, sos_units = 2, food_ratio = 0.70, deadline_food = 60.0, deadline_medical = 45.0},
+	{water_delta = 30.0, sos_interval = 9.0, sos_max = 5, sos_units = 2, food_ratio = 0.60, deadline_food = 50.0, deadline_medical = 38.0},
+	{water_delta = 35.0, sos_interval = 7.0, sos_max = 6, sos_units = 3, food_ratio = 0.55, deadline_food = 40.0, deadline_medical = 32.0},
 ]
 
 # --- Khảo sát: E điền link Google Form sau ---

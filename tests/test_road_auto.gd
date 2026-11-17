@@ -14,12 +14,17 @@ var _failed := 0
 var _road_changed := 0
 var _warnings := 0
 var _rescued := 0
+var _points: Array = []
+var _failed_sos := 0
 
 
 func _ready() -> void:
 	EventBus.road_changed.connect(func() -> void: _road_changed += 1)
 	EventBus.flood_warning.connect(func(_e: int, _s: float) -> void: _warnings += 1)
-	EventBus.sos_rescued.connect(func(_r: int, _p: int) -> void: _rescued += 1)
+	EventBus.sos_rescued.connect(func(_r: int, p: int) -> void:
+		_rescued += 1
+		_points.append(p))
+	EventBus.sos_failed.connect(func(_r: int) -> void: _failed_sos += 1)
 	_run.call_deferred()
 
 
@@ -32,6 +37,7 @@ func _run() -> void:
 	await _test_vehicle_lane()
 	await _test_erase_under_vehicle()
 	await _test_finish_segment()
+	await _test_multi_unit()
 	_test_saigon_map()
 	print('\nKết quả: %d đạt, %d trượt' % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
@@ -289,11 +295,13 @@ func _test_saigon_map() -> void:
 	_check(icons, 'mọi điểm có icon thật')
 	_check(GraphManager._cell_elevation.size() == Config.GRID_COLS * Config.GRID_ROWS, 'có đủ độ cao cho mọi ô lưới')
 	EventBus.game_started.emit()
-	_check(_count(Types.VehicleType.TRUCK, 0) == 2 and _count(Types.VehicleType.BOAT, 1) == 2,
-			'lúc đầu ván: 2 xe tải ở kho cao, 2 ca-nô ở kho ven sông')
+	var trucks := RescueManager.START_TRUCKS
+	var boats := RescueManager.START_BOATS
+	_check(_count(Types.VehicleType.TRUCK, 0) == trucks and _count(Types.VehicleType.BOAT, 1) == boats,
+			'lúc đầu ván: %d xe tải ở kho cao, %d ca-nô ở kho ven sông' % [trucks, boats])
 	RescueManager.add_vehicle(Types.VehicleType.BOAT)
 	RescueManager.add_vehicle(Types.VehicleType.TRUCK)
-	_check(_count(Types.VehicleType.TRUCK, 0) == 3 and _count(Types.VehicleType.BOAT, 1) == 3,
+	_check(_count(Types.VehicleType.TRUCK, 0) == trucks + 1 and _count(Types.VehicleType.BOAT, 1) == boats + 1,
 			'xe thưởng về đúng kho hợp với loại xe')
 
 
@@ -304,6 +312,53 @@ func _count(type: int, hub: int) -> int:
 		if v.type == type and v.hub_id == hub:
 			n += 1
 	return n
+
+
+# SOS lớn cần nhiều phần hàng: mỗi xe chở 1 phần, nhiều xe cùng chạy tới (tạo đoàn xe, dễ kẹt).
+func _test_multi_unit() -> void:
+	print('
+== SOS cần nhiều xe')
+	_fresh()
+	_chain()
+	var food := Types.SupplyType.FOOD
+	var stock0 := RescueManager.get_stock(HUB, food)
+	_rescued = 0
+	_points.clear()
+	var req := _sos(200)
+	req.units = 3
+	await _frames(3)
+	_check(req.assigned == 3 and req.vehicle_ids.size() == 3 and req.state == Types.SosState.ASSIGNED,
+			'SOS cần 3 phần: 3 xe cùng nhận (%d)' % req.assigned)
+	_check(RescueManager.get_stock(HUB, food) == stock0 - 3, 'kho trừ 3 phần')
+	_check(RescueManager.get_units_left(200) == 3, 'bong bóng hiện còn thiếu 3 phần')
+	await _wait(func() -> bool: return _rescued > 0)
+	_check(req.delivered == 3 and _rescued == 1, 'giao đủ 3 phần mới được cứu, chỉ tính 1 lần')
+	var expect := roundi(Config.POINTS[food] * 3 * Config.BONUS_RATIO)
+	_check(_points.size() == 1 and _points[0] == expect, 'điểm nhân theo số phần (%d)' % expect)
+
+	_fresh()
+	_chain()
+	stock0 = RescueManager.get_stock(HUB, food)
+	_failed_sos = 0
+	var req2 := _sos(201)
+	req2.units = 2
+	await _frames(3)
+	var carriers: Array = req2.vehicle_ids.duplicate()
+	_check(carriers.size() == 2, 'SOS cần 2 phần: 2 xe nhận')
+	req2.time_left = 0.01
+	await _frames(3)
+	_check(_failed_sos == 1 and RescueManager.get_stock(HUB, food) == stock0, 'hết giờ: SOS thất bại, hoàn đủ 2 phần về kho')
+	_check(carriers.all(func(vid: int) -> bool:
+			var v = RescueManager._vehicles[vid]
+			return v.request == null and v.state_id != Types.VehicleState.EN_ROUTE), 'các xe đang chở đều bỏ nhiệm vụ, quay về')
+
+	_fresh()
+	_chain()
+	var req3 := _sos(202)
+	req3.units = RescueManager.START_TRUCKS + 2
+	await _frames(3)
+	_check(req3.assigned == RescueManager.START_TRUCKS and req3.state == Types.SosState.PENDING,
+			'cần nhiều phần hơn số xe: giao hết xe rảnh, SOS vẫn chờ thêm xe')
 
 
 func _fresh() -> void:

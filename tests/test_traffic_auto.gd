@@ -77,7 +77,14 @@ func _test_follow() -> void:
 	_check(RescueManager.congestion_factor(a, [a, close]) == 0.0, 'cách 14 px: dừng chờ')
 	_check(RescueManager.congestion_factor(a, [a, opposite]) == 1.0, 'xe ngược chiều ở làn bên kia không làm chậm')
 	_check(RescueManager.congestion_factor(a, [a, behind]) == 1.0, 'xe phía sau không làm chậm')
-	_check(RescueManager.congestion_factor(a, [a, parked]) == 1.0, 'xe đang đỗ giao hàng không chặn đường')
+	_check(RescueManager.congestion_factor(a, [a, parked]) == 1.0, 'xe đang dỡ hàng không chặn xe chỉ đi ngang')
+	var unloading = _car(7, GraphManager.get_map_node(t.j).pos, t.w, t.j, Types.VehicleState.DELIVERING)
+	unloading.current_node = t.j
+	unloading.dest = t.j
+	var queued = _car(8, GraphManager.get_map_node(t.j).pos - Vector2(25, 0), t.w, t.j)
+	queued.dest = t.j
+	queued.request = RescueManager.SosRequest.new()
+	_check(RescueManager.congestion_factor(queued, [queued, unloading]) == 0.0, 'xe tới cùng SOS chờ xe trước dỡ hàng xong')
 
 
 func _test_junction() -> void:

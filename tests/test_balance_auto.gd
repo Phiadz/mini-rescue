@@ -12,6 +12,8 @@ const ROUTES := [[0, 16], [16, 5], [5, 10], [10, 3], [3, 2], [3, 6], [6, 11], [1
 
 var _stats := {}
 var _won := false
+var _moving := 0.0  # tổng thời gian xe chạy trên đường (giây × xe)
+var _jammed := 0.0  # phần trong đó xe bị kẹt (bám đuôi hoặc chờ ở ngã ba)
 
 
 func _ready() -> void:
@@ -31,20 +33,36 @@ func _run() -> void:
 	Engine.time_scale = SPEED
 	var wins := 0
 	var scores := 0
+	var jam_total := 0.0
 	for i in GAMES:
 		_stats = {}
 		await GameManager.start_game()
 		_build()
 		var used: int = GraphManager.get_edge_budget().used
+		_moving = 0.0
+		_jammed = 0.0
 		while _stats.is_empty():
 			await get_tree().process_frame
+			_count_jams()
 		wins += 1 if _won else 0
 		scores += _stats.score
-		print('Ván %2d: %-5s %4d điểm, cứu %2d, thất bại %d, %3.0f giây, %d ô đường' % [
-			i + 1, 'thắng' if _won else 'thua', _stats.score, _stats.saved, _stats.failed, _stats.time_survived, used])
-	print('Tổng: thắng %d/%d, điểm trung bình %.0f' % [wins, GAMES, float(scores) / GAMES])
+		jam_total += _jammed / maxf(_moving, 0.001)
+		print('Ván %2d: %-5s %4d điểm, cứu %2d, thất bại %d, %3.0f giây, %d ô đường, kẹt %4.1f%% thời gian chạy' % [
+			i + 1, 'thắng' if _won else 'thua', _stats.score, _stats.saved, _stats.failed, _stats.time_survived, used, 100.0 * _jammed / maxf(_moving, 0.001)])
+	print('Tổng: thắng %d/%d, điểm trung bình %.0f, kẹt trung bình %.1f%% thời gian chạy (%d xe tải, %d ca-nô lúc đầu)' % [
+			wins, GAMES, float(scores) / GAMES, 100.0 * jam_total / GAMES, RescueManager.START_TRUCKS, RescueManager.START_BOATS])
 	_time_find_path()
 	get_tree().quit()
+
+
+# Mỗi khung hình: cộng thời gian chạy và thời gian bị kẹt của các xe đang trên đường.
+func _count_jams() -> void:
+	var dt := get_process_delta_time()
+	for v in RescueManager._vehicles.values():
+		if v.is_moving():
+			_moving += dt
+			if v.jammed:
+				_jammed += dt
 
 
 func _build() -> void:

@@ -4,7 +4,8 @@ extends Node
 
 # TODO: xin A chuyển các hằng số này sang autoload/config.gd rồi đổi thành Config.X
 const HOSPITAL_ID := 5               # node Bệnh viện luôn ra SOS Y tế
-const START_VEHICLES := 2            # số xe tải, số ca-nô lúc đầu ván
+const START_TRUCKS := 4              # số xe tải lúc đầu ván (ở kho cao nhất)
+const START_BOATS := 4               # số ca-nô lúc đầu ván (ở kho thấp nhất)
 const DISPATCH_INTERVAL := 0.5       # giây giữa hai lượt điều phối
 const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết cạnh
 const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
@@ -19,6 +20,7 @@ const JUNCTION_RADIUS := 24.0        # bán kính ngã ba, ngã tư (px)
 const JUNCTION_APPROACH := 46.0      # trong khoảng này trước ngã ba thì xét nhường đường
 const JAM_GIVE_UP := 3.0             # đứng chờ quá lâu (giây) thì đi chậm qua, tránh tắc vĩnh viễn
 const CONGESTION_PATH_COST := 1.5    # giây cộng thêm khi tìm đường qua cạnh sắp có xe đi
+const UNIT_EXTRA_TIME := 0.3         # SOS cần nhiều phần: mỗi phần thêm cộng 30% thời hạn
 
 # Nguồn đồ thị. null = dùng GraphManager thật. Scene thử gán đồ thị giả vào đây.
 var graph = null
@@ -34,8 +36,16 @@ class SosRequest extends RefCounted:
 	var time_total: float
 	var time_left: float
 	var prioritized := false
-	var state: int = Types.SosState.PENDING
-	var vehicle_id := -1
+	var state: int = Types.SosState.PENDING  # PENDING: còn cần thêm xe; ASSIGNED: đủ xe đang chở tới
+	var vehicle_id := -1      # xe nhận gần nhất (giữ cho mã cũ)
+	var units := 1            # số phần hàng cần; mỗi xe chở 1 phần
+	var assigned := 0         # số xe đang chở tới
+	var delivered := 0        # số phần đã giao
+	var vehicle_ids: Array[int] = []
+
+	# Còn thiếu bao nhiêu xe để đủ số phần.
+	func missing() -> int:
+		return units - assigned - delivered
 
 # ===== HUB =====
 class Hub extends RefCounted:
@@ -83,6 +93,8 @@ class SosFactory extends RefCounted:
 		else:
 			req.time_total = w.deadline_medical
 		req.time_left = req.time_total
+		req.units = randi_range(1, int(w.get("sos_units", 1)))
+		req.time_total *= 1.0 + UNIT_EXTRA_TIME * (req.units - 1)  # khu ngập nặng cần nhiều chuyến hơn
 		return req
 
 # ===== VEHICLE =====
@@ -224,8 +236,10 @@ class Vehicle extends Node2D:
 	func release_request() -> void:
 		if request == null:
 			return
+		request.assigned = maxi(0, request.assigned - 1)
+		request.vehicle_ids.erase(id)
 		request.state = Types.SosState.PENDING
-		request.vehicle_id = -1
+		request.vehicle_id = request.vehicle_ids.back() if not request.vehicle_ids.is_empty() else -1
 		RescueManager.refund(hub_id, request.supply)
 		request = null
 		RescueManager.mark_dirty()
@@ -297,7 +311,7 @@ class DeliveringState extends VehicleStateBase:
 		if _t >= Config.DELIVERY_TIME:
 			var req := v.request
 			v.request = null
-			RescueManager.complete_request(req)
+			RescueManager.complete_request(req, v)
 			v.go_home()
 
 class ReturningState extends VehicleStateBase:
@@ -384,8 +398,9 @@ func reset() -> void:
 				EventBus.stock_changed.emit(id, s, h.stock[s])
 	if _hubs.is_empty():
 		return
-	for i in START_VEHICLES:
+	for i in START_TRUCKS:
 		add_vehicle(Types.VehicleType.TRUCK)
+	for i in START_BOATS:
 		add_vehicle(Types.VehicleType.BOAT)
 
 func set_wave(index: int) -> void:
@@ -460,11 +475,21 @@ func congestion_factor(v: Vehicle, others: Array = []) -> float:
 		dv = v.position.distance_to(jpos)
 		approaching = dv > JUNCTION_RADIUS and dv < JUNCTION_APPROACH
 	for u in list:
-		if u == v or not u.is_moving():
+		if u == v:
+			continue
+		# Dỡ hàng lần lượt: xe đang dỡ hàng ở một SOS chặn các xe khác tới đúng SOS đó (xếp hàng chờ).
+		# Xe chỉ đi ngang khu đó không bị chặn.
+		if u.state_id == Types.VehicleState.DELIVERING and v.request != null and u.dest == v.dest and nxt == u.current_node:
+			var gap: float = v.position.distance_to(u.position)
+			if gap < FOLLOW_GAP:
+				return 0.0
+			continue
+		if not u.is_moving():
 			continue
 		var rel: Vector2 = u.position - v.position
 		var along := rel.dot(v.heading)
-		if along > 0.0 and u.heading.dot(v.heading) > 0.7 and absf(rel.cross(v.heading)) < SAME_LANE:
+		var ahead: bool = along > 0.0 or (rel.length() < 1.0 and u.id < v.id)  # cùng chỗ (vừa rời kho): xe mã nhỏ đi trước
+		if ahead and u.heading.dot(v.heading) > 0.7 and absf(rel.cross(v.heading)) < SAME_LANE:
 			if along < STOP_GAP:
 				return 0.0
 			if along < FOLLOW_GAP:
@@ -498,8 +523,9 @@ func _tick_requests(delta: float) -> void:
 		if r.time_left <= 0.0:
 			r.state = Types.SosState.FAILED
 			_requests.erase(rid)
-			if _vehicles.has(r.vehicle_id):
-				_vehicles[r.vehicle_id].on_request_failed()
+			for vid in r.vehicle_ids:  # mọi xe đang chở tới SOS này quay về, hoàn hàng
+				if _vehicles.has(vid) and _vehicles[vid].request == r:
+					_vehicles[vid].on_request_failed()
 			EventBus.sos_failed.emit(rid)
 
 func _tick_spawn(delta: float) -> void:
@@ -542,23 +568,30 @@ func _dispatch() -> void:
 			return a.prioritized
 		return a.time_left < b.time_left)
 	for r in pending:
-		var best_v: Vehicle = null
-		var best_p: PathResult = null
-		for v in _vehicles.values():
-			if v.state_id != Types.VehicleState.IDLE:
-				continue
-			if not _hubs.has(v.hub_id) or _hubs[v.hub_id].stock[r.supply] <= 0:
-				continue
-			var p: PathResult = find_path(v.hub_id, r.node_id, v.type)
-			if p.found and (best_v == null or p.cost < best_p.cost):
-				best_v = v
-				best_p = p
-		if best_v != null:
+		# SOS lớn cần nhiều xe: giao thêm xe rảnh cho tới khi đủ số phần. Xe sau tính đường có cộng
+		# chi phí chỗ đông (congestion_penalty) nên có thể tự chọn đường vòng.
+		while r.missing() > 0:
+			var best_v: Vehicle = null
+			var best_p: PathResult = null
+			for v in _vehicles.values():
+				if v.state_id != Types.VehicleState.IDLE:
+					continue
+				if not _hubs.has(v.hub_id) or _hubs[v.hub_id].stock[r.supply] <= 0:
+					continue
+				var p: PathResult = find_path(v.hub_id, r.node_id, v.type)
+				if p.found and (best_v == null or p.cost < best_p.cost):
+					best_v = v
+					best_p = p
+			if best_v == null:
+				break
 			_assign(r, best_v, best_p)
 
 func _assign(r: SosRequest, v: Vehicle, p: PathResult) -> void:
-	r.state = Types.SosState.ASSIGNED  # đổi trước để không xe nào nhận trùng
+	r.assigned += 1
+	r.vehicle_ids.append(v.id)
 	r.vehicle_id = v.id
+	if r.missing() <= 0:
+		r.state = Types.SosState.ASSIGNED  # đủ xe: đổi trước để không xe nào nhận thêm
 	v.request = r
 	v.dest = r.node_id
 	v.path = p
@@ -577,11 +610,17 @@ func refund(hub_id: int, supply: int) -> void:
 	h.stock[supply] = mini(h.stock[supply] + 1, Config.STOCK_MAX)
 	EventBus.stock_changed.emit(hub_id, supply, h.stock[supply])
 
-# Xe giao xong. E cộng điểm, C chỉ phát tín hiệu.
-func complete_request(req: SosRequest) -> void:
+# Một xe giao xong 1 phần. Đủ số phần thì SOS được cứu (E cộng điểm, C chỉ phát tín hiệu); điểm nhân theo số phần.
+func complete_request(req: SosRequest, v: Vehicle = null) -> void:
 	if req == null:
 		return
-	var pts: float = Config.POINTS[req.supply]
+	req.assigned = maxi(0, req.assigned - 1)
+	req.delivered += 1
+	if v != null:
+		req.vehicle_ids.erase(v.id)
+	if req.delivered < req.units:
+		return  # chưa đủ phần: chờ các xe còn lại
+	var pts: float = Config.POINTS[req.supply] * req.units
 	if req.time_left > req.time_total * BONUS_TIME_RATIO:
 		pts *= Config.BONUS_RATIO
 	req.state = Types.SosState.RESCUED
@@ -639,6 +678,13 @@ func prioritize(req_id: int) -> bool:
 	r.prioritized = true
 	_dirty = true
 	return true
+
+# Số phần hàng SOS còn thiếu (chưa giao), 0 nếu không còn SOS. Bong bóng SOS của D hiện số này.
+func get_units_left(req_id: int) -> int:
+	if not _requests.has(req_id):
+		return 0
+	var r: SosRequest = _requests[req_id]
+	return r.units - r.delivered
 
 func get_pending_requests() -> Array:
 	var result := []
