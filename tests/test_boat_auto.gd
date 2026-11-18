@@ -69,16 +69,37 @@ func _test_river() -> void:
 	_check(not GraphManager.find_path(CAT_LAI, CALMETTE, TRUCK).found, 'xe tải không đi cạnh sông')
 
 
-# Ảnh độ cao của bản đồ Sài Gòn: điểm ảnh sông có giá trị 16 bit (R byte cao, G byte thấp) đúng bằng 10944.
-var _height: Image
+# Sông của bản đồ Sài Gòn (kiểu lưới): các ô grid.water, cạnh ô thẳng, góc bo theo cung tròn bán kính RIVER_CORNER,
+# đúng như nền vẽ và lớp lũ (water_grid.gdshader, EdgeLayer._over_water).
+const RIVER_CORNER := 20.0
+
+func _river_cell(c: Vector2i) -> bool:
+	return GraphManager.cell_is_water(Vector2i(clampi(c.x, 0, Config.GRID_COLS - 1), clampi(c.y, 0, Config.GRID_ROWS - 1)))
 
 func _river(p: Vector2) -> bool:
-	var x := int(floor(p.x))
-	var y := int(floor(p.y))
-	if _height == null or x < 0 or y < 0 or x >= _height.get_width() or y >= _height.get_height():
+	var cs := float(Config.CELL_SIZE)
+	if p.x < 0.0 or p.y < 0.0 or p.x >= cs * Config.GRID_COLS or p.y >= cs * Config.GRID_ROWS:
 		return false
-	var c := _height.get_pixel(x, y)
-	return roundi(c.r * 255.0) * 256 + roundi(c.g * 255.0) <= 10944
+	var c := Vector2i(floori(p.x / cs), floori(p.y / cs))
+	var l := p - Vector2(c) * cs
+	var s := Vector2i(-1 if l.x < cs / 2.0 else 1, -1 if l.y < cs / 2.0 else 1)
+	var e := Vector2(l.x if s.x < 0 else cs - l.x, l.y if s.y < 0 else cs - l.y)
+	var a := _river_cell(c)
+	if e.x >= RIVER_CORNER or e.y >= RIVER_CORNER:
+		return a
+	var h := _river_cell(c + Vector2i(s.x, 0))
+	var v := _river_cell(c + Vector2i(0, s.y))
+	var d := _river_cell(c + s)
+	var in_circle := (Vector2.ONE * RIVER_CORNER - e).length_squared() <= RIVER_CORNER * RIVER_CORNER
+	if a:
+		return h or v or d or in_circle
+	return h and v and not in_circle
+
+# Ô c là ô ca-nô mà ca-nô từ Cát Lái chạy tới được (sông còn vài ao lẻ không thông ra sông chính).
+func _boat_reachable(c: Vector2i) -> bool:
+	if not GraphManager.cell_is_boat(c):
+		return false
+	return GraphManager.find_path(CAT_LAI, GraphManager.WATER_ID_BASE + c.y * Config.GRID_COLS + c.x, BOAT).found
 
 # Tỷ lệ mẫu (mỗi 2 px) nằm trên sông dọc đoạn a-b.
 func _water_frac(a: Vector2, b: Vector2) -> float:
@@ -93,8 +114,8 @@ func _water_frac(a: Vector2, b: Vector2) -> float:
 func _test_on_water() -> void:
 	print('\n== Ca-nô ở trên nước, không lên cạn')
 	_fresh_saigon()
-	_height = Image.load_from_file(ProjectSettings.globalize_path('res://assets/icons/terrain/saigon_height.png'))
-	_check(_height != null and _height.get_width() == 1280, 'đọc được ảnh độ cao để biết chỗ nào là sông')
+	_check(GraphManager.get_terrain().get('style', '') == 'grid' and GraphManager.cell_is_water(Vector2i(16, 9)) == GraphManager.cell_is_boat(Vector2i(16, 9)),
+			'bản đồ có sông theo lưới, ô ca-nô là ô sông')
 	var nodes: Array = GraphManager._water.keys()
 	var off := nodes.filter(func(id: int) -> bool: return not _river(GraphManager.get_map_node(id).pos))
 	_check(off.is_empty(), 'mọi nút nước (%d nút) nằm trên sông%s' % [nodes.size(), '' if off.is_empty() else ', lệch: %s' % str(off)])
@@ -187,28 +208,29 @@ func _test_on_water() -> void:
 	_check(not parked.is_empty() and parked.all(func(x) -> bool: return _river(x.position)), 'ca-nô đang đỗ ở bến nằm trên nước')
 
 
-# Hai ô đất kề nhau a, b: b sát sông (kề 8 hướng với ô ca-nô), a không sát sông; cả hai cách mọi điểm từ 2 ô
-# trở lên để không đụng ô điểm hay ô cổng.
+# Hai ô đất kề nhau a, b: b sát phần sông thông ra Cát Lái (kề 8 hướng), a không sát ô ca-nô nào; cả hai cách mọi
+# điểm từ 2 ô trở lên để không đụng ô điểm hay ô cổng.
 func _shore_pair() -> Array:
 	var points := GraphManager.get_node_ids().map(func(id: int) -> Vector2i: return GraphManager.cell_of(GraphManager.get_map_node(id).pos))
 	var ok := func(c: Vector2i) -> bool:
 		if GraphManager.cell_is_boat(c) or GraphManager.cell_is_water(c):
 			return false
 		return points.all(func(p: Vector2i) -> bool: return maxi(absi(p.x - c.x), absi(p.y - c.y)) >= 2)
-	var near := func(c: Vector2i) -> bool:
+	var near := func(c: Vector2i, reachable: bool) -> bool:
 		for dy in range(-1, 2):
 			for dx in range(-1, 2):
-				if GraphManager.cell_is_boat(c + Vector2i(dx, dy)):
+				var w := c + Vector2i(dx, dy)
+				if _boat_reachable(w) if reachable else GraphManager.cell_is_boat(w):
 					return true
 		return false
 	for y in range(1, Config.GRID_ROWS - 1):
 		for x in range(1, Config.GRID_COLS - 1):
 			var b := Vector2i(x, y)
-			if not ok.call(b) or not near.call(b):
+			if not ok.call(b) or not near.call(b, true):
 				continue
 			for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
 				var a: Vector2i = b + d
-				if ok.call(a) and not near.call(a):
+				if ok.call(a) and not near.call(a, false):
 					return [a, b]
 	return []
 
@@ -461,7 +483,7 @@ func _test_unconnected() -> void:
 			if cell != Vector2i(-1, -1) or not GraphManager.can_place_house(c) or not GameManager.is_in_play(GraphManager.cell_center(c)):
 				continue
 			for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-				if GraphManager.cell_is_boat(c + d):
+				if _boat_reachable(c + d):
 					cell = c
 	var house := GraphManager.add_house(cell, CALMETTE) if cell != Vector2i(-1, -1) else -1
 	_check(house != -1 and GraphManager.get_gate_node(house) == -1 and GraphManager.has_dock(house), 'nhà mọc sát sông, chưa nối đường, có bến (ô %s)' % cell)

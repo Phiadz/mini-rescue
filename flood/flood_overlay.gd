@@ -10,6 +10,7 @@ extends Node2D
 const HEIGHT_FIELD := preload('res://assets/icons/terrain/height_field.png')  # mặc định (map_01)
 const DEFAULT_COLORS := {shallow = Color(0.165, 0.549, 0.753), deep = Color(0.102, 0.396, 0.592), foam = Color(0.78, 0.93, 1.0)}
 const WATER_SHADER := preload('res://flood/water.gdshader')
+const WATER_GRID_SHADER := preload('res://flood/water_grid.gdshader')  # bản đồ theo lưới: ô màu phẳng, bo góc
 const MAP_SIZE := Vector2(1280, 720)
 
 var _prev_img: Image
@@ -19,6 +20,7 @@ var _next_tex: ImageTexture
 var _since_tick := 0.0
 var _wet_cells := 0
 var _height_tex: Texture2D = HEIGHT_FIELD
+var _grid_style := false  # terrain.style = "grid": lũ vẽ theo ô (water_grid.gdshader), không theo ảnh độ cao
 
 
 func _ready() -> void:
@@ -27,13 +29,7 @@ func _ready() -> void:
 	_next_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBH)
 	_prev_tex = ImageTexture.create_from_image(_prev_img)
 	_next_tex = ImageTexture.create_from_image(_next_img)
-	var mat := ShaderMaterial.new()
-	mat.shader = WATER_SHADER
-	mat.set_shader_parameter('field_prev', _prev_tex)
-	mat.set_shader_parameter('field_next', _next_tex)
-	mat.set_shader_parameter('shallow_max', Config.SHALLOW_MAX)
-	mat.set_shader_parameter('sea_max', Config.SEA_MAX_ELEVATION)
-	material = mat
+	material = _new_material(WATER_SHADER)
 	EventBus.water_level_changed.connect(func(_l: float) -> void: _refresh())
 	EventBus.game_started.connect(func() -> void:
 		_apply_terrain()
@@ -54,10 +50,28 @@ func _draw() -> void:
 func _apply_terrain() -> void:
 	var t: Dictionary = GraphManager.get_terrain()
 	_height_tex = load(t["height"]) if t.has("height") else HEIGHT_FIELD
+	_grid_style = t.get("style", "") == "grid"
+	var want := WATER_GRID_SHADER if _grid_style else WATER_SHADER
 	var mat := material as ShaderMaterial
+	if mat.shader != want:
+		mat = _new_material(want)
+		material = mat
 	for key in ["shallow", "deep", "foam"]:
 		mat.set_shader_parameter(key + "_color", Color(t[key]) if t.has(key) else DEFAULT_COLORS[key])
 	queue_redraw()
+
+
+# Vật liệu cho một trong hai shader nước (tham số của shader kia không dùng thì bỏ qua).
+func _new_material(shader: Shader) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	mat.set_shader_parameter('field_prev', _prev_tex)
+	mat.set_shader_parameter('field_next', _next_tex)
+	mat.set_shader_parameter('shallow_max', Config.SHALLOW_MAX)
+	mat.set_shader_parameter('sea_max', Config.SEA_MAX_ELEVATION)
+	mat.set_shader_parameter('map_size', MAP_SIZE)
+	mat.set_shader_parameter('cell', MAP_SIZE.x / Config.GRID_COLS)
+	return mat
 
 
 ## Các kho và khu dân cư có ô đang ngập.
@@ -108,6 +122,9 @@ func _sea_cover() -> Dictionary:
 # của ô kề để nội suy không kéo mặt nước tụt xuống ở mép, G = 0.
 func _refresh() -> void:
 	_prev_img.copy_from(_next_img)
+	if _grid_style:
+		_refresh_grid()
+		return
 	var surface := {}
 	var wet := 0
 	for y in Config.GRID_ROWS:
@@ -131,6 +148,25 @@ func _refresh() -> void:
 			for d in FloodManager.NEIGHBORS:
 				best = maxf(best, surface.get(c + d, 0.0))
 			_next_img.set_pixel(x, y, Color(best, 0.0, b))
+	_wet_cells = wet
+	_prev_tex.update(_prev_img)
+	_next_tex.update(_next_img)
+	_since_tick = 0.0
+	queue_redraw()
+
+
+# Kiểu lưới: R = 1 nếu ô sâu (tới SHALLOW_MAX) hoặc là sông, G = 1 nếu ô có nước (ngập hoặc sông).
+func _refresh_grid() -> void:
+	var wet := 0
+	for y in Config.GRID_ROWS:
+		for x in Config.GRID_COLS:
+			var c := Vector2i(x, y)
+			var sea := FloodManager.is_sea(c)
+			var d := FloodManager.depth_at(c)
+			var has_water := sea or d >= FloodManager.DRY_EPSILON
+			if has_water and not sea:
+				wet += 1
+			_next_img.set_pixel(x, y, Color(1.0 if sea or d >= Config.SHALLOW_MAX else 0.0, 1.0 if has_water else 0.0, 0.0))
 	_wet_cells = wet
 	_prev_tex.update(_prev_img)
 	_next_tex.update(_next_img)

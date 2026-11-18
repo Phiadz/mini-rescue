@@ -6,7 +6,7 @@
 [ext_resource type="Script" uid="uid://demptuxsi5fj2" path="res://rescue/vehicle_layer.gd" id="5_dp3pf"]
 [ext_resource type="Script" uid="uid://cnqjhjdglh30g" path="res://graph/edge_drawer.gd" id="6_ioaqv"]
 [ext_resource type="PackedScene" path="res://ui/ui_root.tscn" id="7_li27q"]
-[ext_resource type="Texture2D" path="res://assets/icons/terrain/saigon_mm_base.svg" id="8_ground"]
+[ext_resource type="Texture2D" path="res://assets/icons/terrain/saigon_grid_base.png" id="8_ground"]
 [ext_resource type="Script" path="res://graph/junction_layer.gd" id="9_junction"]
 
 [node name="Main" type="Node2D" unique_id=822342320]

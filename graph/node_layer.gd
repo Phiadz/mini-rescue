@@ -183,7 +183,7 @@ func _draw_plot(n: MapNode) -> void:
 	var c: Array = _road_colors(state)
 	var box := StyleBoxFlat.new()
 	box.bg_color = c[0]
-	box.border_color = c[1]
+	box.border_color = c[1] if c[1].a > 0.0 else c[0]  # đường không viền (chìm dưới nước): lô cũng không viền
 	var border := int((Road.CASING_WIDTH - Road.ROAD_WIDTH) / 2.0)
 	box.set_border_width_all(border)
 	box.set_corner_radius_all(PLOT_RADIUS)
@@ -201,7 +201,7 @@ func _road_colors(state: int) -> Array:
 		Types.EdgeState.SHALLOW:
 			return [Road.SHALLOW_COLOR, Road.SHALLOW_CASING, Road.SHALLOW_MARK_COLOR]
 		Types.EdgeState.DEEP:
-			return [Road.DEEP_COLOR, Road.DEEP_CASING, Road.DEEP_MARK_COLOR]
+			return [Road.deep_fill, Road.deep_casing, Road.deep_mark]
 	return [Road.DRY_COLOR, Road.DRY_CASING, Road.DRY_MARK_COLOR]
 
 func _draw_lot(hub: MapNode) -> void:
@@ -222,12 +222,12 @@ func _draw_lot(hub: MapNode) -> void:
 	var colors := {
 		Types.EdgeState.DRY: [Road.DRY_COLOR, Road.DRY_CASING, Road.DRY_MARK_COLOR],
 		Types.EdgeState.SHALLOW: [Road.SHALLOW_COLOR, Road.SHALLOW_CASING, Road.SHALLOW_MARK_COLOR],
-		Types.EdgeState.DEEP: [Road.DEEP_COLOR, Road.DEEP_CASING, Road.DEEP_MARK_COLOR],
+		Types.EdgeState.DEEP: [Road.deep_fill, Road.deep_casing, Road.deep_mark],
 	}
 	var c: Array = colors[state]
 	var box := StyleBoxFlat.new()
 	box.bg_color = c[0]
-	box.border_color = c[1]
+	box.border_color = c[1] if c[1].a > 0.0 else c[0]  # đường không viền (chìm dưới nước): lô cũng không viền
 	box.set_border_width_all(int((Road.CASING_WIDTH - Road.ROAD_WIDTH) / 2.0))  # viền dày bằng viền đường
 	box.set_corner_radius_all(12)
 	draw_style_box(box, Rect2(mid - size / 2.0, size))

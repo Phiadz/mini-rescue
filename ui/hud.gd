@@ -11,8 +11,11 @@ const ROAD_DRY := Color("#fbfaf6")
 const ROAD_SHALLOW := Color("#f7e6ae")
 const ROAD_SHALLOW_MARK := Color("#b9862b")
 const ROAD_DEEP := Color("#5aa7d6")
+const Road := preload("res://graph/edge_layer.gd")
 const ROAD_CASING := Color("#7f97a3")
 const MAP_CREDIT := "© OpenStreetMap contributors" # required by the ODbL licence
+
+var _deep_swatch: Array  # [viền, mặt đường] của ô mẫu "Sâu"; bản đồ kiểu lưới: đường chìm dưới nước, không viền
 
 var score_label: Label
 var fail_label: Label
@@ -79,15 +82,21 @@ func _build_legend() -> void:
 	var roads := [["Khô", ROAD_DRY, false], ["Cạn", ROAD_SHALLOW, true], ["Sâu", ROAD_DEEP, false]]
 	for i in roads.size():
 		var x: float = 14 + i * 76
-		_road_sample(box, Vector2(x, 16), roads[i][1], roads[i][2])
+		var swatch := _road_sample(box, Vector2(x, 16), roads[i][1], roads[i][2])
+		if i == 2:
+			_deep_swatch = swatch
 		Style.text(box, roads[i][0], x + 30, 6, 44, 24, 15, Style.WHITE)
 	Style.text(box, "LT", 14, 38, 24, 24, 15, Style.YELLOW)
 	Style.text(box, "Lương thực", 40, 38, 84, 24, 15, Style.WHITE)
 	Style.text(box, "YT", 130, 38, 24, 24, 15, Style.CYAN)
 	Style.text(box, "Y tế", 158, 38, 60, 24, 15, Style.WHITE)
+	EventBus.game_started.connect(func() -> void:
+		Road.apply_terrain(GraphManager.get_terrain())
+		_deep_swatch[0].color = Road.deep_casing if Road.bridges else ROAD_CASING
+		_deep_swatch[1].color = Road.deep_fill if Road.bridges else ROAD_DEEP)
 
 # Small road swatch drawn like EdgeLayer: dark casing, road colour, yellow dashes for a shallow road.
-func _road_sample(parent: Control, at: Vector2, fill: Color, dashed: bool) -> void:
+func _road_sample(parent: Control, at: Vector2, fill: Color, dashed: bool) -> Array:
 	var casing := ColorRect.new()
 	parent.add_child(casing)
 	casing.position = at - Vector2(0, 2)
@@ -108,6 +117,7 @@ func _road_sample(parent: Control, at: Vector2, fill: Color, dashed: bool) -> vo
 			dash.size = Vector2(6, 4)
 			dash.color = ROAD_SHALLOW_MARK
 			dash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return [casing, road]
 
 func _build_hint() -> void:
 	Style.rect(self, 260, 690, 760, 26, Color(0.0, 0.05, 0.11, 0.8), Style.BORDER, 8)

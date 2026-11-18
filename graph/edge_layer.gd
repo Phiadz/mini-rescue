@@ -14,6 +14,21 @@ const SHALLOW_MARK_COLOR := Color('#b9862b') # vạch đứt đậm của đư�
 const DEEP_CASING := Color('#2f6f9f')
 const DEEP_COLOR := Color('#5aa7d6')         # đường ngập sâu
 const DEEP_MARK_COLOR := Color('#d8f0fb')    # vệt sóng nhạt giữa đường ngập sâu
+# Màu đường ngập sâu đang dùng. Mặc định là ba màu trên. Bản đồ kiểu lưới (terrain.style = "grid") pha màu đường với
+# màu nước sâu thành màu đặc nhạt, trông như đường chìm dưới nước; pha sẵn chứ không vẽ trong suốt, để chỗ các mảnh
+# đường chồng nhau không đậm lên. Đường chìm không có viền (viền trong suốt, mặt đường giữ nguyên bề rộng).
+static var deep_fill := DEEP_COLOR
+static var deep_casing := DEEP_CASING
+static var deep_mark := DEEP_MARK_COLOR
+const SUNK_FILL := 0.0    # mặt đường: trùng hẳn màu nước sâu (0 = không pha trắng)
+const SUNK_MARK := 0.5    # vạch: màu nước pha trắng chừng này
+# Cầu (bản đồ kiểu lưới): đường chưa ngập sâu mà nằm trên mặt nước (sông hoặc vùng lũ) có lan can tối hai bên.
+static var bridges := false
+const RAIL_COLOR := Color('#55656f')
+const RAIL_WIDTH := 3.0
+const RAIL_STEP := 3.0      # khoảng lấy mẫu dọc đường khi tìm đoạn nằm trên nước (px)
+const WATER_CORNER := 20.0  # bán kính bo góc mặt nước, giống radius trong water_grid.gdshader
+var _wet_sig := PackedByteArray()  # ô nào đang có nước, để chỉ vẽ lại khi mặt nước đổi
 
 const CASING_WIDTH := 26.0  # đường chiếm khoảng nửa ô như Mini Motorways (trước 32/28, đè gần kín lô đất của nhà)
 const ROAD_WIDTH := 22.0
@@ -26,9 +41,11 @@ const CURVE_STEPS := 6  # số đoạn thẳng xấp xỉ mỗi nửa đường 
 
 
 func _ready() -> void:
+	EventBus.game_started.connect(func() -> void: apply_terrain(GraphManager.get_terrain()))
 	EventBus.road_changed.connect(queue_redraw)
 	EventBus.game_started.connect(queue_redraw)
 	EventBus.edge_state_changed.connect(func(_id: int, _state: int) -> void: queue_redraw())
+	EventBus.water_level_changed.connect(func(_l: float) -> void: _check_water())
 
 
 func _draw() -> void:
@@ -41,6 +58,10 @@ func _draw() -> void:
 	var pieces := _pieces()
 	for p in pieces:
 		_poly(p, _casing(p.state), CASING_WIDTH)
+	if bridges:  # lan can vẽ trước mặt đường: ở ngã ba, ngã tư mặt đường của nhánh khác che đi
+		for p in pieces:
+			if p.state != Types.EdgeState.DEEP:
+				_rails(p.points)
 	for p in pieces:
 		_poly(p, _fill(p.state), ROAD_WIDTH)
 	for p in pieces:
@@ -106,7 +127,7 @@ func _mark_poly(p: Dictionary) -> void:
 		Types.EdgeState.SHALLOW:
 			_dashed(p.points, SHALLOW_MARK_COLOR, SHALLOW_MARK_WIDTH, SHALLOW_DASH)
 		Types.EdgeState.DEEP:
-			_dashed(p.points, DEEP_MARK_COLOR, MARK_WIDTH, DASH * 2.0)
+			_dashed(p.points, deep_mark, MARK_WIDTH, DASH * 2.0)
 		_:
 			_dashed(p.points, DRY_MARK_COLOR, MARK_WIDTH, DASH)
 
@@ -153,7 +174,7 @@ func _casing(state: int) -> Color:
 		Types.EdgeState.SHALLOW:
 			return SHALLOW_CASING
 		Types.EdgeState.DEEP:
-			return DEEP_CASING
+			return deep_casing
 	return DRY_CASING
 
 
@@ -162,8 +183,98 @@ func _fill(state: int) -> Color:
 		Types.EdgeState.SHALLOW:
 			return SHALLOW_COLOR
 		Types.EdgeState.DEEP:
-			return DEEP_COLOR
+			return deep_fill
 	return DRY_COLOR
+
+
+# Chọn màu đường ngập sâu theo khóa "terrain" của bản đồ (gọi lại nhiều lần vẫn vậy).
+static func apply_terrain(t: Dictionary) -> void:
+	if t.get("style", "") == "grid" and t.has("deep"):
+		var water := Color(t["deep"])
+		deep_fill = water.lerp(Color.WHITE, SUNK_FILL)
+		deep_casing = Color(water, 0.0)
+		deep_mark = water.lerp(Color.WHITE, SUNK_MARK)
+		bridges = true
+	else:
+		bridges = false
+		deep_fill = DEEP_COLOR
+		deep_casing = DEEP_CASING
+		deep_mark = DEEP_MARK_COLOR
+
+
+# Lan can hai bên những đoạn của mảnh đường nằm trên mặt nước.
+func _rails(pts: PackedVector2Array) -> void:
+	var runs := []  # mỗi đoạn trên nước: [các điểm tâm đường, pháp tuyến tại từng điểm]
+	var cur := PackedVector2Array()
+	var cur_n := PackedVector2Array()
+	for k in pts.size() - 1:
+		var a := pts[k]
+		var b := pts[k + 1]
+		var seg := a.distance_to(b)
+		if seg < 0.001:
+			continue
+		var n := (b - a).orthogonal().normalized()
+		var steps := maxi(1, ceili(seg / RAIL_STEP))
+		for i in range(1 if k > 0 else 0, steps + 1):
+			var q := a.lerp(b, float(i) / steps)
+			if _over_water(q):
+				cur.append(q)
+				cur_n.append(n)
+			elif not cur.is_empty():
+				runs.append([cur, cur_n])
+				cur = PackedVector2Array()
+				cur_n = PackedVector2Array()
+	if not cur.is_empty():
+		runs.append([cur, cur_n])
+	var off := (ROAD_WIDTH + RAIL_WIDTH) / 2.0
+	for r in runs:
+		var c: PackedVector2Array = r[0]
+		var nn: PackedVector2Array = r[1]
+		if c.size() < 2:
+			continue
+		for side in [1.0, -1.0]:
+			var line := PackedVector2Array()
+			for i in c.size():
+				line.append(c[i] + nn[i] * off * side)
+			draw_polyline(line, RAIL_COLOR, RAIL_WIDTH, true)
+
+
+func _wet_cell(c: Vector2i) -> bool:
+	c = Vector2i(clampi(c.x, 0, Config.GRID_COLS - 1), clampi(c.y, 0, Config.GRID_ROWS - 1))
+	return FloodManager.is_sea(c) or FloodManager.depth_at(c) >= FloodManager.DRY_EPSILON
+
+
+# Điểm p có nằm trên mặt nước không, theo đúng luật bo góc của nền và lớp lũ (water_grid.gdshader).
+func _over_water(p: Vector2) -> bool:
+	var cs := float(Config.CELL_SIZE)
+	var c := Vector2i(floori(p.x / cs), floori(p.y / cs))
+	var l := p - Vector2(c) * cs
+	var s := Vector2i(-1 if l.x < cs / 2.0 else 1, -1 if l.y < cs / 2.0 else 1)
+	var e := Vector2(l.x if s.x < 0 else cs - l.x, l.y if s.y < 0 else cs - l.y)
+	var a := _wet_cell(c)
+	if e.x >= WATER_CORNER or e.y >= WATER_CORNER:
+		return a
+	var h := _wet_cell(c + Vector2i(s.x, 0))
+	var v := _wet_cell(c + Vector2i(0, s.y))
+	var d := _wet_cell(c + s)
+	var in_circle := (Vector2.ONE * WATER_CORNER - e).length_squared() <= WATER_CORNER * WATER_CORNER
+	if a:
+		return h or v or d or in_circle
+	return h and v and not in_circle
+
+
+# Mặt nước đổi (lũ lan, rút) thì vẽ lại để lan can cầu theo kịp.
+func _check_water() -> void:
+	if not bridges:
+		return
+	var sig := PackedByteArray()
+	sig.resize(Config.GRID_COLS * Config.GRID_ROWS)
+	for y in Config.GRID_ROWS:
+		for x in Config.GRID_COLS:
+			sig[y * Config.GRID_COLS + x] = 1 if _wet_cell(Vector2i(x, y)) else 0
+	if sig != _wet_sig:
+		_wet_sig = sig
+		queue_redraw()
 
 
 func _pos(id: int) -> Vector2:
