@@ -21,7 +21,8 @@ var _points: Array[int] = []    # các điểm trên bản đồ, theo thứ t�
 var _point_cells := {}          # ô -> id điểm
 var _cell_elevation: Array = [] # độ cao từng ô, khóa "grid" của bản đồ
 var _cell_water: Array = []     # 1 nếu ô là sông (grid.water), bản đồ không có thì rỗng
-var _cell_boat: Array = []      # 1 nếu ca-nô đi được trên ô (grid.boat: ít nhất 10% diện tích ô là sông), rỗng nếu bản đồ không có
+var _cell_boat: Array = []      # 1 nếu ca-nô đi được trên ô (grid.boat), rỗng nếu bản đồ không có
+var _cell_bank: Array = []      # 1 nếu ô đất là mép sông (grid.bank: sông thật phủ từ 10% ô), nhà không mọc ở đó
 var _boat_pos: Array = []       # grid.boat_pos: [chỉ số ô, x, y] vị trí nút nước (tâm phần sông trong ô, luôn trên sông)
 var _boat_links: Array = []     # grid.boat_links: [i, j] hoặc [i, j, x, y] (vòng qua điểm gãy) — cạnh sông đã kiểm tra nằm trên sông
 var _gates_enabled := false     # khóa "gates": mỗi điểm có một ô cổng, đường chỉ nối vào điểm qua ô đó
@@ -94,6 +95,7 @@ func load_map(path: String) -> void:
 	_cell_elevation = data.get('grid', {}).get('elevation', [])
 	_cell_water = data.get('grid', {}).get('water', [])
 	_cell_boat = data.get('grid', {}).get('boat', [])
+	_cell_bank = data.get('grid', {}).get('bank', [])
 	_boat_pos = data.get('grid', {}).get('boat_pos', [])
 	_boat_links = data.get('grid', {}).get('boat_links', [])
 	_gates_enabled = bool(data.get('gates', false))
@@ -177,10 +179,15 @@ func cell_is_water(cell: Vector2i) -> bool:
 	var i := _cell_index(cell)
 	return _in_grid(cell) and i < _cell_water.size() and int(_cell_water[i]) == 1
 
-# Ô ca-nô đi được (lớp grid.boat, dày và liền hơn lớp sông của lũ). Bản đồ không có lớp này thì không ô nào.
+# Ô ca-nô đi được (lớp grid.boat; bản đồ theo lưới: đúng các ô sông). Bản đồ không có lớp này thì không ô nào.
 func cell_is_boat(cell: Vector2i) -> bool:
 	var i := _cell_index(cell)
 	return _in_grid(cell) and i < _cell_boat.size() and int(_cell_boat[i]) == 1
+
+# Ô đất ở mép sông (lớp grid.bank): nhà không mọc ở đây. Bản đồ không có lớp này thì không ô nào.
+func cell_is_bank(cell: Vector2i) -> bool:
+	var i := _cell_index(cell)
+	return _in_grid(cell) and i < _cell_bank.size() and int(_cell_bank[i]) == 1
 
 # Bản đồ bật cổng (khóa "gates"): mỗi điểm có một ô cổng, xe vào và ra điểm chỉ qua ô đó.
 func uses_gates() -> bool:
@@ -490,10 +497,10 @@ func get_dock_dir(point_id: int) -> Vector2:
 func is_gate_cell(cell: Vector2i) -> bool:
 	return _gate_cells.has(cell)
 
-# Ô đặt được nhà: trong lưới, đất liền (không phải ô sông hay ô ca-nô), chưa có đường, không phải điểm hay cổng,
+# Ô đặt được nhà: trong lưới, đất liền (không phải ô sông, ô ca-nô hay mép sông), chưa có đường, không phải điểm hay cổng,
 # không kề điểm khác, không sát bãi kho, và có một hướng hợp lệ cho lối vào (nhà mọc sát đường cũng được).
 func can_place_house(cell: Vector2i) -> bool:
-	if not _gates_enabled or not _in_grid(cell) or cell_is_water(cell) or cell_is_boat(cell):
+	if not _gates_enabled or not _in_grid(cell) or cell_is_water(cell) or cell_is_boat(cell) or cell_is_bank(cell):
 		return false
 	if road_at(cell) != -1 or _point_cells.has(cell) or _gate_cells.has(cell) or _near_point(cell, -1) or _corner_cut(cell):
 		return false  # (gồm ô đang bị đường chéo cắt góc: nhà đặt vào sẽ đè lên đường)
