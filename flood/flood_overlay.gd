@@ -20,6 +20,9 @@ var _next_tex: ImageTexture
 var _since_tick := 0.0
 var _wet_cells := 0
 var _height_tex: Texture2D = HEIGHT_FIELD
+# Ảnh 1 × 1 chỉ để vẽ hình chữ nhật phủ bản đồ ở kiểu lưới. Không dùng _prev_tex: trên GLES3 cách lọc gắn vào texture,
+# vẽ nó với lọc NEAREST của nút này sẽ làm shader đọc field_prev mất nội suy (bóng ven bờ vỡ thành khối).
+var _quad_tex: ImageTexture
 var _grid_style := false  # terrain.style = "grid": lũ vẽ theo ô (water_grid.gdshader), không theo ảnh độ cao
 
 
@@ -34,7 +37,8 @@ func _ready() -> void:
 	EventBus.game_started.connect(func() -> void:
 		_apply_terrain()
 		_refresh()
-		_refresh())  # hai lần để ảnh trước và sau giống nhau, không trộn từ ván cũ
+		_prev_img.copy_from(_next_img)  # ảnh trước và sau giống nhau, không trộn từ ván cũ
+		_prev_tex.update(_prev_img))
 
 
 func _process(delta: float) -> void:
@@ -49,8 +53,24 @@ func _draw() -> void:
 # Ảnh độ cao và màu nước theo khóa "terrain" của bản đồ; bản đồ không khai báo thì dùng mặc định của map_01.
 func _apply_terrain() -> void:
 	var t: Dictionary = GraphManager.get_terrain()
-	_height_tex = load(t["height"]) if t.has("height") else HEIGHT_FIELD
 	_grid_style = t.get("style", "") == "grid"
+	# Kiểu lưới không dùng ảnh độ cao (chỉ cần một ảnh bất kỳ để vẽ hình chữ nhật phủ bản đồ): khỏi nạp ảnh 1280 × 720.
+	if _grid_style:
+		if _quad_tex == null:
+			_quad_tex = ImageTexture.create_from_image(Image.create(1, 1, false, Image.FORMAT_RGBA8))
+		_height_tex = _quad_tex
+	else:
+		_height_tex = load(t["height"]) if t.has("height") else HEIGHT_FIELD
+	if _grid_style and _prev_img.get_format() != Image.FORMAT_RGB8:  # ô chỉ 0 hoặc 1: ảnh 8 bit, ghi theo khối
+		_prev_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGB8)
+		_next_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGB8)
+		_prev_tex.set_image(_prev_img)
+		_next_tex.set_image(_next_img)
+	elif not _grid_style and _prev_img.get_format() != Image.FORMAT_RGBH:  # bản đồ thường: mặt nước là số thực
+		_prev_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBH)
+		_next_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBH)
+		_prev_tex.set_image(_prev_img)
+		_next_tex.set_image(_next_img)
 	var want := WATER_GRID_SHADER if _grid_style else WATER_SHADER
 	var mat := material as ShaderMaterial
 	if mat.shader != want:
@@ -158,6 +178,9 @@ func _refresh() -> void:
 # Kiểu lưới: R = 1 nếu ô sâu (tới SHALLOW_MAX) hoặc là sông, G = 1 nếu ô có nước (ngập hoặc sông).
 func _refresh_grid() -> void:
 	var wet := 0
+	var data := PackedByteArray()
+	data.resize(Config.GRID_COLS * Config.GRID_ROWS * 3)
+	var k := 0
 	for y in Config.GRID_ROWS:
 		for x in Config.GRID_COLS:
 			var c := Vector2i(x, y)
@@ -166,7 +189,10 @@ func _refresh_grid() -> void:
 			var has_water := sea or d >= FloodManager.DRY_EPSILON
 			if has_water and not sea:
 				wet += 1
-			_next_img.set_pixel(x, y, Color(1.0 if sea or d >= Config.SHALLOW_MAX else 0.0, 1.0 if has_water else 0.0, 0.0))
+			data[k] = 255 if sea or d >= Config.SHALLOW_MAX else 0
+			data[k + 1] = 255 if has_water else 0
+			k += 3
+	_next_img.set_data(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGB8, data)
 	_wet_cells = wet
 	_prev_tex.update(_prev_img)
 	_next_tex.update(_next_img)

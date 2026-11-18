@@ -70,7 +70,7 @@ func reset() -> void:
 	_prev = _level.duplicate()
 	_flood_st.resize(n)
 	_flood_st.fill(255)
-	_compute_spill()
+	_spill.clear()  # ngưỡng tràn tính lần đầu nước rút (_spread), không làm chậm lúc vào ván
 	if has_node("/root/EventBus"):
 		EventBus.water_level_changed.emit(water_level)
 
@@ -208,6 +208,8 @@ func _spread(dt: float) -> void:
 	var drain_max := Config.FLOOD_DRAIN_RATE * dt
 	var seep_max := Config.FLOOD_SEEP_RATE * dt
 	var draining := _above_sea()  # có ô đất mang nước cao hơn mặt biển (đang rút, hoặc còn nước đọng); lúc chỉ dâng thì không
+	if draining and _spill.size() != _level.size():
+		_compute_spill()
 	for i in _level.size():
 		if _sea[i] == 1:
 			continue
@@ -223,7 +225,7 @@ func _spread(dt: float) -> void:
 			var wet := _sea[j] == 1 or _prev[j] - _ground[j] >= Config.FLOOD_SPILL_DEPTH
 			if wet and _prev[j] > source:
 				source = _prev[j]
-		var eq := maxf(water_level, _spill[i])  # mức cân bằng của ô với mặt biển hiện tại
+		var eq := maxf(water_level, _spill[i]) if draining else water_level  # mức cân bằng của ô với mặt biển hiện tại
 		if draining:
 			source = minf(source, eq)  # nước rút: không dâng ô lên quá mức cân bằng
 		if source > _level[i]:

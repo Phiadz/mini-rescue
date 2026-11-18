@@ -22,6 +22,7 @@ const BUTTON_GAP := 20.0
 const BUTTONS_TOP := 384.0
 
 func _ready() -> void:
+	add_child(preload("res://ui/shader_warmup.gd").new())  # con đầu tiên: vẽ trước nền nên bị che kín
 	_build_background()
 	_build_title()
 	_build_buttons()

@@ -72,6 +72,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 
+# Scene game nạp sẵn lúc ở menu (ShaderWarmup gọi): bấm Chơi chỉ còn dựng scene, đỡ khựng trên bản web.
+var _main_packed: PackedScene
+
+func preload_main_scene() -> void:
+	if _main_packed == null:
+		_main_packed = load(MAIN_SCENE)
+
 func start_game() -> void:
 	if _starting:
 		return  # bấm Chơi hai lần liên tiếp
@@ -79,7 +86,10 @@ func start_game() -> void:
 	_reset_speed()
 	_reset_counters()
 	get_tree().paused = true  # xe ván cũ bị giải phóng cùng scene, C không được chạy tới khi reset xong
-	get_tree().change_scene_to_file(MAIN_SCENE)
+	if _main_packed != null:
+		get_tree().change_scene_to_packed(_main_packed)
+	else:
+		get_tree().change_scene_to_file(MAIN_SCENE)
 	await get_tree().process_frame
 	await get_tree().process_frame  # chờ scene sẵn sàng
 	GraphManager.load_map(Config.MAP_PATH)  # 1. nạp bản đồ

@@ -19,10 +19,16 @@ const PENTATONIC_SCALE: Array[float] = [
 var _road_step: int = 0
 var _last_road_draw_ms: int = -100000
 var _players: Dictionary = {}
+# Tiếng đã nạp (tên -> AudioStream). Nạp sẵn mọi SFX lúc khởi động: nạp lúc phát lần đầu làm bản web khựng ở tiếng đầu tiên.
+var _streams: Dictionary = {}
+const SFX_NAMES: Array[StringName] = [&"edge_place", &"edge_remove", &"flood_warning", &"hitHurt", &"lose", &"reward",
+		&"sos_failed", &"sos_new", &"sos_rescued", &"ui_click", &"ui_hover", &"water_rise", &"wave_start", &"win"]
 var _bgm_player: AudioStreamPlayer
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	for n in SFX_NAMES:
+		_sfx_stream(n)
 	_bgm_player = AudioStreamPlayer.new()
 	_bgm_player.bus = &"BGM" if AudioServer.get_bus_index(&"BGM") >= 0 else &"Master"
 	_bgm_player.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -84,14 +90,19 @@ func _on_edge_removed() -> void:
 func play_sfx(name: StringName, pitch_variance: float = 0.0) -> void:
 	play_sfx_with_pitch(name, 1.0, 0.0, pitch_variance)
 
-func play_sfx_with_pitch(name: StringName, base_pitch: float = 1.0, volume_offset_db: float = 0.0, pitch_variance: float = 0.0) -> void:
-	# Ưu tiên .mp3 nếu có (cho phép thay thế SFX bằng file MP3 mà không cần chuyển đổi)
+# Tiếng SFX theo tên (nạp một lần rồi giữ). Ưu tiên .mp3 nếu có (cho phép thay SFX bằng MP3 mà không cần chuyển đổi).
+func _sfx_stream(name: StringName) -> AudioStream:
+	if _streams.has(name):
+		return _streams[name]
 	var path_mp3 := SFX_FOLDER + String(name) + ".mp3"
 	var path_wav := SFX_FOLDER + String(name) + ".wav"
 	var path := path_mp3 if ResourceLoader.exists(path_mp3) else path_wav
-	if not ResourceLoader.exists(path):
-		return
-	var stream := load(path) as AudioStream
+	var stream: AudioStream = load(path) as AudioStream if ResourceLoader.exists(path) else null
+	_streams[name] = stream
+	return stream
+
+func play_sfx_with_pitch(name: StringName, base_pitch: float = 1.0, volume_offset_db: float = 0.0, pitch_variance: float = 0.0) -> void:
+	var stream := _sfx_stream(name)
 	if stream == null:
 		return
 	var player := AudioStreamPlayer.new()

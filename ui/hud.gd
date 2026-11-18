@@ -33,6 +33,22 @@ var _last_level := 0.0
 var _receding := false
 const RECEDE_BANNER := 3.0
 const RECEDE_COLOR := Color("#7ee0a8")  # chữ mực nước lúc đang rút
+# Dòng FPS (góc trên trái): số khung hình mỗi giây thật và khung lâu nhất trong 0,5 giây vừa qua. Đo bằng đồng hồ thật
+# vì tua nhanh đổi Engine.time_scale. Bản debug, hoặc bản web mở với ?fpslog, in thêm ra console để đo (FPS_LOG_EVERY giây
+# một dòng tóm tắt, kèm mọi khung lâu hơn SLOW_FRAME_MS).
+const FPS_WINDOW := 0.5
+const FPS_LOG_EVERY := 5.0
+const SLOW_FRAME_MS := 50.0
+var fps_label: Label
+var _fps_last_us := 0
+var _fps_frames := 0
+var _fps_time := 0.0
+var _fps_worst := 0.0
+var _fps_log := false
+var _log_frames := 0
+var _log_time := 0.0
+var _log_worst := 0.0
+var _log_min := INF
 var countdown: float = 120.0
 var break_time: bool = false
 var enabled: bool = false
@@ -42,6 +58,7 @@ var speed_button: Button
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_build_top_bar()
+	_build_fps()
 	var p := Style.button(self, "II", 1216, 8, 50, 42, Style.NIGHT, 22)
 	p.mouse_filter = Control.MOUSE_FILTER_STOP
 	p.pressed.connect(func() -> void: pause_pressed.emit())
@@ -60,6 +77,43 @@ func _ready() -> void:
 	recede_panel.visible = false
 	recede_label.visible = false
 	_connect_signals()
+
+func _build_fps() -> void:
+	Style.rect(self, 10, 14, 140, 24, Color(0.0, 0.05, 0.11, 0.75), Style.BORDER, 8)
+	fps_label = Style.text(self, "FPS --", 10, 14, 140, 24, 13, Style.MUTED, true)
+	_fps_last_us = Time.get_ticks_usec()
+	_fps_log = OS.is_debug_build()
+	if OS.has_feature("web"):
+		_fps_log = _fps_log or bool(JavaScriptBridge.eval("location.search.indexOf('fpslog') >= 0", true))
+
+func _tick_fps() -> void:
+	var now := Time.get_ticks_usec()
+	var ms := (now - _fps_last_us) / 1000.0
+	_fps_last_us = now
+	if _fps_log and ms > SLOW_FRAME_MS:
+		print("[FPS] khung chậm %.0f ms ở giây %.1f" % [ms, now / 1000000.0])
+	_fps_frames += 1
+	_fps_time += ms / 1000.0
+	_fps_worst = maxf(_fps_worst, ms)
+	if _fps_time < FPS_WINDOW:
+		return
+	var fps := _fps_frames / _fps_time
+	fps_label.text = "FPS %d · %d ms" % [roundi(fps), roundi(_fps_worst)]
+	fps_label.add_theme_color_override("font_color", Style.MUTED if fps >= 50.0 else (Style.YELLOW if fps >= 30.0 else Style.ORANGE))
+	if _fps_log:
+		_log_frames += _fps_frames
+		_log_time += _fps_time
+		_log_worst = maxf(_log_worst, _fps_worst)
+		_log_min = minf(_log_min, fps)
+		if _log_time >= FPS_LOG_EVERY:
+			print("[FPS] giây %.0f: trung bình %.1f, thấp nhất %.1f, khung lâu nhất %.0f ms" % [now / 1000000.0, _log_frames / _log_time, _log_min, _log_worst])
+			_log_frames = 0
+			_log_time = 0.0
+			_log_worst = 0.0
+			_log_min = INF
+	_fps_frames = 0
+	_fps_time = 0.0
+	_fps_worst = 0.0
 
 func _build_top_bar() -> void:
 	Style.rect(self, BAR.position.x, BAR.position.y, BAR.size.x, BAR.size.y, Color(0.0, 0.05, 0.11, 0.9), Style.BORDER, 10)
@@ -176,6 +230,7 @@ func _process(delta: float) -> void:
 	for pair in badges.values():
 		var pill: Control = pair[0].get_parent()
 		pill.position = xf * (pill.get_meta("anchor") as Vector2) - Vector2(BADGE_SIZE.x / 2.0, 0.0)
+	_tick_fps()
 	var speed_text := "x%d" % GameManager.game_speed
 	if speed_button.text != speed_text:
 		speed_button.text = speed_text
