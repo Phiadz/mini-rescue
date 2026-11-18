@@ -3,7 +3,10 @@ extends Node2D
 ## xuất hiện lần đầu, nên lần chạy đầu game khựng 100–700 ms lúc vào ván và lúc lũ, xe, SOS lần đầu hiện ra (đo bằng dòng
 ## FPS, ?fpslog trên bản web). Menu thêm nút này làm con đầu tiên, vẽ trước nền menu nên bị che kín: vẽ mỗi kiểu nét
 ## game dùng (đường cong khử răng cưa, nét mảnh, vòng tròn, cung, đa giác, hộp bo góc, icon xoay lật, chữ, hai shader
-## nước, ảnh nền bản đồ) trong FRAMES khung hình, rồi nạp sẵn scene game và tự xóa.
+## nước, ảnh nền bản đồ) trong FRAMES khung hình, rồi báo finished và tự xóa. Màn khởi động (ui/boot.gd) dùng nút này
+## trước khi vào game, nên menu hiện ra là bấm được ngay.
+
+signal finished
 
 const FRAMES := 4
 const ICON_DIR := 'res://assets/icons/'
@@ -46,7 +49,7 @@ func _process(_delta: float) -> void:
 		for c in get_children():
 			(c as CanvasItem).queue_redraw()
 		return
-	GameManager.preload_main_scene()
+	finished.emit()
 	queue_free()
 
 

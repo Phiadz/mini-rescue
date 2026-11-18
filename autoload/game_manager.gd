@@ -72,12 +72,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 
-# Scene game nạp sẵn lúc ở menu (ShaderWarmup gọi): bấm Chơi chỉ còn dựng scene, đỡ khựng trên bản web.
+# Scene game nạp sẵn ở màn khởi động (ui/boot.gd): bấm Chơi chỉ còn dựng scene, đỡ khựng trên bản web.
 var _main_packed: PackedScene
 
-func preload_main_scene() -> void:
+func preload_main_scene() -> PackedScene:
 	if _main_packed == null:
 		_main_packed = load(MAIN_SCENE)
+	return _main_packed
 
 func start_game() -> void:
 	if _starting:
