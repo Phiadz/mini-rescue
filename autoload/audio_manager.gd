@@ -71,7 +71,12 @@ func set_volume(bus_name: StringName, linear: float) -> void:
 		AudioServer.set_bus_volume_db(idx, linear_to_db(level))
 
 # Kéo chuột vẽ đường rải nốt ngũ cung (Mini Motorways Arpeggio)
+var _edge_note_frame := -1  # kéo nhanh tô nhiều ô trong một khung hình: chỉ phát một nốt
+
 func _on_edge_placed() -> void:
+	if Engine.get_process_frames() == _edge_note_frame:
+		return
+	_edge_note_frame = Engine.get_process_frames()
 	var now_ms := Time.get_ticks_msec()
 	if now_ms - _last_road_draw_ms > 700:
 		_road_step = 0

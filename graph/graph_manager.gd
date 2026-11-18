@@ -23,6 +23,7 @@ var _cell_elevation: Array = [] # độ cao từng ô, khóa "grid" của bản 
 var _cell_water: Array = []     # 1 nếu ô là sông (grid.water), bản đồ không có thì rỗng
 var _cell_boat: Array = []      # 1 nếu ca-nô đi được trên ô (grid.boat), rỗng nếu bản đồ không có
 var _cell_bank: Array = []      # 1 nếu ô đất là mép sông (grid.bank: sông thật phủ từ 10% ô), nhà không mọc ở đó
+var _cell_spill: Array = []     # grid.spill: ngưỡng tràn từng ô tính sẵn (FloodManager dùng khi nước rút), rỗng nếu map không có
 var _boat_pos: Array = []       # grid.boat_pos: [chỉ số ô, x, y] vị trí nút nước (tâm phần sông trong ô, luôn trên sông)
 var _boat_links: Array = []     # grid.boat_links: [i, j] hoặc [i, j, x, y] (vòng qua điểm gãy) — cạnh sông đã kiểm tra nằm trên sông
 var _gates_enabled := false     # khóa "gates": mỗi điểm có một ô cổng, đường chỉ nối vào điểm qua ô đó
@@ -95,6 +96,7 @@ func load_map(path: String) -> void:
 		return
 	_cell_elevation = data.get('grid', {}).get('elevation', [])
 	_cell_water = data.get('grid', {}).get('water', [])
+	_cell_spill = data.get('grid', {}).get('spill', [])
 	_cell_boat = data.get('grid', {}).get('boat', [])
 	_cell_bank = data.get('grid', {}).get('bank', [])
 	_boat_pos = data.get('grid', {}).get('boat_pos', [])
@@ -199,6 +201,11 @@ func get_stages() -> Array:
 	return _stages
 
 # Ảnh độ cao chi tiết và màu nước của bản đồ (rỗng nếu bản đồ không khai báo).
+# Ngưỡng tràn tính sẵn của map (theo chỉ số ô), rỗng nếu map không có.
+func get_spill() -> Array:
+	return _cell_spill
+
+
 func get_terrain() -> Dictionary:
 	return _terrain
 
@@ -701,14 +708,17 @@ func _unlink(edge_id: int) -> void:
 	_edges.erase(edge_id)
 	EventBus.edge_removed.emit(edge_id)
 
-func set_edge_state(edge_id: int, state: int) -> void:
+# quiet: đổi mà không phát tín hiệu (FloodManager đổi hàng loạt cạnh vùng ngập rồi tự phát một lần). Trả true nếu đổi thật.
+func set_edge_state(edge_id: int, state: int, quiet: bool = false) -> bool:
 	if not _edges.has(edge_id):
-		return
+		return false
 	var e: Edge = _edges[edge_id]
 	if e.state == state:
-		return                              # chỉ phát tín hiệu khi đổi thật
+		return false                        # chỉ phát tín hiệu khi đổi thật
 	e.state = state
-	EventBus.edge_state_changed.emit(edge_id, state)
+	if not quiet:
+		EventBus.edge_state_changed.emit(edge_id, state)
+	return true
 
 func add_edge_limit(n: int) -> void:
 	_limit += n

@@ -46,7 +46,7 @@ var _hover_id := -1
 func _ready() -> void:
 	EventBus.game_started.connect(queue_redraw)
 	EventBus.point_added.connect(queue_redraw.unbind(1))
-	EventBus.road_changed.connect(queue_redraw)  # lối vào khu, nhà xoay theo đường vừa nối
+	EventBus.road_changed.connect(_on_road_changed)  # lối vào khu, nhà xoay theo đường vừa nối
 	EventBus.edge_state_changed.connect(_on_edge_state)  # bãi đỗ đổi màu theo đoạn kho–cổng khi ngập
 	add_child(_badges)
 	_badges.draw.connect(_draw_badges)
@@ -260,6 +260,23 @@ func _draw_dock(hub: MapNode) -> void:
 
 
 # Chỉ vẽ lại khi cạnh đổi trạng thái là đoạn nối vào kho (qua bãi), khu hoặc nhà (lô đất đổi màu theo).
+# Tô đường: chỉ vẽ lại khi lối vào của điểm xoay, hoặc đường nối vào điểm đổi (lô đất, bãi kho đổi màu theo đó);
+# kéo một đường dài qua ô trống thì khỏi vẽ lại mọi điểm ở mỗi ô.
+var _plot_sig := PackedInt32Array()
+
+func _on_road_changed() -> void:
+	var sig := PackedInt32Array()
+	for id in GraphManager.get_node_ids():
+		var n := GraphManager.get_map_node(id)
+		if n == null or n.kind == Types.NodeKind.ROAD:
+			continue
+		var link := GraphManager.get_edges_of(id)
+		sig.append_array([id, n.gate.x, n.gate.y, link.size(), GraphManager.get_edge(link[0]).state if not link.is_empty() else -1])
+	if sig != _plot_sig:
+		_plot_sig = sig
+		queue_redraw()
+
+
 func _on_edge_state(edge_id: int, _state: int) -> void:
 	var e := GraphManager.get_edge(edge_id)
 	if e == null or e.boat_only:  # bến, vùng ngập của ca-nô: không đổi màu lô đất hay bãi kho

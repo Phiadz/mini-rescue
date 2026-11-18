@@ -71,7 +71,12 @@ func reset() -> void:
 	_prev = _level.duplicate()
 	_flood_st.resize(n)
 	_flood_st.fill(255)
-	_spill.clear()  # ngưỡng tràn tính lần đầu nước rút (_spread), không làm chậm lúc vào ván
+	_spill.clear()  # ngưỡng tràn: lấy sẵn từ map (grid.spill), map không có thì tính lần đầu nước rút (_spread)
+	var pre: Array = GraphManager.get_spill() if has_node("/root/GraphManager") else []
+	if pre.size() == n:
+		_spill.resize(n)
+		for i in n:
+			_spill[i] = float(pre[i])
 	if has_node("/root/EventBus"):
 		EventBus.water_level_changed.emit(water_level)
 
@@ -327,6 +332,7 @@ func _update_flood_cells() -> void:
 	if changed.is_empty():
 		return
 	# Cạnh nối hai ô vùng ngập lấy ô nông hơn, nên cập nhật cả ô vùng ngập kề ô vừa đổi.
+	var last := []
 	var todo := {}
 	for i in changed:
 		var c := _cell(i)
@@ -346,8 +352,12 @@ func _update_flood_cells() -> void:
 				var j: int = other - GraphManager.FLOOD_ID_BASE
 				dd = minf(d, _level[j] - _deck[j])
 			var st := state_for_depth(dd)
-			if e.state != st:
-				GraphManager.set_edge_state(eid, st)
+			if GraphManager.set_edge_state(eid, st, true):
+				last = [eid, st]
+	# Nước rút làm hàng trăm cạnh vùng ngập đổi cùng lúc: phát một tín hiệu thay vì mỗi cạnh một (EdgeLayer, NodeLayer bỏ
+	# qua cạnh của riêng ca-nô; RescueManager chỉ cần biết đồ thị đã đổi).
+	if not last.is_empty():
+		EventBus.edge_state_changed.emit(last[0], last[1])
 
 
 func _mean_depth(cells: Array) -> float:

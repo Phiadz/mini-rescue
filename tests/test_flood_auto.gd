@@ -25,6 +25,7 @@ func _run() -> void:
 	_test_blocked_basin()
 	_test_schedule()
 	_test_recede()
+	_test_spill_from_map()
 	_test_edges_follow_deepest()
 	_test_warning_once()
 	_test_warning_dry()
@@ -192,6 +193,24 @@ func _test_recede() -> void:
 	_settle()
 	_check(GraphManager.get_edge(eid).state != Types.EdgeState.DRY and _wet_land().size() == wet_high, 'dâng lại tới 40: ngập như lần trước')
 	GraphManager.remove_edge(eid)
+
+
+# Ngưỡng tràn tính sẵn trong map Sài Gòn (grid.spill, build_mm.js) phải trùng với FloodManager tự tính.
+func _test_spill_from_map() -> void:
+	print("
+== Ngưỡng tràn tính sẵn trong map")
+	GraphManager.load_map("res://data/map_saigon.json")
+	FloodManager.reset()
+	var pre := FloodManager._spill.duplicate()
+	_check(pre.size() == Config.GRID_COLS * Config.GRID_ROWS, "map Sài Gòn có grid.spill, FloodManager lấy sẵn (%d ô)" % pre.size())
+	FloodManager._compute_spill()
+	var off := 0
+	for i in pre.size():
+		if absf(pre[i] - FloodManager._spill[i]) > 0.01:
+			off += 1
+	_check(off == 0, "trùng với ngưỡng tràn FloodManager tự tính (%d ô lệch)" % off)
+	GraphManager.load_map(FIXTURE_MAP)
+	FloodManager.reset()
 
 
 func _test_edges_follow_deepest() -> void:
