@@ -26,6 +26,7 @@ func _run() -> void:
 	_test_river()
 	_test_on_water()
 	_test_flood_links()
+	_test_under_bridge()
 	_test_flood_area()
 	_test_heap_matches_old()
 	_test_tree()
@@ -263,6 +264,67 @@ func _test_flood_links() -> void:
 	GraphManager.remove_road(pair[1])
 	_check(GraphManager.get_flood_links().size() == before.size() and not GraphManager._badj.has(b), 'xóa ô đường: lối xuống nước bị gỡ theo')
 	_check(not GraphManager.find_path(CAT_LAI, a, BOAT).found, 'mất ô sát sông thì ca-nô không tới được ô còn lại')
+
+
+# Cầu qua sông: ca-nô chạy trên cạnh sông dưới đường chưa ngập sâu thì vẽ dưới lớp đường; cầu ngập sâu thì vẽ trên.
+func _test_under_bridge() -> void:
+	print('\n== Ca-nô luồn dưới cầu')
+	_fresh_saigon()
+	preload('res://graph/edge_layer.gd').apply_terrain(GraphManager.get_terrain())
+	var r := Vector2i(-1, -1)
+	for y in range(1, Config.GRID_ROWS - 1):
+		for x in range(1, Config.GRID_COLS - 1):
+			var c := Vector2i(x, y)
+			if r != Vector2i(-1, -1) or not GraphManager.cell_is_water(c) or GraphManager._water_at(c) == -1:
+				continue
+			var a := c - Vector2i(1, 0)
+			var b := c + Vector2i(1, 0)
+			if GraphManager.cell_is_water(a) or GraphManager.cell_is_water(b):
+				continue
+			var ra := GraphManager.extend_road(-1, a)
+			var rr := GraphManager.extend_road(ra, c) if ra != -1 else -1
+			var rb := GraphManager.extend_road(rr, b) if rr != -1 else -1
+			if rb != -1:
+				r = c
+			else:
+				for k in [b, c, a]:
+					if GraphManager.road_at(k) != -1:
+						GraphManager.remove_road(k)
+	_check(r != Vector2i(-1, -1), 'tô được cầu ngang qua một ô sông (ô %s)' % r)
+	if r == Vector2i(-1, -1):
+		return
+	FloodManager._update_edges()
+	var bridge := GraphManager.road_at(r)
+	var w := GraphManager._water_at(r)
+	var nb: int = GraphManager.get_water_neighbors(w)[0]
+	var edge := -1
+	for eid in GraphManager._badj[w]:
+		if GraphManager.get_edge(eid).other_end(w) == nb:
+			edge = eid
+	var v = RescueManager.Vehicle.new()
+	v.type = BOAT
+	v.hub_id = CAT_LAI
+	v.state_id = Types.VehicleState.EN_ROUTE
+	var path := PathResult.new()
+	path.found = true
+	path.node_ids.append_array([nb, w])
+	path.edge_ids.append(edge)
+	v.path = path
+	v.path_index = 0
+	v.position = GraphManager.cell_center(r)
+	var dry := GraphManager.get_edges_of(bridge).all(func(eid: int) -> bool: return GraphManager.get_edge(eid).state != Types.EdgeState.DEEP)
+	_check(dry and RescueManager.under_bridge(v), 'cầu chưa ngập sâu: ca-nô trên sông đi qua thì luồn dưới cầu')
+	v.position = GraphManager.get_map_node(nb).pos + (GraphManager.get_map_node(nb).pos - GraphManager.cell_center(r)) * 2.0
+	_check(not RescueManager.under_bridge(v), 'ca-nô xa cầu thì không hạ lớp')
+	v.position = GraphManager.cell_center(r)
+	for c in [r - Vector2i(1, 0), r, r + Vector2i(1, 0)]:
+		FloodManager.set_cell_level(c, maxf(GraphManager.cell_elevation(c), GraphManager.cell_elevation(r)) + Config.SHALLOW_MAX + 5.0)
+	FloodManager._update_edges()
+	var deep := [r - Vector2i(1, 0), r + Vector2i(1, 0)].all(func(c: Vector2i) -> bool:
+		return GraphManager.get_edges_of(GraphManager.road_at(c)).all(func(eid: int) -> bool: return GraphManager.get_edge(eid).state == Types.EdgeState.DEEP))
+	_check(deep, 'làm ngập sâu cả cầu (ba ô)')
+	_check(not RescueManager.under_bridge(v), 'cầu ngập sâu (đường chìm): ca-nô hiện trên')
+	v.free()
 
 
 # Dijkstra cũ (quét mọi nút, O(V²)), chỉ trên _adj: làm chuẩn để so với bản dùng heap trên map_01 (không có sông).

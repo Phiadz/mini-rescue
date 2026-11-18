@@ -29,6 +29,12 @@ const RAIL_WIDTH := 3.0
 const RAIL_STEP := 3.0      # khoảng lấy mẫu dọc đường khi tìm đoạn nằm trên nước (px)
 const WATER_CORNER := 20.0  # bán kính bo góc mặt nước, giống radius trong water_grid.gdshader
 var _wet_sig := PackedByteArray()  # ô nào đang có nước, để chỉ vẽ lại khi mặt nước đổi
+# Thứ tự vẽ (z_index): nền Terrain -20, lớp lũ FloodOverlay -19 (main.tscn), đường chìm SUNK_Z, ca-nô luồn dưới cầu
+# RescueManager.BOAT_UNDER_Z, rồi đường thường (lớp này, z 0), điểm, xe. Bản đồ kiểu lưới: đường ngập sâu vẽ ở lớp con
+# _sunk nên ca-nô hiện trên đường chìm nhưng luồn dưới cầu (đường chưa ngập sâu trên mặt nước).
+const SUNK_Z := -8
+var _sunk: Node2D
+var _ci: CanvasItem  # nơi các hàm vẽ mảnh đường vẽ vào: lớp này, hoặc _sunk
 
 const CASING_WIDTH := 26.0  # đường chiếm khoảng nửa ô như Mini Motorways (trước 32/28, đè gần kín lô đất của nhà)
 const ROAD_WIDTH := 22.0
@@ -40,11 +46,20 @@ const DRIVEWAY_TUCK := 3.0  # lối vào lấn vào dưới mép icon vài px ch
 const CURVE_STEPS := 6  # số đoạn thẳng xấp xỉ mỗi nửa đường cong ở chỗ rẽ
 
 
+func _init() -> void:
+	_ci = self
+
+
 func _ready() -> void:
+	_sunk = Node2D.new()
+	_sunk.name = 'Sunk'
+	_sunk.z_index = SUNK_Z
+	_sunk.draw.connect(_draw_sunk)
+	add_child(_sunk)
 	EventBus.game_started.connect(func() -> void: apply_terrain(GraphManager.get_terrain()))
-	EventBus.road_changed.connect(queue_redraw)
-	EventBus.game_started.connect(queue_redraw)
-	EventBus.edge_state_changed.connect(func(_id: int, _state: int) -> void: queue_redraw())
+	EventBus.road_changed.connect(_redraw)
+	EventBus.game_started.connect(_redraw)
+	EventBus.edge_state_changed.connect(func(_id: int, _state: int) -> void: _redraw())
 	EventBus.water_level_changed.connect(func(_l: float) -> void: _check_water())
 
 
@@ -56,6 +71,8 @@ func _draw() -> void:
 			draw_circle(p, ROAD_WIDTH / 2.0, DRY_COLOR)
 	_draw_stubs()
 	var pieces := _pieces()
+	if bridges:  # đường chìm vẽ ở lớp _sunk (dưới ca-nô)
+		pieces = pieces.filter(func(p: Dictionary) -> bool: return p.state != Types.EdgeState.DEEP)
 	for p in pieces:
 		_poly(p, _casing(p.state), CASING_WIDTH)
 	if bridges:  # lan can vẽ trước mặt đường: ở ngã ba, ngã tư mặt đường của nhánh khác che đi
@@ -66,6 +83,25 @@ func _draw() -> void:
 		_poly(p, _fill(p.state), ROAD_WIDTH)
 	for p in pieces:
 		_mark_poly(p)
+
+
+# Lớp _sunk: các mảnh đường ngập sâu của bản đồ kiểu lưới (không viền, trùng màu nước, vạch nhạt).
+func _draw_sunk() -> void:
+	if not bridges:
+		return
+	var sunk := _pieces().filter(func(p: Dictionary) -> bool: return p.state == Types.EdgeState.DEEP)
+	_ci = _sunk
+	for p in sunk:
+		_poly(p, deep_fill, ROAD_WIDTH)
+	for p in sunk:
+		_mark_poly(p)
+	_ci = self
+
+
+func _redraw() -> void:
+	queue_redraw()
+	if _sunk != null:
+		_sunk.queue_redraw()
 
 
 # Đường mềm như Mini Motorways: mỗi cạnh chia đôi ở giữa. Ô đường chỉ có 2 nhánh (đường đi qua) thì nối trung điểm hai
@@ -115,10 +151,10 @@ func _bezier(a: Vector2, c: Vector2, b: Vector2, t0: float, t1: float) -> Packed
 func _poly(p: Dictionary, color: Color, width: float) -> void:
 	var pts: PackedVector2Array = p.points
 	if p.cap_a:
-		draw_circle(pts[0], width / 2.0, color)
+		_ci.draw_circle(pts[0], width / 2.0, color)
 	if p.cap_b:
-		draw_circle(pts[pts.size() - 1], width / 2.0, color)
-	draw_polyline(pts, color, width, true)
+		_ci.draw_circle(pts[pts.size() - 1], width / 2.0, color)
+	_ci.draw_polyline(pts, color, width, true)
 
 
 # Vạch giữa đường theo trạng thái ngập, kẻ đứt dọc theo mảnh (thẳng hoặc cong).
@@ -143,7 +179,7 @@ func _dashed(pts: PackedVector2Array, color: Color, width: float, dash: float) -
 		while pos < seg - 0.001:
 			var step := minf(left, seg - pos)
 			if on:
-				draw_line(a.lerp(b, pos / seg), a.lerp(b, (pos + step) / seg), color, width)
+				_ci.draw_line(a.lerp(b, pos / seg), a.lerp(b, (pos + step) / seg), color, width)
 			pos += step
 			left -= step
 			if left <= 0.001:
@@ -274,7 +310,7 @@ func _check_water() -> void:
 			sig[y * Config.GRID_COLS + x] = 1 if _wet_cell(Vector2i(x, y)) else 0
 	if sig != _wet_sig:
 		_wet_sig = sig
-		queue_redraw()
+		_redraw()
 
 
 func _pos(id: int) -> Vector2:

@@ -18,6 +18,8 @@ const DOCK_OUT := 38.0               # chỗ đỗ ca-nô cách tâm kho về ph
 const PARKED_SCALE := 0.8            # xe trong bãi, ở bến vẽ nhỏ lại cho vừa chỗ đỗ
 const MANEUVER_SPEED := 0.4          # hệ số tốc độ khi lùi ra khỏi chỗ đỗ hoặc đỗ vào chỗ
 const BOAT_CLEAR := 12.0             # ca-nô cập bến khu, nhà: cách mép lô đất ít nhất chừng này px (không đè lên lô)
+const BOAT_UNDER_Z := -7             # ca-nô luồn dưới cầu: trên đường chìm (EdgeLayer.SUNK_Z), dưới đường thường (z 0)
+const Road := preload('res://graph/edge_layer.gd')
 const DISPATCH_INTERVAL := 0.5       # giây giữa hai lượt điều phối
 const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết cạnh
 const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
@@ -164,6 +166,8 @@ class Vehicle extends Node2D:
 			_state.update(self, delta)
 		_update_lane(delta)
 		_update_visible()
+		if type == Types.VehicleType.BOAT:
+			z_index = BOAT_UNDER_Z if RescueManager.under_bridge(self) else 0
 
 	# Xe đang ở trong kho (đỗ, hoặc chờ ra cổng) thì ẩn, nên xe cùng kho không chồng lên nhau.
 	func _update_visible() -> void:
@@ -859,6 +863,31 @@ func _dock_slots(hub_id: int) -> Array[int]:
 # Các nút nước làm chỗ đỗ ca-nô ở bến kho (NodeLayer vẽ cầu tàu tới những chỗ sát kho).
 func dock_slot_nodes(hub_id: int) -> Array[int]:
 	return _dock_slots(hub_id)
+
+# Ca-nô đang chạy trên cạnh của riêng nó (sông, vùng ngập, bến) và nằm dưới một mảnh đường chưa ngập sâu (cầu):
+# vẽ dưới lớp đường để thấy ca-nô luồn dưới cầu. Chạy dọc đường ngập, đang đỗ, hay bản đồ không theo lưới thì vẽ trên.
+func under_bridge(v: Vehicle) -> bool:
+	if not Road.bridges or not v.is_moving():
+		return false
+	var e: Edge = g().get_edge(v.path.edge_ids[v.path_index])
+	if e == null or not e.boat_only:
+		return false
+	var reach: float = Road.CASING_WIDTH / 2.0 + Vehicle.ICON_SIZE.x / 2.0
+	var c: Vector2i = g().cell_of(v.position)
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			var rid: int = g().road_at(c + Vector2i(dx, dy))
+			if rid == -1:
+				continue
+			var rp: Vector2 = g().get_map_node(rid).pos
+			for eid in g().get_edges_of(rid):
+				var re: Edge = g().get_edge(eid)
+				if re.state == Types.EdgeState.DEEP:
+					continue
+				var mid: Vector2 = (rp + g().get_map_node(re.other_end(rid)).pos) / 2.0  # mảnh đường của ô: từ tâm ô tới giữa cạnh
+				if Geometry2D.get_closest_point_to_segment(v.position, rp, mid).distance_to(v.position) <= reach:
+					return true
+	return false
 
 # Đích của ca-nô khi tới node: về kho có chỗ thì tới chỗ đỗ ở bến; cập bến một điểm (kho, khu, nhà) từ nút nước thì
 # dừng ngay trên nút nước đó (đã bảo đảm nằm trên sông), không chạy lên bờ tới tâm điểm.
