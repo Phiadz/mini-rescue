@@ -21,6 +21,8 @@ const BOAT_CLEAR := 12.0             # ca-nô cập bến khu, nhà: cách mép 
 const BOAT_UNDER_Z := -7             # ca-nô luồn dưới cầu: trên đường chìm (EdgeLayer.SUNK_Z), dưới đường thường (z 0)
 const Road := preload('res://graph/edge_layer.gd')
 const DISPATCH_INTERVAL := 0.5       # giây giữa hai lượt điều phối
+const DIRTY_DISPATCH_GAP := 0.1      # đồ thị đổi (tô đường, nước dâng rút): điều phối lại sớm nhưng không dày hơn mức này
+                                     # (SOS mới, xe rảnh vẫn điều phối ngay khung sau)
 const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết cạnh
 const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
 const BOAT_ESCAPE_FACTOR := 0.1      # ca-nô mắc cạn (nước rút) tìm đường về được bò qua chỗ khô; chỗ khô tính đắt gấp 10
@@ -447,6 +449,7 @@ var _spawn_timer := 0.0
 var _house_timer := 0.0  # nhà mọc dần (bản đồ có cổng)
 var _dispatch_timer := 0.0
 var _dirty := false
+var _graph_dirty := false  # đồ thị vừa đổi: điều phối lại, giãn cách DIRTY_DISPATCH_GAP
 var _retry_stranded := false  # đồ thị vừa đổi: xe kẹt thử tìm đường lại, gom một lần mỗi khung hình
 var _clock := 0.0
 var _last_rescued := {}  # node_id -> thời điểm được cứu gần nhất
@@ -517,7 +520,7 @@ func _on_edge_state_changed(_edge_id: int, _state: int) -> void:
 # Nước rút làm nhiều cạnh vùng ngập đổi trạng thái trong cùng một nhịp lũ: không cho mỗi lần đổi một lượt tìm đường
 # của mọi xe kẹt, mà gom lại, xe kẹt thử lại một lần ở đầu khung hình sau (_process).
 func _on_graph_changed() -> void:
-	_dirty = true
+	_graph_dirty = true
 	_retry_stranded = true
 
 func _retry_all_stranded() -> void:
@@ -701,8 +704,9 @@ func _process(delta: float) -> void:
 		_tick_spawn(delta)
 		_tick_houses(delta)
 	_dispatch_timer += delta
-	if _dirty or _dispatch_timer >= DISPATCH_INTERVAL:
+	if _dirty or (_graph_dirty and _dispatch_timer >= DIRTY_DISPATCH_GAP) or _dispatch_timer >= DISPATCH_INTERVAL:
 		_dirty = false
+		_graph_dirty = false
 		_dispatch_timer = 0.0
 		_dispatch()
 

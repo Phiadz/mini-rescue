@@ -54,6 +54,7 @@ func reset() -> void:
 	_accum = 0.0
 	_last_dt = 0.0
 	_warned.clear()
+	_edge_cells.clear()
 	var n := Config.GRID_COLS * Config.GRID_ROWS
 	_ground.resize(n)
 	_deck.resize(n)
@@ -286,13 +287,7 @@ func _update_edges() -> void:
 		var e = GraphManager.get_edge(eid)
 		if e == null:
 			continue
-		var cells: Array = []
-		for node_id in [e.node_a, e.node_b]:
-			var n = GraphManager.get_map_node(node_id)
-			if n != null:
-				var i := _index(GraphManager.cell_of(n.pos))
-				if i >= 0 and not cells.has(i):
-					cells.append(i)
+		var cells := _cells_of(e)
 		var state := state_for_depth(_mean_depth(cells))
 		if e.state != state:
 			GraphManager.set_edge_state(eid, state)
@@ -413,13 +408,60 @@ func _eta(i: int, threshold: float) -> float:
 	return eta
 
 
-func _on_edge_added(_edge_id: int) -> void:
+# Tô đường: cạnh mới lấy trạng thái ngay (theo hai ô của nó); cập nhật toàn bộ (cảnh báo theo đoạn, lối xuống nước, vùng
+# ngập) gom lại một lần cuối khung hình, không chạy lại mỗi ô khi kéo chuột vẽ một đường dài.
+var _edges_pending := false
+
+func _on_edge_added(edge_id: int) -> void:
+	if not has_node("/root/GraphManager") or _level.is_empty():
+		return
+	var e = GraphManager.get_edge(edge_id)
+	if e != null:
+		var cells: Array = []
+		for node_id in [e.node_a, e.node_b]:
+			var n = GraphManager.get_map_node(node_id)
+			if n != null:
+				var i := _index(GraphManager.cell_of(n.pos))
+				if i >= 0 and not cells.has(i):
+					cells.append(i)
+		var state := state_for_depth(_mean_depth(cells))
+		if e.state != state:
+			GraphManager.set_edge_state(edge_id, state)
+	_queue_update_edges()
+
+
+# Ô (chỉ số) hai đầu của cạnh, lưu sẵn: mỗi nhịp lũ không phải tra lại vị trí, ô của từng nút. Xóa khi đường đổi.
+var _edge_cells := {}
+
+func _cells_of(e) -> Array:
+	var cells = _edge_cells.get(e.id)
+	if cells == null:
+		cells = []
+		for node_id in [e.node_a, e.node_b]:
+			var n = GraphManager.get_map_node(node_id)
+			if n != null:
+				var i := _index(GraphManager.cell_of(n.pos))
+				if i >= 0 and not cells.has(i):
+					cells.append(i)
+		_edge_cells[e.id] = cells
+	return cells
+
+
+func _queue_update_edges() -> void:
+	_edge_cells.clear()
+	if not _edges_pending:
+		_edges_pending = true
+		_flush_edges.call_deferred()
+
+
+func _flush_edges() -> void:
+	_edges_pending = false
 	_update_edges()
 
 
 # Tô hoặc xóa ô làm đoạn đổi, kể cả lúc nước đứng yên.
 func _on_road_changed() -> void:
-	_update_edges()
+	_queue_update_edges()
 
 
 func _cell(i: int) -> Vector2i:

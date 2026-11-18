@@ -262,7 +262,7 @@ func _draw_dock(hub: MapNode) -> void:
 # Chỉ vẽ lại khi cạnh đổi trạng thái là đoạn nối vào kho (qua bãi), khu hoặc nhà (lô đất đổi màu theo).
 func _on_edge_state(edge_id: int, _state: int) -> void:
 	var e := GraphManager.get_edge(edge_id)
-	if e == null:
+	if e == null or e.boat_only:  # bến, vùng ngập của ca-nô: không đổi màu lô đất hay bãi kho
 		return
 	for id in [e.node_a, e.node_b]:
 		var n := GraphManager.get_map_node(id)

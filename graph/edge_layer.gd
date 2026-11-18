@@ -3,7 +3,11 @@ extends Node2D
 # khô là đường trắng viền xám xanh; ngập nhẹ là đường vàng nhạt với vạch đứt nâu đậm;
 # ngập sâu là đường xanh dương viền đậm. Phân biệt cả bằng kiểu nét (liền / đứt), không chỉ bằng màu (1.10).
 # Đường rộng đủ hai làn, vạch giữa là vạch chia làn.
-# Một node vẽ cả mạng theo ba lượt (viền, mặt đường, vạch) để viền của ô sau không đè lên mặt đường ô trước.
+# Vẽ theo lượt: viền (lớp con _casing_ci), lan can cầu (lớp con _rails_ci), rồi mặt đường và vạch (lớp này), để viền
+# của nét sau không đè lên mặt đường nét trước. Hai lớp con vẽ sau lưng lớp này (show_behind_parent).
+# Hiệu năng (bản web): các mảnh nửa cạnh liền nhau cùng trạng thái được gộp thành một nét dài (chỉ đứt ở ngã ba, ngã
+# tư, điểm, chỗ đổi trạng thái), vạch kẻ mỗi kiểu một lệnh draw_multiline; nét, vạch, lan can dựng một lần mỗi khi
+# đường hay trạng thái đổi (bộ đệm), mặt nước đổi thì chỉ dựng lại lan can, và chỉ khi ô có nước nằm sát đường.
 
 const DRY_CASING := Color('#b9cdd6')
 const DRY_COLOR := Color('#fbfaf6')          # mặt đường khô
@@ -28,15 +32,22 @@ const RAIL_COLOR := Color('#55656f')
 const RAIL_WIDTH := 3.0
 const RAIL_STEP := 3.0      # khoảng lấy mẫu dọc đường khi tìm đoạn nằm trên nước (px)
 const WATER_CORNER := 20.0  # bán kính bo góc mặt nước, giống radius trong water_grid.gdshader
-var _wet_sig := PackedByteArray()  # ô nào đang có nước (FloodManager.wet_mask), để chỉ vẽ lại khi mặt nước đổi và để vẽ cầu
-var _pieces_cache: Array = []     # mảnh đường dựng ở khung hình _pieces_frame, dùng chung cho _draw và _draw_sunk
-var _pieces_frame := -1
+var _wet_sig := PackedByteArray()  # ô nào đang có nước (FloodManager.wet_mask), tra khi dựng lan can cầu
+var _near_cells := PackedInt32Array()  # ô nằm sát đường (3 × 3 quanh điểm của nét): chỉ các ô này đổi nước mới dựng lại lan can
+var _near_sig := PackedByteArray()     # nước ở các ô _near_cells lần dựng lan can trước
+var _strokes: Array = []   # nét đường: {points, state, cap_a, cap_b}
+var _dashes := {}          # trạng thái -> PackedVector2Array các cặp điểm đầu, cuối của từng gạch vạch kẻ
+var _rail_lines: Array = []  # PackedVector2Array: lan can hai bên các đoạn đường trên mặt nước
+var _dirty := true         # đường hoặc trạng thái đổi: dựng lại nét, vạch, lan can ở lần vẽ tới
+var _rails_dirty := true
+var _road_sig := PackedInt64Array()  # cạnh, hai đầu, trạng thái lần dựng trước: không đổi thì khỏi dựng lại (vd. nhà mới mọc)
+var _casing_ci: Node2D
+var _rails_ci: Node2D
 # Thứ tự vẽ (z_index): nền Terrain -20, lớp lũ FloodOverlay -19 (main.tscn), đường chìm SUNK_Z, ca-nô luồn dưới cầu
 # RescueManager.BOAT_UNDER_Z, rồi đường thường (lớp này, z 0), điểm, xe. Bản đồ kiểu lưới: đường ngập sâu vẽ ở lớp con
 # _sunk nên ca-nô hiện trên đường chìm nhưng luồn dưới cầu (đường chưa ngập sâu trên mặt nước).
 const SUNK_Z := -8
 var _sunk: Node2D
-var _ci: CanvasItem  # nơi các hàm vẽ mảnh đường vẽ vào: lớp này, hoặc _sunk
 
 const CASING_WIDTH := 26.0  # đường chiếm khoảng nửa ô như Mini Motorways (trước 32/28, đè gần kín lô đất của nhà)
 const ROAD_WIDTH := 22.0
@@ -48,16 +59,22 @@ const DRIVEWAY_TUCK := 3.0  # lối vào lấn vào dưới mép icon vài px ch
 const CURVE_STEPS := 6  # số đoạn thẳng xấp xỉ mỗi nửa đường cong ở chỗ rẽ
 
 
-func _init() -> void:
-	_ci = self
-
-
 func _ready() -> void:
 	_sunk = Node2D.new()
 	_sunk.name = 'Sunk'
 	_sunk.z_index = SUNK_Z
 	_sunk.draw.connect(_draw_sunk)
 	add_child(_sunk)
+	_casing_ci = Node2D.new()
+	_casing_ci.name = 'Casing'
+	_casing_ci.show_behind_parent = true
+	_casing_ci.draw.connect(_draw_casing)
+	add_child(_casing_ci)
+	_rails_ci = Node2D.new()
+	_rails_ci.name = 'Rails'
+	_rails_ci.show_behind_parent = true
+	_rails_ci.draw.connect(_draw_rails)
+	add_child(_rails_ci)
 	EventBus.game_started.connect(func() -> void: apply_terrain(GraphManager.get_terrain()))
 	EventBus.road_changed.connect(_redraw)
 	EventBus.game_started.connect(_redraw)
@@ -69,54 +86,209 @@ func _ready() -> void:
 
 
 func _draw() -> void:
+	_ensure()
 	for id in GraphManager.get_road_ids():
 		if GraphManager.get_edges_of(id).is_empty():  # ô lẻ chưa nối với gì
 			var p := GraphManager.get_map_node(id).pos
 			draw_circle(p, CASING_WIDTH / 2.0, DRY_CASING)
 			draw_circle(p, ROAD_WIDTH / 2.0, DRY_COLOR)
 	_draw_stubs()
-	var pieces := _frame_pieces()
-	if bridges:  # đường chìm vẽ ở lớp _sunk (dưới ca-nô)
-		pieces = pieces.filter(func(p: Dictionary) -> bool: return p.state != Types.EdgeState.DEEP)
-	for p in pieces:
-		_poly(p, _casing(p.state), CASING_WIDTH)
-	if bridges:  # lan can vẽ trước mặt đường: ở ngã ba, ngã tư mặt đường của nhánh khác che đi
-		for p in pieces:
-			if p.state != Types.EdgeState.DEEP:
-				_rails(p.points)
-	for p in pieces:
-		_poly(p, _fill(p.state), ROAD_WIDTH)
-	for p in pieces:
-		_mark_poly(p)
+	for s in _strokes:
+		if not (bridges and s.state == Types.EdgeState.DEEP):
+			_stroke(self, s, _fill(s.state), ROAD_WIDTH)
+	for st in [Types.EdgeState.DRY, Types.EdgeState.SHALLOW, Types.EdgeState.DEEP]:
+		if not (bridges and st == Types.EdgeState.DEEP):
+			_draw_dashes(self, st)
 
 
-# Lớp _sunk: các mảnh đường ngập sâu của bản đồ kiểu lưới (không viền, trùng màu nước, vạch nhạt).
+# Lớp con sau lưng: viền của các nét (đường chìm của bản đồ kiểu lưới không có viền).
+func _draw_casing() -> void:
+	_ensure()
+	for s in _strokes:
+		if not (bridges and s.state == Types.EdgeState.DEEP):
+			_stroke(_casing_ci, s, _casing(s.state), CASING_WIDTH)
+
+
+# Lớp con sau lưng, trên viền: lan can cầu (mặt đường của nhánh khác ở ngã ba, ngã tư che đi).
+func _draw_rails() -> void:
+	_ensure()
+	if _rails_dirty:
+		_rails_dirty = false
+		_build_rails()
+	for line in _rail_lines:
+		_rails_ci.draw_polyline(line, RAIL_COLOR, RAIL_WIDTH, true)
+
+
+# Lớp _sunk: các nét đường ngập sâu của bản đồ kiểu lưới (không viền, trùng màu nước, vạch nhạt).
 func _draw_sunk() -> void:
 	if not bridges:
 		return
-	var sunk := _frame_pieces().filter(func(p: Dictionary) -> bool: return p.state == Types.EdgeState.DEEP)
-	_ci = _sunk
-	for p in sunk:
-		_poly(p, deep_fill, ROAD_WIDTH)
-	for p in sunk:
-		_mark_poly(p)
-	_ci = self
-
-
-# Mảnh đường của khung hình này (dựng một lần cho cả lớp đường và lớp đường chìm).
-func _frame_pieces() -> Array:
-	var f := Engine.get_frames_drawn()
-	if f != _pieces_frame:
-		_pieces_frame = f
-		_pieces_cache = _pieces()
-	return _pieces_cache
+	_ensure()
+	for s in _strokes:
+		if s.state == Types.EdgeState.DEEP:
+			_stroke(_sunk, s, deep_fill, ROAD_WIDTH)
+	_draw_dashes(_sunk, Types.EdgeState.DEEP)
 
 
 func _redraw() -> void:
-	_pieces_frame = -1
+	_dirty = true
 	queue_redraw()
-	if _sunk != null:
-		_sunk.queue_redraw()
+	for ci in [_sunk, _casing_ci, _rails_ci]:
+		if ci != null:
+			ci.queue_redraw()
+
+
+# Dựng lại nét, vạch kẻ, danh sách ô sát đường (một lần dù nhiều tín hiệu tới trong cùng khung hình).
+func _ensure() -> void:
+	if not _dirty:
+		return
+	_dirty = false
+	var sig := _roads_signature()
+	if sig == _road_sig and not _strokes.is_empty():
+		return  # mạng đường và trạng thái như cũ (vd. nhà mới mọc chỉ đổi lối vào ngắn): giữ nét đã dựng
+	_road_sig = sig
+	_strokes = _build_strokes(_pieces())
+	_dashes = {}
+	for st in [Types.EdgeState.DRY, Types.EdgeState.SHALLOW, Types.EdgeState.DEEP]:
+		_dashes[st] = PackedVector2Array()
+	var near := {}
+	for s in _strokes:
+		_dash_into(_dashes[s.state], s.points, _dash_len(s.state))
+		var mine := {}  # ô quanh nét: lan can chỉ dựng cho nét có ô nước ở gần
+		for p in s.points:
+			var c := GraphManager.cell_of(p)
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					var x := c.x + dx
+					var y := c.y + dy
+					if x >= 0 and y >= 0 and x < Config.GRID_COLS and y < Config.GRID_ROWS:
+						mine[y * Config.GRID_COLS + x] = true
+		s.cells = PackedInt32Array(mine.keys())
+		near.merge(mine)
+	_near_cells = PackedInt32Array(near.keys())
+	_near_sig = _near_wet()
+	_rails_dirty = true
+
+
+func _roads_signature() -> PackedInt64Array:
+	var sig := PackedInt64Array()
+	for eid in GraphManager.get_edge_ids():
+		var e := GraphManager.get_edge(eid)
+		sig.append(eid)
+		sig.append(e.node_a)
+		sig.append(e.node_b)
+		sig.append(e.state)
+	return sig
+
+
+# Gộp các mảnh liền nhau cùng trạng thái thành nét dài: hai mảnh nối nhau khi đúng hai mảnh gặp nhau ở một điểm
+# (trung điểm cạnh, hoặc giữa đường cong ở ô đường đi qua). Ở ngã ba, ngã tư (từ ba mảnh) và chỗ đổi trạng thái thì
+# nét đứt, hai đầu bo tròn như mảnh gốc.
+func _build_strokes(pieces: Array) -> Array:
+	var at := {}  # điểm đầu mút (làm tròn 0,25 px) -> [[mảnh, đầu 0 hay 1], ...]
+	for i in pieces.size():
+		var pts: PackedVector2Array = pieces[i].points
+		for end in [0, 1]:
+			var q: Vector2 = pts[0] if end == 0 else pts[pts.size() - 1]
+			var k := Vector2i(roundi(q.x * 4.0), roundi(q.y * 4.0))
+			if not at.has(k):
+				at[k] = []
+			at[k].append([i, end])
+	var link := {}  # Vector2i(mảnh, đầu) -> Vector2i(mảnh kia, đầu kia)
+	for k in at:
+		var l: Array = at[k]
+		if l.size() == 2 and l[0][0] != l[1][0] and pieces[l[0][0]].state == pieces[l[1][0]].state:
+			link[Vector2i(l[0][0], l[0][1])] = Vector2i(l[1][0], l[1][1])
+			link[Vector2i(l[1][0], l[1][1])] = Vector2i(l[0][0], l[0][1])
+	var used := {}
+	var out := []
+	for pass_ in 2:  # lượt đầu: bắt đầu từ mảnh có đầu tự do; lượt sau: phần còn lại là vòng kín
+		for i in pieces.size():
+			if used.has(i):
+				continue
+			var start := 0
+			if pass_ == 0:
+				if not link.has(Vector2i(i, 0)):
+					start = 0
+				elif not link.has(Vector2i(i, 1)):
+					start = 1
+				else:
+					continue
+			var pts := PackedVector2Array()
+			var cur := i
+			var enter := start
+			var cap_a: bool = pieces[i].cap_a if start == 0 else pieces[i].cap_b
+			var cap_b := true
+			while true:
+				used[cur] = true
+				var p: PackedVector2Array = pieces[cur].points
+				if enter == 1:
+					p = p.duplicate()
+					p.reverse()
+				pts.append_array(p if pts.is_empty() else p.slice(1))
+				var leave := 1 - enter
+				cap_b = pieces[cur].cap_b if leave == 1 else pieces[cur].cap_a
+				var nx: Vector2i = link.get(Vector2i(cur, leave), Vector2i(-1, -1))
+				if nx.x == -1 or used.has(nx.x):
+					break
+				cur = nx.x
+				enter = nx.y
+			out.append({points = pts, state = pieces[i].state, cap_a = cap_a, cap_b = cap_b})
+	return out
+
+
+# Một nét đường, hai đầu bo tròn (trừ đầu ở mép tòa nhà).
+func _stroke(ci: CanvasItem, s: Dictionary, color: Color, width: float) -> void:
+	var pts: PackedVector2Array = s.points
+	if s.cap_a:
+		ci.draw_circle(pts[0], width / 2.0, color)
+	if s.cap_b:
+		ci.draw_circle(pts[pts.size() - 1], width / 2.0, color)
+	ci.draw_polyline(pts, color, width, true)
+
+
+func _dash_len(state: int) -> float:
+	match state:
+		Types.EdgeState.SHALLOW:
+			return SHALLOW_DASH
+		Types.EdgeState.DEEP:
+			return DASH * 2.0
+	return DASH
+
+
+# Vạch giữa đường theo trạng thái ngập: mọi gạch của một kiểu vẽ bằng một lệnh draw_multiline.
+func _draw_dashes(ci: CanvasItem, state: int) -> void:
+	var segs: PackedVector2Array = _dashes.get(state, PackedVector2Array())
+	if segs.is_empty():
+		return
+	match state:
+		Types.EdgeState.SHALLOW:
+			ci.draw_multiline(segs, SHALLOW_MARK_COLOR, SHALLOW_MARK_WIDTH)
+		Types.EdgeState.DEEP:
+			ci.draw_multiline(segs, deep_mark, MARK_WIDTH)
+		_:
+			ci.draw_multiline(segs, DRY_MARK_COLOR, MARK_WIDTH)
+
+
+# Cắt nét thành gạch dài dash, cách nhau dash, nối thêm vào out (từng cặp điểm đầu, cuối).
+func _dash_into(out: PackedVector2Array, pts: PackedVector2Array, dash: float) -> void:
+	var on := true
+	var left := dash
+	for k in pts.size() - 1:
+		var a := pts[k]
+		var b := pts[k + 1]
+		var seg := a.distance_to(b)
+		var pos := 0.0
+		while pos < seg - 0.001:
+			var step := minf(left, seg - pos)
+			if on:
+				out.append(a.lerp(b, pos / seg))
+				out.append(a.lerp(b, (pos + step) / seg))
+			pos += step
+			left -= step
+			if left <= 0.001:
+				on = not on
+				left = dash
 
 
 # Đường mềm như Mini Motorways: mỗi cạnh chia đôi ở giữa. Ô đường chỉ có 2 nhánh (đường đi qua) thì nối trung điểm hai
@@ -160,46 +332,6 @@ func _bezier(a: Vector2, c: Vector2, b: Vector2, t0: float, t1: float) -> Packed
 		var t := lerpf(t0, t1, float(k) / CURVE_STEPS)
 		pts.append(a * (1.0 - t) * (1.0 - t) + c * 2.0 * (1.0 - t) * t + b * t * t)
 	return pts
-
-
-# Vẽ một mảnh đường, hai đầu bo tròn (trừ đầu ở mép tòa nhà) để các mảnh nối nhau liền mạch.
-func _poly(p: Dictionary, color: Color, width: float) -> void:
-	var pts: PackedVector2Array = p.points
-	if p.cap_a:
-		_ci.draw_circle(pts[0], width / 2.0, color)
-	if p.cap_b:
-		_ci.draw_circle(pts[pts.size() - 1], width / 2.0, color)
-	_ci.draw_polyline(pts, color, width, true)
-
-
-# Vạch giữa đường theo trạng thái ngập, kẻ đứt dọc theo mảnh (thẳng hoặc cong).
-func _mark_poly(p: Dictionary) -> void:
-	match p.state:
-		Types.EdgeState.SHALLOW:
-			_dashed(p.points, SHALLOW_MARK_COLOR, SHALLOW_MARK_WIDTH, SHALLOW_DASH)
-		Types.EdgeState.DEEP:
-			_dashed(p.points, deep_mark, MARK_WIDTH, DASH * 2.0)
-		_:
-			_dashed(p.points, DRY_MARK_COLOR, MARK_WIDTH, DASH)
-
-
-func _dashed(pts: PackedVector2Array, color: Color, width: float, dash: float) -> void:
-	var on := true
-	var left := dash
-	for k in pts.size() - 1:
-		var a := pts[k]
-		var b := pts[k + 1]
-		var seg := a.distance_to(b)
-		var pos := 0.0
-		while pos < seg - 0.001:
-			var step := minf(left, seg - pos)
-			if on:
-				_ci.draw_line(a.lerp(b, pos / seg), a.lerp(b, (pos + step) / seg), color, width)
-			pos += step
-			left -= step
-			if left <= 0.001:
-				on = not on
-				left = dash
 
 
 # Lối vào ngắn của khu, nhà chưa nối đường (bản đồ có cổng): từ mép lô đất tới đúng mép ô theo hướng gate, đầu vuông,
@@ -253,41 +385,55 @@ static func apply_terrain(t: Dictionary) -> void:
 		deep_mark = DEEP_MARK_COLOR
 
 
-# Lan can hai bên những đoạn của mảnh đường nằm trên mặt nước.
-func _rails(pts: PackedVector2Array) -> void:
-	var runs := []  # mỗi đoạn trên nước: [các điểm tâm đường, pháp tuyến tại từng điểm]
-	var cur := PackedVector2Array()
-	var cur_n := PackedVector2Array()
-	for k in pts.size() - 1:
-		var a := pts[k]
-		var b := pts[k + 1]
-		var seg := a.distance_to(b)
-		if seg < 0.001:
-			continue
-		var n := (b - a).orthogonal().normalized()
-		var steps := maxi(1, ceili(seg / RAIL_STEP))
-		for i in range(1 if k > 0 else 0, steps + 1):
-			var q := a.lerp(b, float(i) / steps)
-			if _over_water(q):
-				cur.append(q)
-				cur_n.append(n)
-			elif not cur.is_empty():
-				runs.append([cur, cur_n])
-				cur = PackedVector2Array()
-				cur_n = PackedVector2Array()
-	if not cur.is_empty():
-		runs.append([cur, cur_n])
+# Lan can hai bên những đoạn đường (chưa ngập sâu) nằm trên mặt nước: dựng lại khi nét đổi hoặc nước sát đường đổi.
+func _build_rails() -> void:
+	_rail_lines = []
+	if not bridges:
+		return
 	var off := (ROAD_WIDTH + RAIL_WIDTH) / 2.0
-	for r in runs:
-		var c: PackedVector2Array = r[0]
-		var nn: PackedVector2Array = r[1]
-		if c.size() < 2:
-			continue
-		for side in [1.0, -1.0]:
-			var line := PackedVector2Array()
-			for i in c.size():
-				line.append(c[i] + nn[i] * off * side)
-			draw_polyline(line, RAIL_COLOR, RAIL_WIDTH, true)
+	for s in _strokes:
+		if s.state == Types.EdgeState.DEEP or not _any_wet(s.cells):
+			continue  # nét chìm, hoặc quanh nét không có ô nước: không có cầu
+		var pts: PackedVector2Array = s.points
+		var runs := []  # mỗi đoạn trên nước: [các điểm tâm đường, pháp tuyến tại từng điểm]
+		var cur := PackedVector2Array()
+		var cur_n := PackedVector2Array()
+		for k in pts.size() - 1:
+			var a := pts[k]
+			var b := pts[k + 1]
+			var seg := a.distance_to(b)
+			if seg < 0.001:
+				continue
+			var n := (b - a).orthogonal().normalized()
+			var steps := maxi(1, ceili(seg / RAIL_STEP))
+			for i in range(1 if k > 0 else 0, steps + 1):
+				var q := a.lerp(b, float(i) / steps)
+				if _over_water(q):
+					cur.append(q)
+					cur_n.append(n)
+				elif not cur.is_empty():
+					runs.append([cur, cur_n])
+					cur = PackedVector2Array()
+					cur_n = PackedVector2Array()
+		if not cur.is_empty():
+			runs.append([cur, cur_n])
+		for r in runs:
+			var c: PackedVector2Array = r[0]
+			var nn: PackedVector2Array = r[1]
+			if c.size() < 2:
+				continue
+			for side in [1.0, -1.0]:
+				var line := PackedVector2Array()
+				for i in c.size():
+					line.append(c[i] + nn[i] * off * side)
+				_rail_lines.append(line)
+
+
+func _any_wet(cells: PackedInt32Array) -> bool:
+	for i in cells:
+		if _wet_cell(Vector2i(i % Config.GRID_COLS, i / Config.GRID_COLS)):
+			return true
+	return false
 
 
 func _wet_cell(c: Vector2i) -> bool:
@@ -317,14 +463,25 @@ func _over_water(p: Vector2) -> bool:
 	return h and v and not in_circle
 
 
-# Mặt nước đổi (lũ lan, rút) thì vẽ lại để lan can cầu theo kịp.
+# Mặt nước đổi (lũ lan, rút): chỉ khi ô sát đường đổi nước mới dựng lại lan can cầu (không vẽ lại cả lớp đường).
 func _check_water() -> void:
 	if not bridges:
 		return
-	var sig := FloodManager.wet_mask()
-	if sig != _wet_sig:
-		_wet_sig = sig
-		_redraw()
+	_wet_sig = FloodManager.wet_mask()
+	var sig := _near_wet()
+	if sig != _near_sig:
+		_near_sig = sig
+		_rails_dirty = true
+		_rails_ci.queue_redraw()
+
+
+func _near_wet() -> PackedByteArray:
+	var sig := PackedByteArray()
+	sig.resize(_near_cells.size())
+	for k in _near_cells.size():
+		var i := _near_cells[k]
+		sig[k] = _wet_sig[i] if i < _wet_sig.size() else 0
+	return sig
 
 
 func _pos(id: int) -> Vector2:
