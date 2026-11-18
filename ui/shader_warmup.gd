@@ -11,7 +11,7 @@ signal finished
 const FRAMES := 4
 const ICON_DIR := 'res://assets/icons/'
 const GROUND := 'res://assets/icons/terrain/saigon_grid_base.png'  # ảnh nền 2560 × 1440: đưa lên GPU từ lúc ở menu
-const SHADERS := [preload('res://flood/water_grid.gdshader'), preload('res://flood/water.gdshader')]
+const SHADERS := [preload('res://flood/water_grid.gdshader'), preload('res://flood/water.gdshader'), preload('res://ui/menu_map_dark.gdshader')]
 const FONT := preload('res://assets/fonts/BeVietnamPro-Regular.ttf')
 
 var _textures: Array[Texture2D] = []
