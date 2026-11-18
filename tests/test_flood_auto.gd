@@ -23,7 +23,8 @@ func _run() -> void:
 	_test_sea()
 	_test_spread_gradually()
 	_test_blocked_basin()
-	_test_no_recede()
+	_test_schedule()
+	_test_recede()
 	_test_edges_follow_deepest()
 	_test_warning_once()
 	_test_warning_dry()
@@ -81,9 +82,9 @@ func _test_rise_and_stop() -> void:
 	print('\n== Mực biển dâng theo đợt')
 	_fresh()
 	FloodManager.start_wave(0)
-	var rate: float = Config.WAVES[0].water_delta / Config.WAVE_DURATION
+	var rate: float = Config.WAVES[0].water_peak / Config.WAVE_RISE_TIME
 	await _frames(60)
-	_check(absf(FloodManager.water_level - rate) < 0.02, 'sau 1 giây mực biển dâng đúng water_delta / WAVE_DURATION (%.3f)' % FloodManager.water_level)
+	_check(absf(FloodManager.water_level - rate) < 0.02, 'sau 1 giây mực biển dâng đúng water_peak / WAVE_RISE_TIME (%.3f)' % FloodManager.water_level)
 	FloodManager.stop_rising()
 	var held := FloodManager.water_level
 	await _frames(30)
@@ -143,20 +144,54 @@ func _test_blocked_basin() -> void:
 	_check(FloodManager.depth_at(pocket) < FloodManager.DRY_EPSILON, 'hố trũng (độ cao 5) giữa đồi không ngập dù mực biển 40')
 
 
-func _test_no_recede() -> void:
-	print('\n== Nước không rút')
+# Lịch mặt nước của một đợt: dâng đều tới đỉnh trong WAVE_RISE_TIME giây, rồi rút RECEDE_RATIO phần vừa dâng tới hết đợt.
+func _test_schedule() -> void:
+	print('\n== Mặt nước mỗi đợt: dâng rồi rút')
 	_fresh()
-	FloodManager.water_level = 20.0
+	FloodManager.start_wave(0)
+	var peak: float = Config.WAVES[0].water_peak
+	var low: float = peak - Config.RECEDE_RATIO * peak
+	_check(is_equal_approx(FloodManager.level_at(Config.WAVE_RISE_TIME), peak), 'đợt 1 tới đỉnh %.0f sau %.0f giây' % [peak, Config.WAVE_RISE_TIME])
+	_check(absf(FloodManager.level_at(Config.WAVE_DURATION) - low) < 0.001, 'hết đợt 1 rút còn %.2f' % low)
+	_check(FloodManager.level_at(Config.WAVE_RISE_TIME / 2.0) < peak and FloodManager.level_at(Config.WAVE_RISE_TIME + 10.0) < peak \
+			and FloodManager.level_at(Config.WAVE_RISE_TIME + 10.0) > low, 'nửa đầu đang dâng, nửa sau đang rút')
+	FloodManager._wave_t = Config.WAVE_RISE_TIME + 1.0
+	_check(FloodManager.is_receding(), 'is_receding: nửa sau đợt')
+	FloodManager.stop_rising()
+	FloodManager.water_level = low
+	FloodManager.start_wave(1)
+	var peak2: float = Config.WAVES[1].water_peak
+	var low2: float = peak2 - Config.RECEDE_RATIO * (peak2 - low)
+	_check(is_equal_approx(FloodManager.level_at(0.0), low) and is_equal_approx(FloodManager.level_at(Config.WAVE_RISE_TIME), peak2)
+			and absf(FloodManager.level_at(Config.WAVE_DURATION) - low2) < 0.001 and low2 > low,
+			'đợt 2 dâng từ %.2f lên %.0f rồi rút còn %.2f: mực nước nền tăng dần' % [low, peak2, low2])
+	FloodManager.stop_rising()
+
+
+func _test_recede() -> void:
+	print('\n== Nước rút')
+	_fresh()
+	var eid := GraphManager.add_edge(2, 4)  # Bến Cảng – Trường Học
+	FloodManager.water_level = 40.0
 	_settle()
-	var before := FloodManager._level.duplicate()
-	FloodManager.water_level = 5.0  # giả sử biển hạ
-	for i in 20:
-		FloodManager.step(TICK)
-	var lower := 0
-	for k in before.size():
-		if FloodManager._sea[k] == 0 and FloodManager._level[k] < before[k] - 0.001:
-			lower += 1
-	_check(lower == 0, 'mặt nước ô đất không giảm (%d ô giảm)' % lower)
+	var wet_high := _wet_land().size()
+	_check(GraphManager.get_edge(eid).state != Types.EdgeState.DRY, 'biển 40: đường Bến Cảng – Trường Học ngập')
+	FloodManager.water_level = 8.0  # biển hạ
+	_settle(1200)  # nước đọng trong hố trũng thấm chậm
+	var wet_low := _wet_land().size()
+	_check(wet_low < wet_high, 'biển hạ từ 40 xuống 8: ô đất ngập ít đi (%d -> %d)' % [wet_high, wet_low])
+	var above := 0
+	for k in FloodManager._level.size():
+		if FloodManager._sea[k] == 0 and FloodManager._level[k] > maxf(FloodManager._ground[k], 8.0) + 0.01:
+			above += 1
+	_check(above == 0, 'không ô đất nào còn mặt nước cao hơn biển mới (hố trũng cũng khô dần) (%d ô)' % above)
+	FloodManager.water_level = 0.0
+	_settle(1200)
+	_check(GraphManager.get_edge(eid).state == Types.EdgeState.DRY, 'biển rút hết: đường khô lại, xe tải đi được')
+	FloodManager.water_level = 40.0
+	_settle()
+	_check(GraphManager.get_edge(eid).state != Types.EdgeState.DRY and _wet_land().size() == wet_high, 'dâng lại tới 40: ngập như lần trước')
+	GraphManager.remove_edge(eid)
 
 
 func _test_edges_follow_deepest() -> void:

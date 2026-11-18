@@ -33,7 +33,7 @@ func _process(_delta: float) -> void:
 	
 	# Hiển thị index + 1 chuẩn theo Quy tắc 8
 	var state_desc = ""
-	if FloodManager._rising:
+	if FloodManager._running:
 		state_desc = "ĐANG DÂNG ĐỢT %d (%.0f)..." % [wave_idx + 1, _peak(wave_idx)]
 	else:
 		if wave_idx == -1 or cur_w == 0.0:
@@ -47,7 +47,7 @@ func _process(_delta: float) -> void:
 	
 	# Cập nhật nhãn nút phím R theo đúng chỉ số cộng 1 (Quy tắc 8)
 	if btn_next_wave != null:
-		if FloodManager._rising:
+		if FloodManager._running:
 			btn_next_wave.text = "Đang dâng đợt %d (%.0f)..." % [wave_idx + 1, _peak(wave_idx)]
 		elif wave_idx == -1 or cur_w == 0.0:
 			btn_next_wave.text = "[R] Dâng lên ĐỢT 1 (%.0f)" % _peak(0)
@@ -57,7 +57,7 @@ func _process(_delta: float) -> void:
 			btn_next_wave.text = "[R] Đã ngập đỉnh Đợt 3. Bấm để ĐẶT LẠI VỀ 0"
 
 	if btn_pause != null:
-		btn_pause.text = "[Space] Tạm Dừng" if FloodManager._rising else "[Space] Dâng Tiếp"
+		btn_pause.text = "[Space] Tạm Dừng" if FloodManager._running else "[Space] Dâng Tiếp"
 
 	# Cập nhật chiều cao bể nước
 	var max_h = 400.0
@@ -201,12 +201,9 @@ func _make_button(text_str: String, pos: Vector2, btn_size: Vector2) -> Button:
 	return b
 
 
-# Mực nước đạt được khi hết đợt i (cộng dồn water_delta trong Config.WAVES).
+# Mặt nước cao nhất của đợt i (Config.WAVES[i].water_peak).
 func _peak(i: int) -> float:
-	var s := 0.0
-	for k in range(i + 1):
-		s += Config.WAVES[k].water_delta
-	return s
+	return Config.WAVES[i].water_peak
 
 # R: dâng đợt kế tiếp; hết 3 đợt thì đặt lại về 0.
 func _next_wave() -> void:
@@ -219,7 +216,7 @@ func _next_wave() -> void:
 
 # Space: tạm dừng hoặc dâng tiếp đợt hiện tại.
 func _toggle_pause() -> void:
-	if FloodManager._rising:
+	if FloodManager._running:
 		FloodManager.stop_rising()
 	elif _wave >= 0:
 		FloodManager.start_wave(_wave)

@@ -23,6 +23,7 @@ const Road := preload('res://graph/edge_layer.gd')
 const DISPATCH_INTERVAL := 0.5       # giây giữa hai lượt điều phối
 const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết cạnh
 const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
+const BOAT_ESCAPE_FACTOR := 0.1      # ca-nô mắc cạn (nước rút) tìm đường về được bò qua chỗ khô; chỗ khô tính đắt gấp 10
 const BONUS_TIME_RATIO := 0.5        # còn quá nửa thời gian thì được thưởng
 const ARRIVE_EPSILON := 0.5          # sai số khi tới node (px)
 # Kẹt xe: chỉ dùng khoảng cách và đồ thị, không dùng vật lý.
@@ -233,6 +234,15 @@ class Vehicle extends Node2D:
 			return true
 		return false
 
+	# Ca-nô mắc cạn (nước rút dưới chân): tìm đường về to_node được bò qua chỗ khô (ít chỗ khô nhất), không đứng kẹt trên đất.
+	func plan_escape(to_node: int) -> bool:
+		var p: PathResult = RescueManager.g().find_path(current_node, to_node, type, {}, BOAT_ESCAPE_FACTOR)
+		if not p.found:
+			return false
+		path = RescueManager.g().smooth_boat_path(p)
+		path_index = 0
+		return true
+
 	# Đi dọc đường. Trả true khi xe đứng ở cuối đoạn (cần ra quyết định).
 	# Xe đã vào một đoạn thì đi hết đoạn đó, tốc độ tối thiểu MIN_EDGE_SPEED_FACTOR.
 	func advance(delta: float) -> bool:
@@ -408,7 +418,7 @@ class StrandedState extends VehicleStateBase:
 			_t = 0.0
 			retry(v)
 	func retry(v: Vehicle) -> void:
-		if v.plan(v.hub_id):
+		if v.plan(v.hub_id) or (v.type == Types.VehicleType.BOAT and v.plan_escape(v.hub_id)):
 			v.change_state(ReturningState.new(), Types.VehicleState.RETURNING)
 
 # ===== VEHICLE FACTORY =====
@@ -437,6 +447,7 @@ var _spawn_timer := 0.0
 var _house_timer := 0.0  # nhà mọc dần (bản đồ có cổng)
 var _dispatch_timer := 0.0
 var _dirty := false
+var _retry_stranded := false  # đồ thị vừa đổi: xe kẹt thử tìm đường lại, gom một lần mỗi khung hình
 var _clock := 0.0
 var _last_rescued := {}  # node_id -> thời điểm được cứu gần nhất
 
@@ -503,8 +514,14 @@ func _on_edge_removed(edge_id: int) -> void:
 func _on_edge_state_changed(_edge_id: int, _state: int) -> void:
 	_on_graph_changed()
 
+# Nước rút làm nhiều cạnh vùng ngập đổi trạng thái trong cùng một nhịp lũ: không cho mỗi lần đổi một lượt tìm đường
+# của mọi xe kẹt, mà gom lại, xe kẹt thử lại một lần ở đầu khung hình sau (_process).
 func _on_graph_changed() -> void:
 	_dirty = true
+	_retry_stranded = true
+
+func _retry_all_stranded() -> void:
+	_retry_stranded = false
 	for v in _vehicles.values():
 		if is_instance_valid(v):
 			v.retry_if_stranded()
@@ -673,6 +690,8 @@ func congestion_factor(v: Vehicle, others: Array = []) -> float:
 
 func _process(delta: float) -> void:
 	_clock += delta
+	if _retry_stranded:
+		_retry_all_stranded()
 	_rebuild_grid()
 	for h in _hubs.values():
 		for s in h.tick(delta):

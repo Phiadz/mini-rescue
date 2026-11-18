@@ -35,6 +35,7 @@ var _ring_of := {}              # id ô đường -> chỉ số vòng trong _rin
 var _ring_from := {}            # id cạnh vòng -> nút được đi từ đó (vòng một chiều, ngược kim đồng hồ trên màn hình)
 const RING3_RADIUS := 40.0      # vòng 3×3: 8 nút cách đều tâm vòng chừng này px (ô cạnh giữ nguyên, ô góc dời vào trong)
 var _shortcuts := {}            # Vector2i(a, b) (a < b) -> id cạnh tắt của ca-nô trên nước thoáng (không nằm trong đồ thị tìm đường)
+var _flood_open := {}           # id nút vùng ngập -> còn ngập sâu (nước thoáng cho ca-nô lao thẳng); nước rút thì false
 const LINE_STEP := 8.0          # khoảng lấy mẫu khi xét đường thẳng của ca-nô có đi trọn trên nước không (px)
 var _gate_cells := {}           # ô cổng -> id điểm (ô cổng là ô đường dựng sẵn, không tính hạn mức, không xóa được)
 var _lot_cells := {}            # ô bãi đỗ -> id kho: kho có bãi nằm giữa kho và cổng (kho, bãi, cổng thẳng hàng)
@@ -762,7 +763,7 @@ class MinHeap extends RefCounted:
 		return top
 
 # to_id = -1: tính cho mọi nút tới được (cây đường ngắn nhất); khác -1 thì dừng sớm khi tới đích.
-func _dijkstra(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictionary) -> Dictionary:
+func _dijkstra(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictionary, dry_factor: float = 0.0) -> Dictionary:
 	var dist := {from_id: 0.0}
 	var prev_node := {}
 	var prev_edge := {}
@@ -786,6 +787,8 @@ func _dijkstra(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictio
 				if _ring_from.has(eid) and _ring_from[eid] != u:
 					continue                    # vòng xoay một chiều: không đi ngược
 				var factor := e.speed_factor(vehicle_type)
+				if factor <= 0.0 and dry_factor > 0.0 and vehicle_type == Types.VehicleType.BOAT and e.state == Types.EdgeState.DRY:
+					factor = dry_factor           # ca-nô mắc cạn bò qua chỗ khô
 				if factor <= 0.0:
 					continue                    # xe này không đi được cạnh này
 				var v := e.other_end(u)
@@ -808,7 +811,7 @@ func water_line(a: Vector2, b: Vector2, end_a: Vector2i, end_b: Vector2i) -> boo
 		var c := cell_of(a.lerp(b, float(k) / n))
 		if c == end_a or c == end_b:
 			continue
-		if _point_cells.has(c) or not (cell_is_water(c) or _flood_at(c) != -1):
+		if _point_cells.has(c) or not (cell_is_water(c) or _flood_open.get(_flood_at(c), false)):
 			return false
 	return true
 
@@ -856,10 +859,11 @@ func _boat_shortcut(a: int, b: int) -> int:
 	return e.id
 
 # edge_penalty (tùy chọn): số giây cộng thêm cho từng cạnh, RescueManager dùng để né chỗ đang đông xe.
-func find_path(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictionary = {}) -> PathResult:
+# dry_factor > 0 (ca-nô mắc cạn khi nước rút): ca-nô được bò qua cạnh đã khô với hệ số tốc độ đó, để về lại chỗ có nước.
+func find_path(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictionary = {}, dry_factor: float = 0.0) -> PathResult:
 	if not _has_node(from_id) or not _has_node(to_id):
 		return PathResult.new()
-	return path_from_tree(_dijkstra(from_id, to_id, vehicle_type, edge_penalty), from_id, to_id)
+	return path_from_tree(_dijkstra(from_id, to_id, vehicle_type, edge_penalty, dry_factor), from_id, to_id)
 
 # Cây đường ngắn nhất từ from_id tới mọi nút (dist, prev_node, prev_edge). RescueManager tính một lần
 # cho mỗi (kho, loại xe) trong một lượt điều phối, rồi lấy đường tới từng SOS bằng path_from_tree.
@@ -897,6 +901,7 @@ func _build_water() -> void:
 	_boat_edges.clear()
 	_flood_links.clear()
 	_shortcuts.clear()
+	_flood_open.clear()
 	_badj.clear()
 	_water.clear()
 	_next_boat_edge = 0
@@ -953,6 +958,7 @@ func add_flood_cell(cell: Vector2i) -> void:
 	n.kind = Types.NodeKind.WATER
 	n.pos = cell_center(cell)
 	_water[n.id] = n
+	_flood_open[n.id] = true
 	for dy in range(-1, 2):
 		for dx in range(-1, 2):
 			if dx == 0 and dy == 0:
@@ -967,6 +973,15 @@ func add_flood_cell(cell: Vector2i) -> void:
 	var r := road_at(cell)
 	if r != -1:
 		_add_boat_edge(r, n.id, Types.EdgeState.DEEP, false)  # đường ngập sâu ra thẳng vùng nước
+
+# FloodManager báo nút vùng ngập id còn ngập sâu hay đã rút (ca-nô chỉ lao thẳng qua chỗ còn ngập sâu).
+func set_flood_open(id: int, open: bool) -> void:
+	if _water.has(id):
+		_flood_open[id] = open
+
+# Các cạnh của ca-nô nối với nút id (sông, vùng ngập, bến, lối xuống nước).
+func boat_edges_of(id: int) -> Array:
+	return _badj.get(id, [])
 
 func _flood_at(cell: Vector2i) -> int:
 	if not _in_grid(cell):

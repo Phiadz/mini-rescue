@@ -26,6 +26,13 @@ var budget_label: Label
 var warning_label: Label
 var warning_panel: Panel
 var warn_time: float = 0.0
+var recede_panel: Panel        # băng "NƯỚC ĐANG RÚT" hiện vài giây khi mặt nước bắt đầu rút (nửa sau mỗi đợt)
+var recede_label: Label
+var recede_time := 0.0
+var _last_level := 0.0
+var _receding := false
+const RECEDE_BANNER := 3.0
+const RECEDE_COLOR := Color("#7ee0a8")  # chữ mực nước lúc đang rút
 var countdown: float = 120.0
 var break_time: bool = false
 var enabled: bool = false
@@ -48,6 +55,10 @@ func _ready() -> void:
 	warning_label = Style.text(self, "ĐƯỜNG SẮP NGẬP!", 440, 58, 400, 44, 21, Style.WHITE, true)
 	warning_label.visible = false
 	warning_panel.visible = false
+	recede_panel = Style.rect(self, 440, 58, 400, 44, Color(0.02, 0.18, 0.26, 0.96), Style.CYAN, 10)
+	recede_label = Style.text(self, "NƯỚC ĐANG RÚT", 440, 58, 400, 44, 21, Style.WHITE, true)
+	recede_panel.visible = false
+	recede_label.visible = false
 	_connect_signals()
 
 func _build_top_bar() -> void:
@@ -181,6 +192,11 @@ func _process(delta: float) -> void:
 	else:
 		warning_label.visible = false
 		warning_panel.visible = false
+	if recede_time > 0.0:
+		recede_time -= delta
+	var show_recede := recede_time > 0.0 and not warning_panel.visible  # cảnh báo ngập ưu tiên hơn
+	recede_panel.visible = show_recede
+	recede_label.visible = show_recede
 
 func _on_score(value: int) -> void:
 	score_label.text = "ĐIỂM %d" % value
@@ -205,6 +221,14 @@ func _on_break(seconds: float) -> void:
 
 func _on_water(level: float) -> void:
 	water_label.text = "≈ %d%%" % int(round(level))
+	# Nước bắt đầu rút: hiện băng vài giây, chữ mực nước đổi màu tới khi nước dâng lại.
+	if level < _last_level - 0.0001 and not _receding:
+		_receding = true
+		recede_time = RECEDE_BANNER
+	elif level > _last_level + 0.0001 or level <= 0.0:
+		_receding = false
+	_last_level = level
+	water_label.add_theme_color_override("font_color", RECEDE_COLOR if _receding else Style.CYAN)
 
 func _on_budget(used: int, limit: int) -> void:
 	budget_label.text = "ĐƯỜNG %d / %d" % [used, limit]

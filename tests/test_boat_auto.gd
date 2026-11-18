@@ -413,6 +413,26 @@ func _test_flood_area() -> void:
 	_check(flood_nodes.call() == before, 'mỗi ô chỉ thêm một lần')
 	_check(RescueManager._dock_slots(CAT_LAI).all(func(id: int) -> bool: return not GraphManager.is_flood_node(id)),
 			'chỗ đỗ ở bến kho vẫn trên sông, không dời sang vùng ngập')
+	# Nước rút: ô vùng ngập khô lại thì cạnh của nó khô, ca-nô không chạy vào, không lao thẳng qua; nút vẫn giữ lại.
+	var mid: int = p.node_ids.filter(func(id: int) -> bool: return GraphManager.is_flood_node(id))[0]
+	for i in FloodManager._level.size():
+		if FloodManager._sea[i] == 0:
+			FloodManager._level[i] = FloodManager._ground[i]
+	FloodManager.water_level = 0.0
+	FloodManager._update_edges()
+	_check(flood_nodes.call() == before and not GraphManager._flood_open.get(mid, true), 'nước rút: nút vùng ngập giữ lại, không còn là nước thoáng')
+	_check(GraphManager.boat_edges_of(mid).all(func(eid: int) -> bool: return GraphManager.get_edge(eid).state == Types.EdgeState.DRY), 'nước rút: cạnh vùng ngập khô theo')
+	_check(not GraphManager.find_path(CAT_LAI, inland, BOAT).found, 'nước rút: ca-nô không còn tới được Kinh Dương Vương')
+	var stuck = RescueManager.Vehicle.new()
+	stuck.type = BOAT
+	stuck.hub_id = CAT_LAI
+	stuck.current_node = mid
+	_check(not stuck.plan(CAT_LAI) and stuck.plan_escape(CAT_LAI) and stuck.path.node_ids[-1] == CAT_LAI,
+			'ca-nô mắc cạn khi nước rút: bò qua chỗ khô về được Cát Lái')
+	stuck.free()
+	FloodManager.fill_all(100.0)
+	FloodManager._update_edges()
+	_check(GraphManager.find_path(CAT_LAI, inland, BOAT).found and GraphManager._flood_open.get(mid, false), 'dâng lại: vùng ngập thông trở lại')
 	_fresh_saigon()
 	_check(flood_nodes.call() == 0, 'ván mới: vùng ngập xóa sạch')
 

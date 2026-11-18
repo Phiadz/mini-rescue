@@ -19,16 +19,24 @@ const BOAT_SPEED := 135.0
 const SHALLOW_MAX := 15.0
 const FLOOD_TICK := 0.25
 const WARNING_SECONDS := 5.0
-# Lũ lan theo ô: ô có độ cao tới SEA_MAX_ELEVATION là biển, mặt nước biển dâng theo WAVES.
+# Lũ lan theo ô: ô có độ cao tới SEA_MAX_ELEVATION là biển, mặt nước biển dâng rồi rút theo WAVES.
 # Mỗi FLOOD_TICK, ô kề một ô đã ngập ít nhất FLOOD_SPILL_DEPTH thì mặt nước dâng dần về phía ô đó,
 # nhanh nhất FLOOD_SPREAD_RATE đơn vị độ cao mỗi giây, không vượt mặt nước của ô nguồn.
 const SEA_MAX_ELEVATION := 1.0
 const FLOOD_SPILL_DEPTH := 1.0
 const FLOOD_SPREAD_RATE := 3.0
+# Nước rút: ô đất có mặt nước cao hơn mức cân bằng (mức cao nhất phải vượt qua trên đường ra biển thấp nhất) thì thoát
+# về mức đó, nhanh nhất FLOOD_DRAIN_RATE mỗi giây; nước đọng trong hố trũng (bờ cao hơn mặt biển) thấm dần FLOOD_SEEP_RATE.
+const FLOOD_DRAIN_RATE := 3.0
+const FLOOD_SEEP_RATE := 0.5
 
 # --- Đợt và ván chơi ---
 const WAVE_COUNT := 3
 const WAVE_DURATION := 120.0
+# Mỗi đợt: WAVE_RISE_TIME giây đầu mặt nước dâng tới đỉnh water_peak, thời gian còn lại rút RECEDE_RATIO phần vừa dâng,
+# nên mực nước nền vẫn tăng dần qua các đợt (25 -> rút còn ~14, 55 -> ~37, 90 -> ~66).
+const WAVE_RISE_TIME := 80.0
+const RECEDE_RATIO := 0.45
 const BREAK_DURATION := 15.0
 const MAX_FAILED := 3
 
@@ -61,12 +69,13 @@ const SPEED_FACTOR := {
 }
 
 # --- Các đợt lũ (chỉ số 0, 1, 2) ---
+# water_peak: mặt nước biển cao nhất của đợt (thang 0–100), tới sau WAVE_RISE_TIME giây rồi rút.
 # sos_units: số phần hàng mỗi SOS cần; mỗi xe chở 1 phần. Mỗi nhà chỉ cần 1 xe (góp ý của Lộc: một xe tải đủ cho một nhà).
 # house_interval: bản đồ có cổng thì cứ chừng ấy giây lại mọc thêm một nhà quanh một khu đã mở.
 const WAVES := [
-	{water_delta = 25.0, sos_interval = 7.0, sos_max = 6, sos_units = 1, house_interval = 9.0, food_ratio = 0.70, deadline_food = 40.0, deadline_medical = 30.0},
-	{water_delta = 30.0, sos_interval = 5.0, sos_max = 8, sos_units = 1, house_interval = 7.0, food_ratio = 0.60, deadline_food = 35.0, deadline_medical = 27.0},
-	{water_delta = 35.0, sos_interval = 3.8, sos_max = 10, sos_units = 1, house_interval = 5.0, food_ratio = 0.55, deadline_food = 27.0, deadline_medical = 21.0},
+	{water_peak = 25.0, sos_interval = 7.0, sos_max = 6, sos_units = 1, house_interval = 9.0, food_ratio = 0.70, deadline_food = 40.0, deadline_medical = 30.0},
+	{water_peak = 55.0, sos_interval = 5.0, sos_max = 8, sos_units = 1, house_interval = 7.0, food_ratio = 0.60, deadline_food = 35.0, deadline_medical = 27.0},
+	{water_peak = 90.0, sos_interval = 3.8, sos_max = 10, sos_units = 1, house_interval = 5.0, food_ratio = 0.55, deadline_food = 27.0, deadline_medical = 21.0},
 ]
 
 # Nhà mọc dần: mỗi khu (điểm có tên) có tối đa HOUSE_MAX_PER_DISTRICT nhà, cách khu tối đa HOUSE_RADIUS ô.

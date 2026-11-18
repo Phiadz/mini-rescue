@@ -28,7 +28,9 @@ const RAIL_COLOR := Color('#55656f')
 const RAIL_WIDTH := 3.0
 const RAIL_STEP := 3.0      # khoảng lấy mẫu dọc đường khi tìm đoạn nằm trên nước (px)
 const WATER_CORNER := 20.0  # bán kính bo góc mặt nước, giống radius trong water_grid.gdshader
-var _wet_sig := PackedByteArray()  # ô nào đang có nước, để chỉ vẽ lại khi mặt nước đổi
+var _wet_sig := PackedByteArray()  # ô nào đang có nước (FloodManager.wet_mask), để chỉ vẽ lại khi mặt nước đổi và để vẽ cầu
+var _pieces_cache: Array = []     # mảnh đường dựng ở khung hình _pieces_frame, dùng chung cho _draw và _draw_sunk
+var _pieces_frame := -1
 # Thứ tự vẽ (z_index): nền Terrain -20, lớp lũ FloodOverlay -19 (main.tscn), đường chìm SUNK_Z, ca-nô luồn dưới cầu
 # RescueManager.BOAT_UNDER_Z, rồi đường thường (lớp này, z 0), điểm, xe. Bản đồ kiểu lưới: đường ngập sâu vẽ ở lớp con
 # _sunk nên ca-nô hiện trên đường chìm nhưng luồn dưới cầu (đường chưa ngập sâu trên mặt nước).
@@ -59,7 +61,10 @@ func _ready() -> void:
 	EventBus.game_started.connect(func() -> void: apply_terrain(GraphManager.get_terrain()))
 	EventBus.road_changed.connect(_redraw)
 	EventBus.game_started.connect(_redraw)
-	EventBus.edge_state_changed.connect(func(_id: int, _state: int) -> void: _redraw())
+	EventBus.edge_state_changed.connect(func(id: int, _state: int) -> void:
+		var e := GraphManager.get_edge(id)
+		if e == null or not e.boat_only:  # cạnh của riêng ca-nô (sông, vùng ngập) không vẽ ở đây
+			_redraw())
 	EventBus.water_level_changed.connect(func(_l: float) -> void: _check_water())
 
 
@@ -70,7 +75,7 @@ func _draw() -> void:
 			draw_circle(p, CASING_WIDTH / 2.0, DRY_CASING)
 			draw_circle(p, ROAD_WIDTH / 2.0, DRY_COLOR)
 	_draw_stubs()
-	var pieces := _pieces()
+	var pieces := _frame_pieces()
 	if bridges:  # đường chìm vẽ ở lớp _sunk (dưới ca-nô)
 		pieces = pieces.filter(func(p: Dictionary) -> bool: return p.state != Types.EdgeState.DEEP)
 	for p in pieces:
@@ -89,7 +94,7 @@ func _draw() -> void:
 func _draw_sunk() -> void:
 	if not bridges:
 		return
-	var sunk := _pieces().filter(func(p: Dictionary) -> bool: return p.state == Types.EdgeState.DEEP)
+	var sunk := _frame_pieces().filter(func(p: Dictionary) -> bool: return p.state == Types.EdgeState.DEEP)
 	_ci = _sunk
 	for p in sunk:
 		_poly(p, deep_fill, ROAD_WIDTH)
@@ -98,7 +103,17 @@ func _draw_sunk() -> void:
 	_ci = self
 
 
+# Mảnh đường của khung hình này (dựng một lần cho cả lớp đường và lớp đường chìm).
+func _frame_pieces() -> Array:
+	var f := Engine.get_frames_drawn()
+	if f != _pieces_frame:
+		_pieces_frame = f
+		_pieces_cache = _pieces()
+	return _pieces_cache
+
+
 func _redraw() -> void:
+	_pieces_frame = -1
 	queue_redraw()
 	if _sunk != null:
 		_sunk.queue_redraw()
@@ -277,6 +292,9 @@ func _rails(pts: PackedVector2Array) -> void:
 
 func _wet_cell(c: Vector2i) -> bool:
 	c = Vector2i(clampi(c.x, 0, Config.GRID_COLS - 1), clampi(c.y, 0, Config.GRID_ROWS - 1))
+	var i := c.y * Config.GRID_COLS + c.x
+	if i < _wet_sig.size():
+		return _wet_sig[i] == 1  # mặt nạ đã có: tra bảng, không gọi FloodManager
 	return FloodManager.is_sea(c) or FloodManager.depth_at(c) >= FloodManager.DRY_EPSILON
 
 
@@ -303,11 +321,7 @@ func _over_water(p: Vector2) -> bool:
 func _check_water() -> void:
 	if not bridges:
 		return
-	var sig := PackedByteArray()
-	sig.resize(Config.GRID_COLS * Config.GRID_ROWS)
-	for y in Config.GRID_ROWS:
-		for x in Config.GRID_COLS:
-			sig[y * Config.GRID_COLS + x] = 1 if _wet_cell(Vector2i(x, y)) else 0
+	var sig := FloodManager.wet_mask()
 	if sig != _wet_sig:
 		_wet_sig = sig
 		_redraw()
