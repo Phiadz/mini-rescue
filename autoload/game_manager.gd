@@ -4,7 +4,9 @@ extends Node
 # Chỉ số đợt (wave index) tính từ 0.
 
 const MAIN_SCENE := 'res://game/main.tscn'
+const SPEEDS: Array[int] = [1, 2, 3]  # tua nhanh: phím F hoặc nút trên HUD
 const ScoreSystemScript := preload('res://game/score_system.gd')
+const StageViewScript := preload('res://game/stage_view.gd')
 
 var state: int = Types.GameState.MENU
 # Số giây nghỉ còn lại (chỉ đọc), 0 khi không ở lượt nghỉ. Bảng chọn thưởng của D đọc để đếm ngược;
@@ -19,9 +21,15 @@ var _prev_state: int = Types.GameState.MENU
 var _wave := 0
 var _phase_left := 0.0
 var _time_survived := 0.0
-var _reward_chosen := false
+var _bought := {}  # Types.Reward -> số lần đã mua trong ván
 var _starting := false
 var _score_system := ScoreSystemScript.new()
+# Tốc độ người chơi chọn (1, 2, 3). Chỉ đặt lại Engine.time_scale khi người chơi đã từng tua,
+# để các test tự đặt time_scale không bị ghi đè.
+var game_speed := 1
+var _stage := 0                  # vùng chơi hiện tại (chỉ số trong GraphManager.get_stages())
+var _play_rect := Rect2(Vector2.ZERO, Vector2(1280, 720))
+var _stage_view: Node2D = null
 
 
 func _ready() -> void:
@@ -48,6 +56,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if key == null or not key.pressed or key.echo:
 		return
+	if key.keycode == KEY_F:
+		if _in_round():
+			cycle_speed()
+			get_viewport().set_input_as_handled()
+		return
 	if key.keycode != KEY_SPACE and key.keycode != KEY_ESCAPE:
 		return
 	if state == Types.GameState.PAUSED:
@@ -59,16 +72,29 @@ func _unhandled_input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 
 
+# Scene game nạp sẵn ở màn khởi động (ui/boot.gd): bấm Chơi chỉ còn dựng scene, đỡ khựng trên bản web.
+var _main_packed: PackedScene
+
+func preload_main_scene() -> PackedScene:
+	if _main_packed == null:
+		_main_packed = load(MAIN_SCENE)
+	return _main_packed
+
 func start_game() -> void:
 	if _starting:
 		return  # bấm Chơi hai lần liên tiếp
 	_starting = true
+	_reset_speed()
 	_reset_counters()
 	get_tree().paused = true  # xe ván cũ bị giải phóng cùng scene, C không được chạy tới khi reset xong
-	get_tree().change_scene_to_file(MAIN_SCENE)
+	if _main_packed != null:
+		get_tree().change_scene_to_packed(_main_packed)
+	else:
+		get_tree().change_scene_to_file(MAIN_SCENE)
 	await get_tree().process_frame
 	await get_tree().process_frame  # chờ scene sẵn sàng
 	GraphManager.load_map(Config.MAP_PATH)  # 1. nạp bản đồ
+	_mount_stage_view()
 	EventBus.game_started.emit()  # 2. các module tự reset, NodeLayer vẽ node
 	get_tree().paused = false
 	_score_system.enabled = true
@@ -100,24 +126,45 @@ func exit_to_menu() -> void:
 	if state == Types.GameState.MENU:
 		return
 	_score_system.enabled = false
+	_reset_speed()
 	get_tree().paused = true
 	_set_state(Types.GameState.MENU)
 
 
-func choose_reward(reward: int) -> void:
-	if state != Types.GameState.WAVE_BREAK or _reward_chosen:
-		return
+# Mua một món ở cửa hàng cứu trợ (chỉ trong lượt nghỉ, khi đủ quỹ). Mua được nhiều món, mỗi lần mua
+# cùng món thì giá tăng (Config.SHOP_PRICE_GROWTH). Trả true nếu mua được. Giữ tên cũ để UI của D không đổi.
+func choose_reward(reward: int) -> bool:
+	if state != Types.GameState.WAVE_BREAK or not Config.SHOP_PRICES.has(reward):
+		return false
+	if not _score_system.spend(get_price(reward)):
+		return false
 	match reward:
 		Types.Reward.MORE_EDGES:
 			GraphManager.add_edge_limit(Config.REWARD_EDGE_BONUS)
 		Types.Reward.EXTRA_TRUCK:
-			RescueManager.add_vehicle(Types.VehicleType.TRUCK)
+			for i in Config.REWARD_VEHICLE_BONUS:
+				RescueManager.add_vehicle(Types.VehicleType.TRUCK)
 		Types.Reward.EXTRA_BOAT:
-			RescueManager.add_vehicle(Types.VehicleType.BOAT)
-		_:
-			return
-	_reward_chosen = true
+			for i in Config.REWARD_VEHICLE_BONUS:
+				RescueManager.add_vehicle(Types.VehicleType.BOAT)
+	_bought[reward] = int(_bought.get(reward, 0)) + 1
 	EventBus.reward_chosen.emit(reward)
+	return true
+
+
+# Giá hiện tại của một món: giá gốc × SHOP_PRICE_GROWTH^(số lần đã mua món đó trong ván), làm tròn 5.
+func get_price(reward: int) -> int:
+	var base: float = float(Config.SHOP_PRICES.get(reward, 0))
+	return int(round(base * pow(Config.SHOP_PRICE_GROWTH, int(_bought.get(reward, 0))) / 5.0)) * 5
+
+
+func get_funds() -> int:
+	return _score_system.funds
+
+
+# Số lần đã mua một món trong ván (cửa hàng hiển thị).
+func get_bought_count(reward: int) -> int:
+	return int(_bought.get(reward, 0))
 
 
 func get_score() -> int:
@@ -149,14 +196,12 @@ func _end_wave() -> void:
 		return
 	_set_state(Types.GameState.WAVE_BREAK)
 	_phase_left = Config.BREAK_DURATION
-	_reward_chosen = false
+	_enter_stage(_wave + 1, true)  # mở vùng mới ngay đầu lượt nghỉ để kịp nối đường
 	EventBus.break_started.emit(Config.BREAK_DURATION)
 	EventBus.reward_offered.emit(Types.Reward.values())
 
 
 func _end_break() -> void:
-	if not _reward_chosen:
-		choose_reward(Types.Reward.MORE_EDGES)  # hết giờ nghỉ mà chưa chọn
 	_set_state(Types.GameState.PLAYING)
 	_begin_wave(_wave + 1)
 
@@ -164,6 +209,7 @@ func _end_break() -> void:
 func _finish(won: bool) -> void:
 	_score_system.enabled = false  # thắng/thua chỉ phát một lần, SOS sau đó bị bỏ qua
 	get_tree().paused = true  # lũ, SOS, xe dừng hẳn phía sau màn kết thúc
+	_reset_speed()
 	_set_state(Types.GameState.WON if won else Types.GameState.LOST)
 	var stats := {
 		'score': _score_system.score,
@@ -177,6 +223,62 @@ func _finish(won: bool) -> void:
 		EventBus.game_won.emit(stats)
 	else:
 		EventBus.game_lost.emit(stats)
+
+
+# Đổi vòng tốc độ 1 -> 2 -> 3 -> 1, chỉ trong ván (PLAYING hoặc WAVE_BREAK). Trả về tốc độ mới.
+func cycle_speed() -> int:
+	if not _in_round():
+		return game_speed
+	game_speed = SPEEDS[(SPEEDS.find(game_speed) + 1) % SPEEDS.size()]
+	Engine.time_scale = float(game_speed)
+	return game_speed
+
+
+func _reset_speed() -> void:
+	if game_speed != 1:
+		game_speed = 1
+		Engine.time_scale = 1.0
+
+
+# --- Vùng chơi theo đợt ---
+# Vùng đang chơi (đơn vị bản đồ). Ngoài vùng không tô đường, không sinh SOS.
+func get_play_rect() -> Rect2:
+	return _play_rect
+
+
+func is_in_play(p: Vector2) -> bool:
+	return _play_rect.has_point(p)
+
+
+func get_stage() -> int:
+	return _stage
+
+
+func _stage_data(i: int) -> Dictionary:
+	var stages: Array = GraphManager.get_stages()
+	if stages.is_empty():
+		return {center = [640, 360], zoom = 1.0}
+	return stages[clampi(i, 0, stages.size() - 1)]
+
+
+func _enter_stage(i: int, animate: bool) -> void:
+	_stage = i
+	var data := _stage_data(i)
+	_play_rect = StageViewScript.play_rect(data)
+	if _stage_view != null and is_instance_valid(_stage_view):
+		_stage_view.apply(data, animate)
+
+
+# Camera và lớp mép vùng nằm trong World (vẽ trên đường và điểm, dưới giao diện).
+func _mount_stage_view() -> void:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	_stage_view = StageViewScript.new()
+	_stage_view.name = 'StageView'
+	var world := scene.get_node_or_null('World')
+	(world if world != null else scene).add_child(_stage_view)
+	_enter_stage(0, false)
 
 
 func _set_state(s: int) -> void:
@@ -194,6 +296,8 @@ func _reset_counters() -> void:
 	_wave = 0
 	_phase_left = 0.0
 	_time_survived = 0.0
-	_reward_chosen = false
+	_bought.clear()
+	_stage = 0
+	_play_rect = Rect2(Vector2.ZERO, Vector2(1280, 720))
 	_score_system.enabled = false
 	_score_system.reset()

@@ -2,6 +2,7 @@ extends Node2D
 # Chủ sở hữu: A. Kiểm tra tự động module Graph + thử bằng phím.
 # Chạy F6: xem cửa sổ Output ("Kết quả: 30 đạt, 0 trượt") và cửa sổ game.
 
+const FIXTURE_MAP := 'res://data/map_01.json'  # bản đồ cố định cho test, không đổi theo bản đồ của game
 const START := 0
 const GOAL := 7
 var _log: Array = []
@@ -38,7 +39,7 @@ func _same(a: Array, b: Array) -> bool:
 	return true
 
 func _fresh() -> void:
-	GraphManager.load_map(Config.MAP_PATH)
+	GraphManager.load_map(FIXTURE_MAP)
 	_log.clear()
 
 func _build_example() -> Dictionary:
@@ -93,7 +94,8 @@ func _run_checks() -> void:
 	_check(pt2.found and _same(pt2.node_ids, [0, 2, 4, 5, 7]), 'cạnh 3-5 ngập sâu: xe tải đổi sang 0-2-4-5-7')
 	var cost_detour := (_d(0, 2) + _d(2, 4) + _d(4, 5) + _d(5, 7)) / Config.TRUCK_SPEED
 	_check(absf(pt2.cost - cost_detour) < 0.02, 'chi phí mới xấp xỉ %.2f giây' % cost_detour)
-	_check(not GraphManager.find_path(0, 7, Types.VehicleType.BOAT).found, 'ca-nô: các cạnh khác còn khô nên chưa có đường 0→7')
+	var pboat := GraphManager.find_path(0, 7, Types.VehicleType.BOAT)
+	_check(not pboat.found, 'ca-nô không đi đường khô: chỉ một cạnh ngập thì chưa có đường')
 	for eid in GraphManager.get_edge_ids():
 		GraphManager.set_edge_state(eid, Types.EdgeState.DEEP)
 	_check(not GraphManager.find_path(0, 7, Types.VehicleType.TRUCK).found, 'mọi cạnh ngập sâu: xe tải không có đường')
@@ -117,7 +119,7 @@ func _run_checks() -> void:
 	GraphManager.add_edge_limit(2)
 	EventBus.game_started.emit()
 	_check(GraphManager.get_edge_ids().is_empty() and GraphManager.get_edge_budget().limit == Config.EDGE_LIMIT_START, 'game_started: xóa hết cạnh, đặt lại hạn mức')
-	GraphManager.load_map(Config.MAP_PATH)
+	GraphManager.load_map(FIXTURE_MAP)
 	_check(GraphManager.get_node_ids().size() == 10, 'load_map gọi lại vẫn đúng 10 node')
 	_check(GraphManager.get_node_ids().all(func(id): return ResourceLoader.exists('res://assets/icons/%s.svg' % GraphManager.get_map_node(id).icon)),
 			'mỗi node có trường icon trỏ tới file icon có thật')

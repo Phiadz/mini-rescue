@@ -29,6 +29,8 @@ func _run() -> void:
 	await _test_lose_in_break()
 	await _test_pause()
 	await _test_exit_to_menu()
+	await _test_speed()
+	await _test_stages()
 	print('\nKết quả: %d đạt, %d trượt' % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
 
@@ -70,21 +72,35 @@ func _test_full_game_win() -> void:
 	_check(_last('break_started') == ['break_started', Config.BREAK_DURATION],
 			'phát break_started(BREAK_DURATION)')
 	_check(_last('reward_offered') == ['reward_offered', [0, 1, 2]], 'phát reward_offered([0, 1, 2])')
+	_check(GameManager.get_funds() == 30, 'quỹ bằng điểm đã kiếm (30)')
+	_check(not GameManager.choose_reward(Types.Reward.MORE_EDGES) and _count('reward_chosen') == 0,
+			'quỹ 30 chưa đủ mua +ô đường (giá %d)' % GameManager.get_price(Types.Reward.MORE_EDGES))
 	_check(absf(GameManager.break_left - Config.BREAK_DURATION) < 0.5,
 			'đầu lượt nghỉ, break_left xấp xỉ BREAK_DURATION (%.2f)' % GameManager.break_left)
 
 	await _wait_state(Types.GameState.PLAYING)
 	_check(GameManager.break_left == 0.0, 'đang trong đợt thì break_left bằng 0')
-	_check(_last('reward_chosen') == ['reward_chosen', Types.Reward.MORE_EDGES],
-			'hết giờ nghỉ mà chưa chọn thì tự nhận MORE_EDGES')
+	_check(_count('reward_chosen') == 0, 'hết giờ nghỉ không tự mua gì')
 	_check(_last('wave_started') == ['wave_started', 1], 'sau giờ nghỉ bắt đầu đợt 1')
 
 	await _wait_state(Types.GameState.WAVE_BREAK)
-	GameManager.choose_reward(Types.Reward.EXTRA_TRUCK)
-	GameManager.choose_reward(Types.Reward.EXTRA_BOAT)
-	_check(_count('reward_chosen') == 2
-			and _last('reward_chosen') == ['reward_chosen', Types.Reward.EXTRA_TRUCK],
-			'mỗi lượt nghỉ chỉ chọn được 1 phần thưởng')
+	GameManager._score_system.funds = int(Config.SHOP_PRICES[Types.Reward.MORE_EDGES]) * 5  # đủ mua 2 lần ô đường và 1 xe tải, không đủ thêm ca-nô
+	var limit_before: int = GraphManager.get_edge_budget().limit
+	var p1 := GameManager.get_price(Types.Reward.MORE_EDGES)
+	_check(GameManager.choose_reward(Types.Reward.MORE_EDGES), 'mua +ô đường (%d)' % p1)
+	var p2 := GameManager.get_price(Types.Reward.MORE_EDGES)
+	_check(p2 > p1 and GameManager.choose_reward(Types.Reward.MORE_EDGES), 'mua lần hai, giá tăng (%d lên %d)' % [p1, p2])
+	_check(GameManager.choose_reward(Types.Reward.EXTRA_TRUCK), 'mua thêm xe tải trong cùng lượt nghỉ')
+	var left_funds: int = int(Config.SHOP_PRICES[Types.Reward.MORE_EDGES]) * 5 - p1 - p2 - int(Config.SHOP_PRICES[Types.Reward.EXTRA_TRUCK])
+	_check(GameManager.get_funds() == left_funds, 'quỹ trừ đúng, còn %d' % GameManager.get_funds())
+	_check(not GameManager.choose_reward(Types.Reward.EXTRA_BOAT), 'không đủ quỹ thì không mua được ca-nô')
+	_check(GraphManager.get_edge_budget().limit == limit_before + 2 * Config.REWARD_EDGE_BONUS, 'hạn mức ô đường tăng 2 lần')
+	_check(_count('reward_chosen') == 3, 'phát reward_chosen cho mỗi món mua được')
+	_check(GameManager.get_score() == 30, 'mua hàng không trừ điểm')
+	var shop := load('res://ui/reward_popup.gd')
+	_check(shop.money_text(0) == '0 đồng' and shop.money_text(60) == '600 triệu' and shop.money_text(100) == '1 tỷ'
+			and shop.money_text(135) == '1,35 tỷ' and shop.money_text(150) == '1,5 tỷ',
+			'quỹ hiển thị bằng tiền: 600 triệu, 1 tỷ, 1,35 tỷ, 1,5 tỷ')
 
 	await _wait_state(Types.GameState.WON)
 	_check(_count('game_won') == 1 and _count('game_lost') == 0, 'hết đợt 2 thì game_won đúng 1 lần')
@@ -180,6 +196,71 @@ func _test_pause() -> void:
 	_check(_count('reward_chosen') == 0, 'không chọn được thưởng khi đang tạm dừng')
 	GameManager.resume_game()
 	_check(GameManager.state == Types.GameState.WAVE_BREAK, 'tạm dừng lúc nghỉ, tiếp tục thì về WAVE_BREAK')
+
+
+# Vùng chơi theo đợt (bản đồ khai báo stages): camera phóng to, SOS chỉ ở khu đã mở, đầu lượt nghỉ mở vùng mới.
+func _test_stages() -> void:
+	print('
+== Vùng chơi theo đợt')
+	await GameManager.start_game()
+	var stages: Array = GraphManager.get_stages()
+	if stages.is_empty():
+		_check(GameManager.get_play_rect().size == Vector2(1280, 720), 'bản đồ không có stages: chơi cả bản đồ')
+		return
+	var rect := GameManager.get_play_rect()
+	_check(GameManager.get_stage() == 0 and rect.size.x < 1280.0, 'đầu ván ở vùng 0, nhỏ hơn cả bản đồ')
+	var cam := get_viewport().get_camera_2d()
+	_check(cam != null and is_equal_approx(cam.zoom.x, float(stages[0].zoom)), 'camera phóng to %.2f lần' % float(stages[0].zoom))
+	var districts := GraphManager.get_node_ids().filter(func(id: int) -> bool:
+		return GraphManager.get_map_node(id).kind == Types.NodeKind.DISTRICT)
+	var closed := districts.filter(func(id: int) -> bool: return not rect.has_point(GraphManager.get_map_node(id).pos))
+	_check(closed.size() > 0, 'có khu chưa mở ở đợt 1 (%d khu)' % closed.size())
+	var free: Array = RescueManager._free_nodes()
+	_check(free.size() > 0 and free.all(func(id: int) -> bool: return rect.has_point(GraphManager.get_map_node(id).pos)),
+			'SOS chỉ chọn khu đã mở (%d khu)' % free.size())
+	_check(not GameManager.is_in_play(Vector2(5, 5)), 'góc bản đồ ngoài vùng chơi')
+	GameManager._phase_left = 0.01
+	await _wait_state(Types.GameState.WAVE_BREAK)
+	var rect1 := GameManager.get_play_rect()
+	_check(GameManager.get_stage() == 1 and rect1.encloses(rect), 'đầu lượt nghỉ mở vùng 1, rộng hơn và chứa vùng 0')
+	var hubs := GraphManager.get_node_ids().filter(func(id: int) -> bool: return GraphManager.get_map_node(id).kind == Types.NodeKind.HUB)
+	_check(hubs.all(func(id: int) -> bool: return rect1.has_point(GraphManager.get_map_node(id).pos)), 'vùng 1 có đủ hai kho')
+	await _wait_frames(30)
+	_check(is_equal_approx(cam.zoom.x, float(stages[1].zoom)), 'camera thu ra %.2f lần sau khi chuyển vùng (%.2f)' % [float(stages[1].zoom), cam.zoom.x])
+	GameManager._enter_stage(stages.size() - 1, false)
+	_check(GameManager.get_play_rect() == Rect2(0, 0, 1280, 720), 'vùng cuối là cả bản đồ')
+	GameManager.exit_to_menu()
+
+
+# Tua nhanh: F hoặc nút HUD đổi vòng 1 -> 2 -> 3 -> 1; về x1 khi hết ván hoặc về menu; ngoài ván không đổi.
+func _test_speed() -> void:
+	print('
+== Tua nhanh')
+	GameManager.exit_to_menu()
+	Engine.time_scale = 1.0
+	_check(GameManager.state == Types.GameState.MENU and GameManager.cycle_speed() == 1 and Engine.time_scale == 1.0, 'ở MENU không tua được')
+	await GameManager.start_game()
+	_check(GameManager.cycle_speed() == 2 and Engine.time_scale == 2.0, 'lần 1: x2')
+	_check(GameManager.cycle_speed() == 3 and Engine.time_scale == 3.0, 'lần 2: x3')
+	_check(GameManager.cycle_speed() == 1 and Engine.time_scale == 1.0, 'lần 3: quay về x1')
+	GameManager.cycle_speed()
+	var key := InputEventKey.new()
+	key.keycode = KEY_F
+	key.pressed = true
+	Input.parse_input_event(key)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check(GameManager.game_speed == 3, 'phím F đổi tốc độ (%d)' % GameManager.game_speed)
+	GameManager.pause_game()
+	_check(GameManager.cycle_speed() == 3, 'đang tạm dừng thì không đổi tốc độ')
+	GameManager.resume_game()
+	GameManager._finish(false)
+	_check(GameManager.game_speed == 1 and Engine.time_scale == 1.0, 'hết ván thì về x1')
+	await GameManager.start_game()
+	GameManager.cycle_speed()
+	GameManager.exit_to_menu()
+	_check(GameManager.game_speed == 1 and Engine.time_scale == 1.0, 'về menu thì về x1')
+	Engine.time_scale = SPEED
 
 
 func _test_exit_to_menu() -> void:

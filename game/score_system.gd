@@ -10,6 +10,7 @@ var enabled := false  # GameManager bật khi ván bắt đầu, tắt khi thắ
 var score := 0
 var saved := 0
 var failed := 0
+var funds := 0  # quỹ cứu trợ: cộng theo điểm, trừ khi mua ở cửa hàng
 
 
 func _ready() -> void:
@@ -21,6 +22,7 @@ func reset() -> void:
 	score = 0
 	saved = 0
 	failed = 0
+	funds = 0
 
 
 # Chỉ có nghĩa khi thắng: 0 thất bại 3 sao, 1 thất bại 2 sao, 2 thất bại 1 sao.
@@ -32,8 +34,17 @@ func _on_sos_rescued(_req_id: int, points: int) -> void:
 	if not enabled:
 		return
 	score += points
+	funds += points
 	saved += 1
 	EventBus.score_changed.emit(score)
+
+
+# Trừ quỹ nếu đủ; trả true khi trừ được.
+func spend(amount: int) -> bool:
+	if amount < 0 or amount > funds:
+		return false
+	funds -= amount
+	return true
 
 
 func _on_sos_failed(_req_id: int) -> void:

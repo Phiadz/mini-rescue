@@ -18,3 +18,4 @@ func _ready() -> void:
 	retry.pressed.connect(func() -> void: restart_pressed.emit())
 	var home := Style.button(self, "VỀ MENU", 414, 494, 452, 67, Color("#0b3157"), 27)
 	home.pressed.connect(func() -> void: menu_pressed.emit())
+	Style.pop_in(self)

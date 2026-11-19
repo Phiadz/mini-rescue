@@ -1,18 +1,21 @@
 extends Control
 ## Compact HUD (Vector MVP layout): one thin bar on top, stock badges under each hub on the map,
-## a small legend in the bottom-left corner and a controls hint at the bottom. Nothing covers the map
-## nodes, so map_01.json keeps the coordinates that match terrain/height_field.png.
+## a small legend in the bottom-left corner and a controls hint at the bottom. Nothing covers the map nodes.
 signal pause_pressed
 const Style = preload("res://ui/style.gd")
 
-const BAR := Rect2(250, 8, 780, 42)
-const BADGE_SIZE := Vector2(96, 26)
-const BADGE_OFFSET := 66.0 # below the hub icon and its name (NodeLayer)
-const ROAD_DRY := Color("#aeb8c4")
-const ROAD_SHALLOW := Color("#1f2b3c")
-const ROAD_SHALLOW_MARK := Color("#e9c85c")
-const ROAD_DEEP := Color("#3a8fd0")
-const ROAD_CASING := Color("#0d1726")
+const BAR := Rect2(215, 8, 850, 42)
+const BADGE_SIZE := Vector2(104, 26)
+const BADGE_OFFSET := 52.0 # below the hub icon and its name (NodeLayer)
+const ROAD_DRY := Color("#fbfaf6")
+const ROAD_SHALLOW := Color("#f7e6ae")
+const ROAD_SHALLOW_MARK := Color("#b9862b")
+const ROAD_DEEP := Color("#5aa7d6")
+const Road := preload("res://graph/edge_layer.gd")
+const ROAD_CASING := Color("#7f97a3")
+const MAP_CREDIT := "© OpenStreetMap contributors" # required by the ODbL licence
+
+var _deep_swatch: Array  # [viền, mặt đường] của ô mẫu "Sâu"; bản đồ kiểu lưới: đường chìm dưới nước, không viền
 
 var score_label: Label
 var fail_label: Label
@@ -23,24 +26,94 @@ var budget_label: Label
 var warning_label: Label
 var warning_panel: Panel
 var warn_time: float = 0.0
+var recede_panel: Panel        # băng "NƯỚC ĐANG RÚT" hiện vài giây khi mặt nước bắt đầu rút (nửa sau mỗi đợt)
+var recede_label: Label
+var recede_time := 0.0
+var _last_level := 0.0
+var _receding := false
+const RECEDE_BANNER := 3.0
+const RECEDE_COLOR := Color("#7ee0a8")  # chữ mực nước lúc đang rút
+# Dòng FPS (góc trên trái): số khung hình mỗi giây thật và khung lâu nhất trong 0,5 giây vừa qua. Đo bằng đồng hồ thật
+# vì tua nhanh đổi Engine.time_scale. Bản debug, hoặc bản web mở với ?fpslog, in thêm ra console để đo (FPS_LOG_EVERY giây
+# một dòng tóm tắt, kèm mọi khung lâu hơn SLOW_FRAME_MS).
+const FPS_WINDOW := 0.5
+const FPS_LOG_EVERY := 5.0
+const SLOW_FRAME_MS := 50.0
+var fps_label: Label
+var _fps_last_us := 0
+var _fps_frames := 0
+var _fps_time := 0.0
+var _fps_worst := 0.0
+var _fps_log := false
+var _log_frames := 0
+var _log_time := 0.0
+var _log_worst := 0.0
+var _log_min := INF
 var countdown: float = 120.0
 var break_time: bool = false
 var enabled: bool = false
 var badges: Dictionary = {} # hub_id -> [food Label, medical Label]
+var speed_button: Button
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_build_top_bar()
+	_build_fps()
 	var p := Style.button(self, "II", 1216, 8, 50, 42, Style.NIGHT, 22)
 	p.mouse_filter = Control.MOUSE_FILTER_STOP
 	p.pressed.connect(func() -> void: pause_pressed.emit())
+	speed_button = Style.button(self, "x1", 1160, 8, 50, 42, Style.NIGHT, 20)
+	speed_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	speed_button.focus_mode = Control.FOCUS_NONE  # để Space không bấm nhầm nút này
+	speed_button.pressed.connect(func() -> void: GameManager.cycle_speed())
 	_build_legend()
 	_build_hint()
 	warning_panel = Style.rect(self, 440, 58, 400, 44, Color(0.37, 0.04, 0.04, 0.96), Style.ORANGE, 10)
 	warning_label = Style.text(self, "ĐƯỜNG SẮP NGẬP!", 440, 58, 400, 44, 21, Style.WHITE, true)
 	warning_label.visible = false
 	warning_panel.visible = false
+	recede_panel = Style.rect(self, 440, 58, 400, 44, Color(0.02, 0.18, 0.26, 0.96), Style.CYAN, 10)
+	recede_label = Style.text(self, "NƯỚC ĐANG RÚT", 440, 58, 400, 44, 21, Style.WHITE, true)
+	recede_panel.visible = false
+	recede_label.visible = false
 	_connect_signals()
+
+func _build_fps() -> void:
+	Style.rect(self, 10, 14, 140, 24, Color(0.0, 0.05, 0.11, 0.75), Style.BORDER, 8)
+	fps_label = Style.text(self, "FPS --", 10, 14, 140, 24, 13, Style.MUTED, true)
+	_fps_last_us = Time.get_ticks_usec()
+	_fps_log = OS.is_debug_build()
+	if OS.has_feature("web"):
+		_fps_log = _fps_log or bool(JavaScriptBridge.eval("location.search.indexOf('fpslog') >= 0", true))
+
+func _tick_fps() -> void:
+	var now := Time.get_ticks_usec()
+	var ms := (now - _fps_last_us) / 1000.0
+	_fps_last_us = now
+	if _fps_log and ms > SLOW_FRAME_MS:
+		print("[FPS] khung chậm %.0f ms ở giây %.1f" % [ms, now / 1000000.0])
+	_fps_frames += 1
+	_fps_time += ms / 1000.0
+	_fps_worst = maxf(_fps_worst, ms)
+	if _fps_time < FPS_WINDOW:
+		return
+	var fps := _fps_frames / _fps_time
+	fps_label.text = "FPS %d · %d ms" % [roundi(fps), roundi(_fps_worst)]
+	fps_label.add_theme_color_override("font_color", Style.MUTED if fps >= 50.0 else (Style.YELLOW if fps >= 30.0 else Style.ORANGE))
+	if _fps_log:
+		_log_frames += _fps_frames
+		_log_time += _fps_time
+		_log_worst = maxf(_log_worst, _fps_worst)
+		_log_min = minf(_log_min, fps)
+		if _log_time >= FPS_LOG_EVERY:
+			print("[FPS] giây %.0f: trung bình %.1f, thấp nhất %.1f, khung lâu nhất %.0f ms" % [now / 1000000.0, _log_frames / _log_time, _log_min, _log_worst])
+			_log_frames = 0
+			_log_time = 0.0
+			_log_worst = 0.0
+			_log_min = INF
+	_fps_frames = 0
+	_fps_time = 0.0
+	_fps_worst = 0.0
 
 func _build_top_bar() -> void:
 	Style.rect(self, BAR.position.x, BAR.position.y, BAR.size.x, BAR.size.y, Color(0.0, 0.05, 0.11, 0.9), Style.BORDER, 10)
@@ -74,15 +147,21 @@ func _build_legend() -> void:
 	var roads := [["Khô", ROAD_DRY, false], ["Cạn", ROAD_SHALLOW, true], ["Sâu", ROAD_DEEP, false]]
 	for i in roads.size():
 		var x: float = 14 + i * 76
-		_road_sample(box, Vector2(x, 16), roads[i][1], roads[i][2])
+		var swatch := _road_sample(box, Vector2(x, 16), roads[i][1], roads[i][2])
+		if i == 2:
+			_deep_swatch = swatch
 		Style.text(box, roads[i][0], x + 30, 6, 44, 24, 15, Style.WHITE)
 	Style.text(box, "LT", 14, 38, 24, 24, 15, Style.YELLOW)
 	Style.text(box, "Lương thực", 40, 38, 84, 24, 15, Style.WHITE)
 	Style.text(box, "YT", 130, 38, 24, 24, 15, Style.CYAN)
 	Style.text(box, "Y tế", 158, 38, 60, 24, 15, Style.WHITE)
+	EventBus.game_started.connect(func() -> void:
+		Road.apply_terrain(GraphManager.get_terrain())
+		_deep_swatch[0].color = Road.deep_casing if Road.bridges else ROAD_CASING
+		_deep_swatch[1].color = Road.deep_fill if Road.bridges else ROAD_DEEP)
 
 # Small road swatch drawn like EdgeLayer: dark casing, road colour, yellow dashes for a shallow road.
-func _road_sample(parent: Control, at: Vector2, fill: Color, dashed: bool) -> void:
+func _road_sample(parent: Control, at: Vector2, fill: Color, dashed: bool) -> Array:
 	var casing := ColorRect.new()
 	parent.add_child(casing)
 	casing.position = at - Vector2(0, 2)
@@ -103,13 +182,15 @@ func _road_sample(parent: Control, at: Vector2, fill: Color, dashed: bool) -> vo
 			dash.size = Vector2(6, 4)
 			dash.color = ROAD_SHALLOW_MARK
 			dash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return [casing, road]
 
 func _build_hint() -> void:
 	Style.rect(self, 260, 690, 760, 26, Color(0.0, 0.05, 0.11, 0.8), Style.BORDER, 8)
-	var hint := Style.text(self, "Kéo trái: tô đường  •  Chuột phải / Delete: xóa ô  •  Bấm SOS: ưu tiên (tối đa 2)  •  Space/Esc: tạm dừng",
+	var hint := Style.text(self, "Kéo trái: tô đường  •  Chuột phải / Delete: xóa ô  •  Bấm SOS: ưu tiên  •  Space: tạm dừng  •  F: tua nhanh",
 			260, 690, 760, 26, 14, Style.MUTED, true)
 	hint.autowrap_mode = TextServer.AUTOWRAP_OFF # one line; with word wrap the label grew past its box
 	hint.size = Vector2(760, 26)
+	Style.text(self, MAP_CREDIT, 1024, 696, 250, 20, 11, Color("#4f6b7a"), true)
 
 func _connect_signals() -> void:
 	EventBus.game_started.connect(_build_badges)
@@ -134,13 +215,25 @@ func _build_badges() -> void:
 			continue
 		var at: Vector2 = n.pos + Vector2(-BADGE_SIZE.x / 2.0, BADGE_OFFSET)
 		var pill := Style.rect(self, at.x, at.y, BADGE_SIZE.x, BADGE_SIZE.y, Color(0.0, 0.05, 0.11, 0.9), Style.BORDER, 13)
-		var food := Style.text(pill, "", 8, 0, 40, BADGE_SIZE.y, 15, Style.YELLOW, true)
-		var med := Style.text(pill, "", 48, 0, 40, BADGE_SIZE.y, 15, Style.CYAN, true)
+		var food := Style.text(pill, "", 6, 0, 46, BADGE_SIZE.y, 15, Style.YELLOW, true)
+		var med := Style.text(pill, "", 52, 0, 46, BADGE_SIZE.y, 15, Style.CYAN, true)
+		food.autowrap_mode = TextServer.AUTOWRAP_OFF  # "YT 20" rộng hơn ô 40 px cũ nên bị xuống dòng
+		med.autowrap_mode = TextServer.AUTOWRAP_OFF
 		badges[id] = [food, med]
+		pill.set_meta("anchor", n.pos + Vector2(0.0, BADGE_OFFSET))
 		for supply in [Types.SupplyType.FOOD, Types.SupplyType.MEDICAL]:
 			_on_stock(id, supply, RescueManager.get_stock(id, supply))
 
 func _process(delta: float) -> void:
+	# Nhãn tồn kho bám theo kho khi camera phóng to (vùng chơi theo đợt), kích thước giữ nguyên.
+	var xf := get_viewport().get_canvas_transform()
+	for pair in badges.values():
+		var pill: Control = pair[0].get_parent()
+		pill.position = xf * (pill.get_meta("anchor") as Vector2) - Vector2(BADGE_SIZE.x / 2.0, 0.0)
+	_tick_fps()
+	var speed_text := "x%d" % GameManager.game_speed
+	if speed_button.text != speed_text:
+		speed_button.text = speed_text
 	if not enabled:
 		return
 	if countdown > 0.0:
@@ -154,9 +247,18 @@ func _process(delta: float) -> void:
 	else:
 		warning_label.visible = false
 		warning_panel.visible = false
+	if recede_time > 0.0:
+		recede_time -= delta
+	var show_recede := recede_time > 0.0 and not warning_panel.visible  # cảnh báo ngập ưu tiên hơn
+	recede_panel.visible = show_recede
+	recede_label.visible = show_recede
 
 func _on_score(value: int) -> void:
 	score_label.text = "ĐIỂM %d" % value
+	score_label.pivot_offset = score_label.size / 2.0
+	var tw := score_label.create_tween()
+	score_label.scale = Vector2(1.25, 1.25)
+	tw.tween_property(score_label, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func _on_failed(count: int, maximum: int) -> void:
 	fail_label.text = "THẤT BẠI %d / %d" % [count, maximum]
@@ -174,6 +276,14 @@ func _on_break(seconds: float) -> void:
 
 func _on_water(level: float) -> void:
 	water_label.text = "≈ %d%%" % int(round(level))
+	# Nước bắt đầu rút: hiện băng vài giây, chữ mực nước đổi màu tới khi nước dâng lại.
+	if level < _last_level - 0.0001 and not _receding:
+		_receding = true
+		recede_time = RECEDE_BANNER
+	elif level > _last_level + 0.0001 or level <= 0.0:
+		_receding = false
+	_last_level = level
+	water_label.add_theme_color_override("font_color", RECEDE_COLOR if _receding else Style.CYAN)
 
 func _on_budget(used: int, limit: int) -> void:
 	budget_label.text = "ĐƯỜNG %d / %d" % [used, limit]

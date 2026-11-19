@@ -4,6 +4,7 @@ extends Node
 #   Godot_v4.7.2-stable_win64_console.exe --headless --fixed-fps 60 --path . res://tests/test_road_auto.tscn
 # Thoát với mã 0 nếu mọi kiểm tra đạt, 1 nếu có kiểm tra trượt.
 
+const FIXTURE_MAP := 'res://data/map_01.json'  # bản đồ cố định cho test
 const HUB := 0        # Kho Bắc, ô (5, 3)
 const MARKET := 3     # Khu Chợ Cũ, ô (10, 5)
 const CHAIN: Array[Vector2i] = [Vector2i(6, 3), Vector2i(7, 4), Vector2i(8, 4), Vector2i(9, 5)]
@@ -13,12 +14,17 @@ var _failed := 0
 var _road_changed := 0
 var _warnings := 0
 var _rescued := 0
+var _points: Array = []
+var _failed_sos := 0
 
 
 func _ready() -> void:
 	EventBus.road_changed.connect(func() -> void: _road_changed += 1)
 	EventBus.flood_warning.connect(func(_e: int, _s: float) -> void: _warnings += 1)
-	EventBus.sos_rescued.connect(func(_r: int, _p: int) -> void: _rescued += 1)
+	EventBus.sos_rescued.connect(func(_r: int, p: int) -> void:
+		_rescued += 1
+		_points.append(p))
+	EventBus.sos_failed.connect(func(_r: int) -> void: _failed_sos += 1)
 	_run.call_deferred()
 
 
@@ -31,6 +37,8 @@ func _run() -> void:
 	await _test_vehicle_lane()
 	await _test_erase_under_vehicle()
 	await _test_finish_segment()
+	await _test_multi_unit()
+	_test_saigon_map()
 	print('\nKết quả: %d đạt, %d trượt' % [_passed, _failed])
 	get_tree().quit(1 if _failed > 0 else 0)
 
@@ -161,41 +169,45 @@ func _test_remove() -> void:
 
 
 func _test_flood() -> void:
-	print('\n== Lũ theo đoạn')
+	print('\n== Lũ theo đoạn (lũ lan theo ô)')
 	_fresh()
 	var ids := _chain()
 	var edges := GraphManager.get_edge_ids()
-	var elev: float = GraphManager.get_edge(edges[0]).elevation
-	FloodManager.water_level = elev + 1.0
+	var wet: Vector2i = CHAIN[3]
+	FloodManager.set_cell_level(wet, GraphManager.cell_elevation(wet) + 2.0)  # chỉ một ô ngập 2
 	FloodManager._update_edges()
-	_check(edges.all(func(e: int) -> bool: return GraphManager.get_edge(e).state == Types.EdgeState.SHALLOW),
-			'nước vượt độ cao đoạn thì cả đoạn ngập nhẹ cùng lúc')
+	var touching := edges.filter(func(e: int) -> bool:
+		var ed = GraphManager.get_edge(e)
+		return GraphManager.cell_of(GraphManager.get_map_node(ed.node_a).pos) == wet or GraphManager.cell_of(GraphManager.get_map_node(ed.node_b).pos) == wet)
+	_check(touching.size() == 2 and touching.all(func(e: int) -> bool: return GraphManager.get_edge(e).state == Types.EdgeState.SHALLOW),
+			'hai cạnh chạm ô ngập thì ngập nhẹ')
+	_check(edges.filter(func(e: int) -> bool: return not touching.has(e)).all(func(e: int) -> bool: return GraphManager.get_edge(e).state == Types.EdgeState.DRY),
+			'các cạnh còn lại trong đoạn vẫn khô')
 
 	_fresh()
 	ids = _chain()
-	edges = GraphManager.get_edge_ids()
-	elev = GraphManager.get_edge(edges[0]).elevation
-	_warnings = 0
-	FloodManager._rate = 1.0
-	FloodManager.water_level = elev - 1.0
+	var seg_cells: Array[Vector2i] = [_cell(HUB), _cell(MARKET)]
+	seg_cells.append_array(CHAIN)
+	for c in seg_cells:  # cả đoạn sâu 14: SHALLOW
+		FloodManager.set_cell_level(c, GraphManager.cell_elevation(c) + Config.SHALLOW_MAX - 1.0)
 	FloodManager._update_edges()
+	_warnings = 0
+	for k in 3:  # mọi ô dâng 0,25 mỗi 0,25 giây: còn chưa tới 5 giây là trung bình tới 15
+		FloodManager._prev = FloodManager._level.duplicate()
+		for c in seg_cells:
+			FloodManager.set_cell_level(c, GraphManager.cell_elevation(c) + Config.SHALLOW_MAX - 1.0 + 0.25 * (k + 1))
+		FloodManager._last_dt = 0.25
+		FloodManager._update_edges()
 	_check(_warnings == 1, 'mỗi đoạn chỉ cảnh báo một lần (%d)' % _warnings)
 
 	_fresh()
 	ids = _chain()
-	GraphManager.extend_road(ids[1], Vector2i(7, 5))
-	var near: int = GraphManager.get_edges_of(HUB)[0]
-	var far: int = GraphManager.get_edges_of(MARKET)[0]
-	var high: float = GraphManager.get_edge(near).elevation
-	var low: float = GraphManager.get_edge(far).elevation
-	GraphManager.remove_road(Vector2i(7, 5))
-	FloodManager.water_level = (high + low) / 2.0
-	FloodManager._update_edges()
-	var merged: int = GraphManager.get_edge(near).state
-	GraphManager.extend_road(ids[1], Vector2i(7, 5))
-	_check(GraphManager.get_edge(near).state == Types.EdgeState.DRY
-			and GraphManager.get_edge(far).state == Types.EdgeState.SHALLOW and merged != -1,
-			'tách đoạn lúc nước đứng yên thì trạng thái cập nhật ngay')
+	var branch := Vector2i(7, 5)
+	FloodManager.set_cell_level(branch, GraphManager.cell_elevation(branch) + 20.0)  # ô sắp tô đang ngập sâu 20
+	var bid := GraphManager.extend_road(ids[1], branch)
+	var new_edge: int = GraphManager.get_edges_of(bid)[0]
+	_check(GraphManager.get_edge(new_edge).state == Types.EdgeState.SHALLOW,
+			'tô ô ngập lúc nước đứng yên: cạnh mới nhận trạng thái ngay (trung bình hai ô 10, ngập nhẹ)')
 
 	_fresh()
 	_chain()
@@ -215,10 +227,11 @@ func _test_vehicle_lane() -> void:
 	var truck := _truck()
 	_sos(100)
 	await _wait(func() -> bool: return truck.state_id == Types.VehicleState.EN_ROUTE and truck.path_index >= 1)
-	await _frames(20)
+	# Chờ làn xe ổn định (ở chỗ rẽ làn đổi dần trong LANE_SWITCH) trong lúc xe vẫn chạy, không phụ thuộc tốc độ xe.
+	var in_lane := func() -> bool: return truck.lane_offset().distance_to(truck.heading.rotated(PI / 2.0) * RescueManager.Vehicle.LANE_OFFSET) < 0.5
+	await _wait(func() -> bool: return truck.state_id != Types.VehicleState.EN_ROUTE or (truck.path_index >= 1 and in_lane.call()))
 	_check(truck.state_id == Types.VehicleState.EN_ROUTE, 'xe tải nhận SOS và chạy trên đường ô')
-	var want := truck.heading.rotated(PI / 2.0) * RescueManager.Vehicle.LANE_OFFSET
-	_check(truck.lane_offset().distance_to(want) < 0.5, 'xe chạy lệch sang bên phải hướng đi')
+	_check(in_lane.call(), 'xe chạy lệch sang bên phải hướng đi')
 	_check(_on_road(truck.position), 'vị trí tính đường của xe vẫn nằm giữa đường')
 	await _wait(func() -> bool: return _rescued > 0)
 	_check(_rescued == 1, 'xe giao hàng tới nơi')
@@ -260,10 +273,110 @@ func _test_finish_segment() -> void:
 	_check(_rescued == 1, 'đoạn ngập sâu khi xe đang đi: xe đi hết đoạn rồi mới tính lại')
 
 
-func _fresh() -> void:
-	FloodManager.water_level = 0.0
+# Bản đồ thật của game: kiểm tra dữ liệu, không phụ thuộc bản đồ cố định dùng cho các test trên.
+func _test_saigon_map() -> void:
+	print('\n== Bản đồ Sài Gòn')
 	GraphManager.load_map(Config.MAP_PATH)
+	var ids := GraphManager.get_node_ids()
+	_check(ids.size() == 17, 'có 17 điểm')
+	var hubs := ids.filter(func(i: int) -> bool: return GraphManager.get_map_node(i).kind == Types.NodeKind.HUB)
+	_check(hubs.size() == 2, 'có 2 kho')
+	_check(GraphManager.get_map_node(RescueManager.HOSPITAL_ID).icon == 'hospital', 'HOSPITAL_ID trỏ đúng bệnh viện')
+	var cells := {}
+	var centered := true
+	var icons := true
+	for i in ids:
+		var n := GraphManager.get_map_node(i)
+		var c := GraphManager.cell_of(n.pos)
+		cells[c] = true
+		centered = centered and n.pos == GraphManager.cell_center(c)
+		icons = icons and ResourceLoader.exists('res://assets/icons/%s.svg' % n.icon)
+	_check(cells.size() == ids.size(), 'không có hai điểm chung một ô')
+	_check(centered, 'mọi điểm nằm đúng tâm ô')
+	_check(icons, 'mọi điểm có icon thật')
+	_check(GraphManager._cell_elevation.size() == Config.GRID_COLS * Config.GRID_ROWS, 'có đủ độ cao cho mọi ô lưới')
 	EventBus.game_started.emit()
+	var trucks := RescueManager.START_TRUCKS
+	var boats := RescueManager.START_BOATS
+	# Bản đồ có cổng: mỗi kho có bãi đỗ, xe tải chia đều hai kho; ca-nô ở kho có bến (ven sông).
+	var half := trucks / 2
+	_check(_count(Types.VehicleType.TRUCK, 0) == trucks - half and _count(Types.VehicleType.TRUCK, 1) == half and _count(Types.VehicleType.BOAT, 1) == boats,
+			'lúc đầu ván: %d xe tải chia đều hai kho, %d ca-nô ở kho ven sông' % [trucks, boats])
+	RescueManager.add_vehicle(Types.VehicleType.BOAT)
+	RescueManager.add_vehicle(Types.VehicleType.TRUCK)
+	var fewer := 1 if half < trucks - half else 0  # xe tải mới về kho đang ít xe hơn (bằng nhau thì kho cao)
+	_check(_count(Types.VehicleType.TRUCK, 0) + _count(Types.VehicleType.TRUCK, 1) == trucks + 1 and _count(Types.VehicleType.TRUCK, fewer) == (half if fewer == 1 else trucks - half) + 1
+			and _count(Types.VehicleType.BOAT, 1) == boats + 1, 'xe thưởng về đúng kho hợp với loại xe')
+
+
+func _count(type: int, hub: int) -> int:
+	var n := 0
+	for id in RescueManager.get_vehicle_ids():
+		var v: RescueManager.Vehicle = RescueManager._vehicles[id]
+		if v.type == type and v.hub_id == hub:
+			n += 1
+	return n
+
+
+# SOS lớn cần nhiều phần hàng: mỗi xe chở 1 phần, nhiều xe cùng chạy tới (tạo đoàn xe, dễ kẹt).
+func _test_multi_unit() -> void:
+	print('
+== SOS cần nhiều xe')
+	_fresh()
+	_chain()
+	var food := Types.SupplyType.FOOD
+	var stock0 := RescueManager.get_stock(HUB, food)
+	_rescued = 0
+	_points.clear()
+	var req := _sos(200)
+	req.units = 3
+	await _frames(3)
+	_check(req.assigned == 3 and req.vehicle_ids.size() == 3 and req.state == Types.SosState.ASSIGNED,
+			'SOS cần 3 phần: 3 xe cùng nhận (%d)' % req.assigned)
+	_check(RescueManager.get_stock(HUB, food) == stock0 - 3, 'kho trừ 3 phần')
+	_check(RescueManager.get_units_left(200) == 3, 'bong bóng hiện còn thiếu 3 phần')
+	await _wait(func() -> bool: return _rescued > 0)
+	_check(req.delivered == 3 and _rescued == 1, 'giao đủ 3 phần mới được cứu, chỉ tính 1 lần')
+	var expect := roundi(Config.POINTS[food] * 3 * Config.BONUS_RATIO)
+	_check(_points.size() == 1 and _points[0] == expect, 'điểm nhân theo số phần (%d)' % expect)
+
+	_fresh()
+	_chain()
+	stock0 = RescueManager.get_stock(HUB, food)
+	_failed_sos = 0
+	var req2 := _sos(201)
+	req2.units = 2
+	await _frames(3)
+	var carriers: Array = req2.vehicle_ids.duplicate()
+	_check(carriers.size() == 2, 'SOS cần 2 phần: 2 xe nhận')
+	req2.time_left = 0.01
+	await _frames(3)
+	_check(_failed_sos == 1 and RescueManager.get_stock(HUB, food) == stock0, 'hết giờ: SOS thất bại, hoàn đủ 2 phần về kho')
+	_check(carriers.all(func(vid: int) -> bool:
+			var v = RescueManager._vehicles[vid]
+			return v.request == null and v.state_id != Types.VehicleState.EN_ROUTE), 'các xe đang chở đều bỏ nhiệm vụ, quay về')
+
+	_fresh()
+	_chain()
+	var can_send := mini(RescueManager.START_TRUCKS, RescueManager.get_stock(HUB, food))  # giới hạn bởi số xe và hàng trong kho
+	var req3 := _sos(202)
+	req3.units = can_send + 2
+	await _frames(3)
+	_check(req3.assigned == can_send and req3.state == Types.SosState.PENDING,
+			'cần nhiều phần hơn số xe, số hàng: giao hết những gì có (%d), SOS vẫn chờ thêm' % can_send)
+
+	# SOS sinh ra theo đợt: thời hạn cộng thêm cho mỗi phần, và đồng hồ bắt đầu đầy (time_left = time_total).
+	var made = RescueManager.SosFactory.create(300, 0, [3])
+	var w: Dictionary = Config.WAVES[0]
+	var base: float = w.deadline_food if made.supply == Types.SupplyType.FOOD else w.deadline_medical
+	_check(made.units == int(w.sos_units) and is_equal_approx(made.time_total, base + RescueManager.UNIT_EXTRA_SECONDS * (made.units - 1)),
+			'SOS %d phần: thời hạn cộng thêm %.1f giây' % [made.units, made.time_total - base])
+	_check(is_equal_approx(made.time_left, made.time_total), 'SOS mới: đồng hồ đếm bắt đầu đầy, hạn thật có phần cộng thêm')
+
+
+func _fresh() -> void:
+	GraphManager.load_map(FIXTURE_MAP)
+	EventBus.game_started.emit()  # FloodManager.reset() đọc lại độ cao các ô
 
 
 # Kho Bắc → 4 ô → Chợ Cũ, trả về mã nút của 4 ô.

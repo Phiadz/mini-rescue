@@ -23,6 +23,10 @@ static func rounded(bg: Color, border: Color = Color.TRANSPARENT, radius: int = 
 	s.corner_radius_top_right = radius
 	s.corner_radius_bottom_left = radius
 	s.corner_radius_bottom_right = radius
+	# Soft shadow tinh tế giúp UI có chiều sâu hiện đại
+	s.shadow_color = Color(0, 0, 0, 0.18)
+	s.shadow_size = 4
+	s.shadow_offset = Vector2(0, 2)
 	return s
 
 static func full(c: Control) -> void:
@@ -84,6 +88,7 @@ static func button(parent: Node, caption: String, x: float, y: float, w: float, 
 	b.text = caption
 	b.position = Vector2(x, y)
 	b.size = Vector2(w, h)
+	b.pivot_offset = Vector2(w / 2.0, h / 2.0)
 	b.add_theme_font_size_override("font_size", font_size)
 	b.add_theme_color_override("font_color", fg)
 	b.add_theme_color_override("font_hover_color", fg)
@@ -94,10 +99,47 @@ static func button(parent: Node, caption: String, x: float, y: float, w: float, 
 	b.add_theme_stylebox_override("focus", rounded(Color.TRANSPARENT, CYAN, 10, 2))
 	b.add_theme_stylebox_override("disabled", rounded(PANEL, BORDER, 10, 2))
 	b.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+
+	# Juicy hover & press feedback
+	b.mouse_entered.connect(func() -> void:
+		if b.disabled:
+			return
+		AudioManager.play_sfx(&"ui_hover")
+		var tw := b.create_tween()
+		tw.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+		tw.tween_property(b, "scale", Vector2(1.05, 1.05), 0.1).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	)
+	b.mouse_exited.connect(func() -> void:
+		var tw := b.create_tween()
+		tw.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+		tw.tween_property(b, "scale", Vector2.ONE, 0.1).set_trans(Tween.TRANS_SINE)
+	)
+	b.button_down.connect(func() -> void:
+		var tw := b.create_tween()
+		tw.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+		tw.tween_property(b, "scale", Vector2(0.96, 0.96), 0.05).set_trans(Tween.TRANS_QUAD)
+	)
+	b.button_up.connect(func() -> void:
+		var tw := b.create_tween()
+		tw.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+		var target := Vector2(1.05, 1.05) if b.is_hovered() else Vector2.ONE
+		tw.tween_property(b, "scale", target, 0.08).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	)
+
 	# All interface buttons provide the same click sound, including Pause/Reward/End.
 	# AudioManager has PROCESS_MODE_ALWAYS so this still plays while the game is paused.
 	b.pressed.connect(func() -> void: AudioManager.play_sfx(&"ui_click"))
 	return b
+
+## Hiệu ứng xuất hiện nảy mượt mà (Pop-in) cho các cửa sổ / menu
+static func pop_in(target: Control, from_scale: float = 0.94, duration: float = 0.22) -> void:
+	target.pivot_offset = target.size / 2.0
+	target.scale = Vector2(from_scale, from_scale)
+	target.modulate.a = 0.0
+	var tw := target.create_tween()
+	tw.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	tw.tween_property(target, "scale", Vector2.ONE, duration).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(target, "modulate:a", 1.0, duration * 0.75).set_trans(Tween.TRANS_SINE)
 
 static func bar(parent: Node, x: float, y: float, w: float, h: float, amount: float, color: Color = CYAN) -> ProgressBar:
 	var b := ProgressBar.new()

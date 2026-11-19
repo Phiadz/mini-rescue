@@ -1,55 +1,200 @@
 class_name FloodOverlay
 extends Node2D
-## Lớp phủ nước (module B). Chỉ vẽ, không sửa dữ liệu đồ thị.
-## - Phủ màu nước lên cả bản đồ, đậm dần theo mực nước (độ mờ 0,05 khi nước vừa dâng, 0,35 ở mức 100).
-## - Vẽ quầng nước bán kính 40 px quanh mỗi kho và khu dân cư đã thấp hơn mực nước; ngập càng sâu quầng càng đậm.
+## Lớp nước (module B). Chỉ vẽ, không sửa dữ liệu đồ thị.
+## Vẽ một hình chữ nhật phủ cả bản đồ bằng shader water.gdshader:
+## - mỗi nhịp lũ (FLOOD_TICK), đóng gói mặt nước và độ ướt của 32 × 18 ô vào một ảnh nhỏ;
+## - shader làm mịn ảnh đó, so với height_field.png từng điểm ảnh, nên bờ nước theo đường đồng mức;
+## - giữ ảnh nhịp trước và nhịp sau, trộn dần trong khoảng FLOOD_TICK để nước lan liên tục.
 ## Nằm dưới EdgeLayer và NodeLayer trong main.tscn nên đường, điểm và xe vẫn vẽ đè lên trên.
 
-const WATER := Color("#0073E6")
+const HEIGHT_FIELD := preload('res://assets/icons/terrain/height_field.png')  # mặc định (map_01)
+const DEFAULT_COLORS := {shallow = Color(0.165, 0.549, 0.753), deep = Color(0.102, 0.396, 0.592), foam = Color(0.78, 0.93, 1.0)}
+const WATER_SHADER := preload('res://flood/water.gdshader')
+const WATER_GRID_SHADER := preload('res://flood/water_grid.gdshader')  # bản đồ theo lưới: ô màu phẳng, bo góc
 const MAP_SIZE := Vector2(1280, 720)
-const HALO_RADIUS := 40.0
-const ALPHA_MIN := 0.05
-const ALPHA_MAX := 0.35
 
-var _level := 0.0
+var _prev_img: Image
+var _next_img: Image
+var _prev_tex: ImageTexture
+var _next_tex: ImageTexture
+var _since_tick := 0.0
+var _wet_cells := 0
+var _height_tex: Texture2D = HEIGHT_FIELD
+# Ảnh 1 × 1 chỉ để vẽ hình chữ nhật phủ bản đồ ở kiểu lưới. Không dùng _prev_tex: trên GLES3 cách lọc gắn vào texture,
+# vẽ nó với lọc NEAREST của nút này sẽ làm shader đọc field_prev mất nội suy (bóng ven bờ vỡ thành khối).
+var _quad_tex: ImageTexture
+var _grid_style := false  # terrain.style = "grid": lũ vẽ theo ô (water_grid.gdshader), không theo ảnh độ cao
 
 
 func _ready() -> void:
-	EventBus.water_level_changed.connect(_on_water_level)
-	EventBus.game_started.connect(func() -> void: _on_water_level(0.0))
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST  # height_field mã hóa 16 bit, không được nội suy
+	_prev_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBH)
+	_next_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBH)
+	_prev_tex = ImageTexture.create_from_image(_prev_img)
+	_next_tex = ImageTexture.create_from_image(_next_img)
+	material = _new_material(WATER_SHADER)
+	EventBus.water_level_changed.connect(func(_l: float) -> void: _refresh())
+	EventBus.game_started.connect(func() -> void:
+		_apply_terrain()
+		_refresh()
+		_prev_img.copy_from(_next_img)  # ảnh trước và sau giống nhau, không trộn từ ván cũ
+		_prev_tex.update(_prev_img))
 
 
-func _on_water_level(level: float) -> void:
-	if is_equal_approx(level, _level):
-		return
-	_level = level
+func _process(delta: float) -> void:
+	_since_tick += delta
+	(material as ShaderMaterial).set_shader_parameter('blend', clampf(_since_tick / Config.FLOOD_TICK, 0.0, 1.0))
+
+
+func _draw() -> void:
+	draw_texture_rect(_height_tex, Rect2(Vector2.ZERO, MAP_SIZE), false)
+
+
+# Ảnh độ cao và màu nước theo khóa "terrain" của bản đồ; bản đồ không khai báo thì dùng mặc định của map_01.
+func _apply_terrain() -> void:
+	var t: Dictionary = GraphManager.get_terrain()
+	_grid_style = t.get("style", "") == "grid"
+	# Kiểu lưới không dùng ảnh độ cao (chỉ cần một ảnh bất kỳ để vẽ hình chữ nhật phủ bản đồ): khỏi nạp ảnh 1280 × 720.
+	if _grid_style:
+		if _quad_tex == null:
+			_quad_tex = ImageTexture.create_from_image(Image.create(1, 1, false, Image.FORMAT_RGBA8))
+		_height_tex = _quad_tex
+	else:
+		_height_tex = load(t["height"]) if t.has("height") else HEIGHT_FIELD
+	if _grid_style and _prev_img.get_format() != Image.FORMAT_RGB8:  # ô chỉ 0 hoặc 1: ảnh 8 bit, ghi theo khối
+		_prev_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGB8)
+		_next_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGB8)
+		_prev_tex.set_image(_prev_img)
+		_next_tex.set_image(_next_img)
+	elif not _grid_style and _prev_img.get_format() != Image.FORMAT_RGBH:  # bản đồ thường: mặt nước là số thực
+		_prev_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBH)
+		_next_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBH)
+		_prev_tex.set_image(_prev_img)
+		_next_tex.set_image(_next_img)
+	var want := WATER_GRID_SHADER if _grid_style else WATER_SHADER
+	var mat := material as ShaderMaterial
+	if mat.shader != want:
+		mat = _new_material(want)
+		material = mat
+	for key in ["shallow", "deep", "foam"]:
+		mat.set_shader_parameter(key + "_color", Color(t[key]) if t.has(key) else DEFAULT_COLORS[key])
 	queue_redraw()
 
 
-## Độ mờ của lớp phủ theo mực nước (thang 0–100). Nước chưa dâng thì không phủ.
-static func water_alpha(level: float) -> float:
-	if level <= 0.0:
-		return 0.0
-	return lerpf(ALPHA_MIN, ALPHA_MAX, clampf(level / 100.0, 0.0, 1.0))
+# Vật liệu cho một trong hai shader nước (tham số của shader kia không dùng thì bỏ qua).
+func _new_material(shader: Shader) -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	mat.set_shader_parameter('field_prev', _prev_tex)
+	mat.set_shader_parameter('field_next', _next_tex)
+	mat.set_shader_parameter('shallow_max', Config.SHALLOW_MAX)
+	mat.set_shader_parameter('sea_max', Config.SEA_MAX_ELEVATION)
+	mat.set_shader_parameter('map_size', MAP_SIZE)
+	mat.set_shader_parameter('cell', MAP_SIZE.x / Config.GRID_COLS)
+	return mat
 
 
-## Các kho và khu dân cư có độ cao thấp hơn mực nước hiện tại (bỏ qua ô đường).
+## Các kho và khu dân cư có ô đang ngập.
 func flooded_node_ids() -> Array[int]:
 	var ids: Array[int] = []
 	for id in GraphManager.get_node_ids():
 		var n = GraphManager.get_map_node(id)
-		if n != null and n.kind != Types.NodeKind.ROAD and n.elevation < _level:
+		if n != null and n.kind != Types.NodeKind.ROAD and FloodManager.depth_at(GraphManager.cell_of(n.pos)) >= FloodManager.DRY_EPSILON:
 			ids.append(id)
 	return ids
 
 
-func _draw() -> void:
-	if _level <= 0.0:
+## Số ô đất đang ngập (không tính ô biển).
+func wet_cell_count() -> int:
+	return _wet_cells
+
+
+# Kênh B: mức phủ lũ lên sông, biển. Ô đất: mức ngập của nó. Ô sông, biển: mức ngập lớn nhất của 8 ô xung quanh,
+# lan thêm 2 ô vào trong, để chỗ bờ đã ngập thì mặt lũ phủ liền qua sông, không lộ viền bờ của nền.
+func _sea_cover() -> Dictionary:
+	var cover := {}
+	for y in Config.GRID_ROWS:
+		for x in Config.GRID_COLS:
+			var c := Vector2i(x, y)
+			if not FloodManager.is_sea(c):
+				cover[c] = clampf(FloodManager.depth_at(c) / Config.FLOOD_SPILL_DEPTH, 0.0, 1.0)
+	for pass_i in 3:
+		var next := cover.duplicate()
+		for y in Config.GRID_ROWS:
+			for x in Config.GRID_COLS:
+				var c := Vector2i(x, y)
+				if not FloodManager.is_sea(c):
+					continue
+				var best: float = cover.get(c, 0.0)
+				for dy in [-1, 0, 1]:
+					for dx in [-1, 0, 1]:
+						var n := c + Vector2i(dx, dy)
+						if (pass_i == 0 and FloodManager.is_sea(n)) or not cover.has(n):
+							continue
+						best = maxf(best, cover[n])
+				next[c] = best
+		cover = next
+	return cover
+
+
+# Ảnh nhịp sau thành ảnh nhịp trước; dựng ảnh nhịp sau từ FloodManager.
+# Ô ướt: R = mặt nước, G = độ ướt (độ sâu / FLOOD_SPILL_DEPTH). Ô khô sát nước: R = mặt nước cao nhất
+# của ô kề để nội suy không kéo mặt nước tụt xuống ở mép, G = 0.
+func _refresh() -> void:
+	_prev_img.copy_from(_next_img)
+	if _grid_style:
+		_refresh_grid()
 		return
-	draw_rect(Rect2(Vector2.ZERO, MAP_SIZE), Color(WATER, water_alpha(_level)))
-	for id in flooded_node_ids():
-		var n = GraphManager.get_map_node(id)
-		var depth: float = _level - n.elevation
-		var a: float = clampf(0.25 + depth / 60.0, 0.25, 0.6)
-		draw_circle(n.pos, HALO_RADIUS, Color(WATER, a * 0.6))
-		draw_arc(n.pos, HALO_RADIUS, 0.0, TAU, 48, Color(WATER.lightened(0.4), a), 2.0)
+	var surface := {}
+	var wet := 0
+	for y in Config.GRID_ROWS:
+		for x in Config.GRID_COLS:
+			var c := Vector2i(x, y)
+			var d := FloodManager.depth_at(c)
+			if FloodManager.is_sea(c) or d >= FloodManager.DRY_EPSILON:
+				surface[c] = FloodManager.surface_at(c)
+				if not FloodManager.is_sea(c):
+					wet += 1
+	var cover := _sea_cover()
+	for y in Config.GRID_ROWS:
+		for x in Config.GRID_COLS:
+			var c := Vector2i(x, y)
+			var b: float = cover.get(c, 0.0)
+			if surface.has(c):
+				var g := 1.0 if FloodManager.is_sea(c) else clampf(FloodManager.depth_at(c) / Config.FLOOD_SPILL_DEPTH, 0.0, 1.0)
+				_next_img.set_pixel(x, y, Color(surface[c], g, b))
+				continue
+			var best := 0.0
+			for d in FloodManager.NEIGHBORS:
+				best = maxf(best, surface.get(c + d, 0.0))
+			_next_img.set_pixel(x, y, Color(best, 0.0, b))
+	_wet_cells = wet
+	_prev_tex.update(_prev_img)
+	_next_tex.update(_next_img)
+	_since_tick = 0.0
+	queue_redraw()
+
+
+# Kiểu lưới: R = 1 nếu ô sâu (tới SHALLOW_MAX) hoặc là sông, G = 1 nếu ô có nước (ngập hoặc sông).
+func _refresh_grid() -> void:
+	var wet := 0
+	var data := PackedByteArray()
+	data.resize(Config.GRID_COLS * Config.GRID_ROWS * 3)
+	var k := 0
+	for y in Config.GRID_ROWS:
+		for x in Config.GRID_COLS:
+			var c := Vector2i(x, y)
+			var sea := FloodManager.is_sea(c)
+			var d := FloodManager.depth_at(c)
+			var has_water := sea or d >= FloodManager.DRY_EPSILON
+			if has_water and not sea:
+				wet += 1
+			data[k] = 255 if sea or d >= Config.SHALLOW_MAX else 0
+			data[k + 1] = 255 if has_water else 0
+			k += 3
+	_next_img.set_data(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGB8, data)
+	_wet_cells = wet
+	_prev_tex.update(_prev_img)
+	_next_tex.update(_next_img)
+	_since_tick = 0.0
+	queue_redraw()

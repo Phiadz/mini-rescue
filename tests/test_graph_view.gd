@@ -2,6 +2,7 @@ extends Node2D
 # Scene thử bằng tay cho Graph View. Chủ sở hữu: E. Mở tests/test_graph_view.tscn rồi bấm F6.
 # Chỉ trong scene thử này E được gọi GraphManager.set_edge_state (ngoài game chỉ B được gọi).
 
+const FIXTURE_MAP := 'res://data/map_01.json'  # bản đồ cố định cho test
 const HELP := 'Giữ chuột trái và kéo: tô đường từng ô    Giữ chuột phải và rê (hoặc rê lên ô rồi Delete): xóa\n' \
 		+ '1 / 2 / 3: đổi đoạn vừa tô sang khô / ngập nhẹ / ngập sâu    R: nạp lại bản đồ (giả lập chơi lại)'
 
@@ -50,6 +51,6 @@ func _set_state(state: int) -> void:
 
 # Giống trình tự trong GameManager.start_game(): nạp bản đồ rồi mới phát game_started.
 func _reload() -> void:
-	GraphManager.load_map(Config.MAP_PATH)
+	GraphManager.load_map(FIXTURE_MAP)
 	EventBus.game_started.emit()
 	_last_edge = -1
