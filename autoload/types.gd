@@ -7,4 +7,4 @@ enum SupplyType { FOOD, MEDICAL }
 enum NodeKind { HUB, DISTRICT, ROAD, WATER }  # WATER: ô sông cho ca-nô (GraphManager, không phải điểm)
 enum SosState { PENDING, ASSIGNED, RESCUED, FAILED }
 enum GameState { MENU, PLAYING, WAVE_BREAK, PAUSED, WON, LOST }
-enum Reward { MORE_EDGES, EXTRA_TRUCK, EXTRA_BOAT }
+enum Reward { MORE_EDGES, EXTRA_TRUCK, EXTRA_BOAT, UPGRADE_TRUCK_CAP, UPGRADE_BOAT_CAP }
