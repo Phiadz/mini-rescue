@@ -44,11 +44,12 @@
    - Đợt 1 zoom 1,8 (8 khu trung tâm và Kho Tân Sơn Nhất), đợt 2 zoom 1,35 (12 khu, thêm Kho Cát Lái), đợt 3 zoom 1 (cả 15 khu). Camera chuyển vùng bằng Tween 1,6 giây ở đầu lượt nghỉ; cửa hàng mở sau khi camera chuyển xong.
    - Ngoài vùng chơi: phủ lớp tối nhẹ, không tô đường, không sinh SOS (`GameManager.is_in_play`).
 
-5. **Phát sinh thêm ngoài lộ trình (E, 17/11), để kẹt xe xuất hiện rõ hơn:**
-   - Mỗi SOS cần 10 phần hàng; mỗi xe chở 1 phần, các xe dỡ hàng lần lượt.
-   - Đầu ván có 200 xe (100 xe tải, 100 ca-nô); mua ở cửa hàng được +10 xe.
-   - Xe chạy nhanh hơn 1,5 lần (180 / 135 px/s), dỡ hàng 0,5 giây. SOS dày hơn, hạn ngắn hơn để giữ độ khó.
-   - Bot `tests/test_balance_auto` (10 ván, map Sài Gòn): thắng 7/10, xe bị kẹt khoảng 51% thời gian chạy.
+5. **Cân bằng lại thực tế theo góp ý của Lộc (đã cập nhật vào code sau merge):**
+   - **Mỗi SOS chỉ cần 1 xe:** `sos_units = 1` trong tất cả các Wave (`autoload/config.gd`). Một xe tải/ca-nô chở đủ hàng cho một nhà, không còn cảnh 8–10 xe bu vào một căn nhà.
+   - **Quy mô xe ban đầu hợp lý:** Đầu ván chỉ có **20 xe** gồm **12 xe tải** và **8 ca-nô** (`START_TRUCKS = 12`, `START_BOATS = 8` trong `rescue_manager.gd`), chia đều cho các kho.
+   - **Thưởng xe ở Cửa hàng cứu trợ:** Mua xe được `+2 xe` mỗi lần (`REWARD_VEHICLE_BONUS = 2`), không cộng dồn ồ ạt +10 xe.
+   - **Bãi đỗ xe chuẩn Mini Motorways:** Mỗi kho có bãi đỗ 6 chỗ, bến ca-nô cầu tàu 4 chỗ; xe ra vào có thứ tự, không chồng lên nhau.
+   - **Thời hạn SOS điều chỉnh tương ứng:** Đợt 1: 40s/30s, Đợt 2: 38s/29s, Đợt 3: 30s/23s để đảm bảo nhịp độ căng thẳng vừa phải mà không gây quá tải giao thông vô lý.
 
 ---
 
