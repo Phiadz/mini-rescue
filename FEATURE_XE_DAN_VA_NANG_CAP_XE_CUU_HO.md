@@ -314,14 +314,14 @@ Bổ sung 2 thẻ nâng cấp vào hệ thống Reward:
 ---
 
 #### 📋 Tiến độ NGƯỜI B (Visual & Hiển thị)
-- [ ] Nạp asset SVG có sẵn (`assets/icons/motorbike.svg`, `car.svg`)
-- [ ] Cài đặt kích thước hiển thị `(14×9)` và `(18×11)` px
-- [ ] Xoay đầu xe theo hướng chạy & lật hình khi sang trái
-- [ ] Hiệu ứng ẩn xe khi đỗ trong nhà và mờ dần khi gặp ngập biến mất
-- [ ] Kiểm tra thẩm mỹ tổng thể trên bản đồ mùa lũ
+- [x] Nạp asset SVG có sẵn (`assets/icons/motorbike.svg`, `car.svg`)
+- [x] Cài đặt kích thước hiển thị `(14×9)` và `(18×11)` px
+- [x] Xoay đầu xe theo hướng chạy & lật hình khi sang trái
+- [x] Hiệu ứng ẩn xe khi đỗ trong nhà và mờ dần khi gặp ngập biến mất
+- [ ] Kiểm tra thẩm mỹ tổng thể trên bản đồ mùa lũ *(chờ merge logic xe dân của Người C để kiểm thử trực quan)*
 
 *Ghi chú của B:*
-> `[B - Ngày ...]` Đã làm: ... | Vướng mắc: ... | Cần hỏi Lộc: ...
+> `[B - Ngày 20/11/2026]` Đã làm: Nạp sẵn `motorbike.svg` và `car.svg` trong `Vehicle`, hỗ trợ render kích thước `Vector2(14, 9)` (xe máy) & `Vector2(18, 11)` (ô tô), xoay hướng theo `heading.angle()` + lật ngang khi `heading.x < 0.0`, ẩn hoàn toàn khi `PARKED`, thêm API `fade_out(free_after, on_finished)` (Tween `modulate.a` 1.0 → 0.0 trong 0.25s) và `reset_visual()` trong `rescue/rescue_manager.gd`; giữ nguyên HUD không thêm bộ đếm xe dân. | Vướng mắc: Chưa có code của Người C (`MOTORBIKE = 2`, `CAR = 3` trong `Types.VehicleType`), đã dùng hằng số khớp giá trị enum (`2`, `3`) để không lỗi trước khi merge. | Cần hỏi Lộc: Không.
 
 ---
 
