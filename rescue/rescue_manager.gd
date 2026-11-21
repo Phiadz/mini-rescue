@@ -22,7 +22,7 @@ const BOAT_UNDER_Z := -7             # ca-nô luồn dưới cầu: trên đư�
 const Road := preload('res://graph/edge_layer.gd')
 const DISPATCH_INTERVAL := 0.5       # giây giữa hai lượt điều phối
 const DIRTY_DISPATCH_GAP := 0.1      # đồ thị đổi (tô đường, nước dâng rút): điều phối lại sớm nhưng không dày hơn mức này
-                                     # (SOS mới, xe rảnh vẫn điều phối ngay khung sau)
+									 # (SOS mới, xe rảnh vẫn điều phối ngay khung sau)
 const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết cạnh
 const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
 const BOAT_ESCAPE_FACTOR := 0.1      # ca-nô mắc cạn (nước rút) tìm đường về được bò qua chỗ khô; chỗ khô tính đắt gấp 10
@@ -45,7 +45,7 @@ const JUNCTION_LIGHT := 3            # ngã tư đường trở lên: đèn chia
 const LIGHT_PHASE := 3.0             # giây mỗi pha đèn xanh của một trục
 const ROUNDABOUT_SLOW := 0.8         # hệ số dưới mức này mới tính là kẹt (bật đèn phanh)
 const RING_YIELD := 30.0             # xe trên vòng cách chỗ nhập dưới mức này (px) thì xe ngoài vào phải nhường
-const UNIT_EXTRA_SECONDS := Config.DELIVERY_TIME  # SOS cần nhiều phần: mỗi phần thêm cộng một lần dỡ hàng (xe xếp hàng dỡ lần lượt)
+const UNIT_EXTRA_SECONDS: float = 0.5  # bằng Config.DELIVERY_TIME; SOS cần nhiều phần: mỗi phần thêm cộng một lần dỡ hàng (xe xếp hàng dỡ lần lượt)
 const GRID_CELL := 40.0              # ô lưới để tìm xe ở gần khi tính kẹt xe (bằng một ô đường)
 
 # Nguồn đồ thị. null = dùng GraphManager thật. Scene thử gán đồ thị giả vào đây.
@@ -128,7 +128,14 @@ class Vehicle extends Node2D:
 	# Hình xe SVG của D (cùng bộ với icon tòa nhà trên bản đồ), đầu xe quay sang phải.
 	const TRUCK_ICON := preload('res://assets/icons/truck.svg')
 	const BOAT_ICON := preload('res://assets/icons/boat.svg')
-	const ICON_SIZE := Vector2(21, 14)  # giữ tỉ lệ 96 × 64 của file SVG, vừa một làn của đường rộng 22 px
+	const MOTORBIKE_ICON := preload('res://assets/icons/motorbike.svg')
+	const CAR_ICON := preload('res://assets/icons/car.svg')
+	const ICON_SIZE := Vector2(21, 14)           # giữ tỉ lệ 96 × 64 của file SVG, vừa một làn của đường rộng 22 px
+	const MOTORBIKE_ICON_SIZE := Vector2(14, 9)  # xe máy: nhỏ gọn, chiếm 1/2 làn, 2 xe ngược chiều lách được
+	const CAR_ICON_SIZE := Vector2(18, 11)       # ô tô con: vừa vặn 1 làn đường, dễ tạo ùn ứ
+	const VEHICLE_TYPE_MOTORBIKE := 2            # khớp Types.VehicleType.MOTORBIKE
+	const VEHICLE_TYPE_CAR := 3                  # khớp Types.VehicleType.CAR
+	const FADE_OUT_DURATION := 0.25              # thời gian mờ dần (giây) khi xe dân gặp nước ngập
 	const PARK_OFFSET := 18.0  # lúc đỗ ở kho: xe tải lệch trái, ca-nô lệch phải để không chồng nhau
 	const LANE_OFFSET := 5.5   # xe chạy lệch sang phải hướng đi, mỗi chiều một làn (đường rộng 22 px)
 	const LANE_SWITCH := 0.15  # giây để đổi làn ở chỗ rẽ
@@ -150,16 +157,70 @@ class Vehicle extends Node2D:
 	var slot := -1                # chỗ đỗ đang giữ ở bãi (xe tải) hoặc bến (ca-nô) của kho, -1: không có (ở trong kho)
 	var waypoints: Array[Vector2] = []  # điểm phải đi qua khi lùi ra hoặc đỗ vào chỗ, trước khi chạy theo đường
 	var _jam_time := 0.0
+	var parked := false           # xe dân đang đỗ trong nhà (PARKED): ẩn hoàn toàn
+	var _fading := false          # đang chạy Tween mờ dần khi gặp nước ngập
+	var _fade_tween: Tween = null
+
+	func is_civilian_type() -> bool:
+		return type == VEHICLE_TYPE_MOTORBIKE or type == VEHICLE_TYPE_CAR
+
+	func is_fading() -> bool:
+		return _fading
+
+	func reset_visual() -> void:
+		if _fade_tween != null and _fade_tween.is_valid():
+			_fade_tween.kill()
+		_fade_tween = null
+		_fading = false
+		modulate.a = 1.0
+		queue_redraw()
+
+	# Hiệu ứng mờ dần (modulate.a: 1.0 -> 0.0 trong 0.25s) khi xe dân gặp nước ngập, sau đó hủy hoặc ẩn đi.
+	func fade_out(free_after: bool = false, on_finished: Callable = Callable()) -> void:
+		if _fading:
+			return
+		_fading = true
+		visible = true
+		if _fade_tween != null and _fade_tween.is_valid():
+			_fade_tween.kill()
+		if not is_inside_tree():
+			modulate.a = 0.0
+			_finish_fade_out(free_after, on_finished)
+			return
+		modulate.a = 1.0
+		_fade_tween = create_tween()
+		_fade_tween.tween_property(self, 'modulate:a', 0.0, FADE_OUT_DURATION)
+		_fade_tween.finished.connect(func() -> void:
+			_finish_fade_out(free_after, on_finished)
+		)
+
+	func _finish_fade_out(free_after: bool, on_finished: Callable) -> void:
+		_fading = false
+		_fade_tween = null
+		if free_after:
+			queue_free()
+		else:
+			visible = false
+			parked = true
+		if on_finished.is_valid():
+			on_finished.call()
 
 	func set_initial_state() -> void:  # không phát tín hiệu
 		_state = IdleState.new()
 		state_id = Types.VehicleState.IDLE
+		parked = is_civilian_type()
+		if parked:
+			visible = false
 
 	func change_state(new_state: VehicleStateBase, new_id: int) -> void:
 		if _state:
 			_state.exit(self)
 		_state = new_state
 		state_id = new_id
+		if is_civilian_type() and new_id == Types.VehicleState.EN_ROUTE:
+			parked = false
+			if _fading or modulate.a < 1.0:
+				reset_visual()
 		_state.enter(self)
 		queue_redraw()
 		EventBus.vehicle_state_changed.emit(id, new_id)
@@ -172,13 +233,22 @@ class Vehicle extends Node2D:
 		if type == Types.VehicleType.BOAT:
 			z_index = BOAT_UNDER_Z if RescueManager.under_bridge(self) else 0
 
-	# Xe đang ở trong kho (đỗ, hoặc chờ ra cổng) thì ẩn, nên xe cùng kho không chồng lên nhau.
+	# Xe đang ở trong kho (đỗ, hoặc chờ ra cổng) hoặc xe dân đang đỗ trong nhà (PARKED) thì ẩn.
 	func _update_visible() -> void:
-		var hidden := state_id == Types.VehicleState.IDLE and slot < 0 and waypoints.is_empty()  # bãi đầy: ở trong kho
+		if _fading:
+			visible = true
+			return
+		var hidden: bool
+		if is_civilian_type():
+			hidden = parked or state_id == Types.VehicleState.IDLE
+		else:
+			hidden = state_id == Types.VehicleState.IDLE and slot < 0 and waypoints.is_empty()  # bãi đầy: ở trong kho
 		if not hidden:
 			var h: MapNode = RescueManager.g().get_map_node(hub_id)
 			hidden = h != null and position.distance_to(h.pos) < HUB_HIDE_RADIUS
 		visible = not hidden
+		if visible and modulate.a < 1.0:
+			modulate.a = 1.0
 
 	func _update_lane(delta: float) -> void:
 		var want := Vector2.ZERO
@@ -193,7 +263,7 @@ class Vehicle extends Node2D:
 
 	# Xe đang chạy trên đường (không đứng ở kho, ở khu dân cư hay kẹt vì mất đường).
 	func is_moving() -> bool:
-		var running := state_id == Types.VehicleState.EN_ROUTE or state_id == Types.VehicleState.RETURNING
+		var running: bool = state_id == Types.VehicleState.EN_ROUTE or state_id == Types.VehicleState.RETURNING
 		return running and path != null and path_index < path.edge_ids.size()
 
 	# Node kế tiếp xe đang chạy tới, -1 nếu đứng yên.
@@ -349,23 +419,48 @@ class Vehicle extends Node2D:
 		change_state(IdleState.new(), Types.VehicleState.IDLE)
 		RescueManager.mark_dirty()
 
+	func _vehicle_icon() -> Texture2D:
+		match type:
+			Types.VehicleType.TRUCK:
+				return TRUCK_ICON
+			Types.VehicleType.BOAT:
+				return BOAT_ICON
+			VEHICLE_TYPE_MOTORBIKE:
+				return MOTORBIKE_ICON
+			VEHICLE_TYPE_CAR:
+				return CAR_ICON
+		return TRUCK_ICON
+
+	func _vehicle_icon_size() -> Vector2:
+		match type:
+			VEHICLE_TYPE_MOTORBIKE:
+				return MOTORBIKE_ICON_SIZE
+			VEHICLE_TYPE_CAR:
+				return CAR_ICON_SIZE
+		return ICON_SIZE
+
 	func _draw() -> void:
 		var offset := _lane
-		if state_id == Types.VehicleState.IDLE and slot < 0:
+		if not is_civilian_type() and state_id == Types.VehicleState.IDLE and slot < 0:
 			offset.x = -PARK_OFFSET if type == Types.VehicleType.TRUCK else PARK_OFFSET
-		var icon := TRUCK_ICON if type == Types.VehicleType.TRUCK else BOAT_ICON
+		var icon := _vehicle_icon()
+		var icon_size := _vehicle_icon_size()
 		var left := heading.x < 0.0  # lật hình để xe không chổng ngược khi đi sang trái
 		var sc: float = RescueManager.draw_scale(self)
 		draw_set_transform(offset, heading.angle() + (PI if left else 0.0), Vector2(-sc if left else sc, sc))
-		draw_texture_rect(icon, Rect2(-ICON_SIZE / 2.0, ICON_SIZE), false)
+		draw_texture_rect(icon, Rect2(-icon_size / 2.0, icon_size), false)
 		draw_set_transform(Vector2.ZERO)
 		if state_id == Types.VehicleState.STRANDED:
-			draw_arc(offset, ICON_SIZE.x / 2.0 + 4.0, 0.0, TAU, 24, Color('#FF4500'), 2.0)
-		if jammed and state_id != Types.VehicleState.IDLE:  # đèn phanh: hai chấm đỏ ở đuôi xe
-			var rear := offset - heading * (ICON_SIZE.x / 2.0 - 1.0)
-			var side := heading.rotated(PI / 2.0) * 4.0
-			draw_circle(rear + side, 2.4, Color('#ff3b30'))
-			draw_circle(rear - side, 2.4, Color('#ff3b30'))
+			draw_arc(offset, icon_size.x / 2.0 + 4.0, 0.0, TAU, 24, Color('#FF4500'), 2.0)
+		if jammed and state_id != Types.VehicleState.IDLE:  # đèn phanh ở đuôi xe
+			var rear := offset - heading * (icon_size.x / 2.0 - 1.0)
+			var brake_r := 1.8 if is_civilian_type() else 2.4
+			if type == VEHICLE_TYPE_MOTORBIKE:
+				draw_circle(rear, brake_r, Color('#ff3b30'))
+			else:
+				var side := heading.rotated(PI / 2.0) * (icon_size.y * 0.28)
+				draw_circle(rear + side, brake_r, Color('#ff3b30'))
+				draw_circle(rear - side, brake_r, Color('#ff3b30'))
 
 # ===== VEHICLE STATE (State pattern) =====
 class VehicleStateBase extends RefCounted:
@@ -989,7 +1084,7 @@ func try_spawn_house() -> int:
 		return -1
 	# Chọn khu ngẫu nhiên, rồi ô ngẫu nhiên trong số mọi ô hợp lệ quanh khu đó (chọn ô hú họa hay trượt hết lượt
 	# dù còn chỗ). Khu không còn ô nào thì thử khu khác.
-	var r := Config.HOUSE_RADIUS
+	var r: int = Config.HOUSE_RADIUS
 	districts.shuffle()
 	for d in districts:
 		var center: Vector2i = g().cell_of(g().get_map_node(d).pos)
