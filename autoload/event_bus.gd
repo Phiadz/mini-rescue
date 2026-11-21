@@ -31,6 +31,11 @@ signal wave_started(index: int)
 signal wave_ended(index: int)
 signal break_started(seconds: float)
 signal reward_offered(options: Array)
+
+# Thông báo nâng cấp sức chứa phương tiện cứu hộ
+signal truck_capacity_upgraded(new_capacity: int)
+signal boat_capacity_upgraded(new_capacity: int)
+
 signal reward_chosen(reward: int)
 signal score_changed(score: int)
 signal failed_changed(count: int, max_failed: int)
