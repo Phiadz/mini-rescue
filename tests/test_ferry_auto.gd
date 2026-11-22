@@ -42,6 +42,10 @@ func _test_ferry_creation() -> void:
 	
 	_check(GraphManager.get_ferries_available() == 1, "Người chơi có sẵn 1 phà trong túi đồ")
 	
+	# Kiểm tra không cho phép đặt phà từ ô đất trống chưa có đường
+	_check(not GraphManager.can_place_ferry(Vector2i(11, 6), Vector2i(17, 6)), "Không cho phép đặt phà khi ô xuất phát chưa có đường")
+	_check(not GraphManager.place_ferry(Vector2i(11, 6), Vector2i(17, 6)), "place_ferry từ chối khi ô xuất phát chưa có đường")
+
 	# Bờ Tây (11, 6) và Bờ Đông (17, 6)
 	var w1 := GraphManager.extend_road(-1, Vector2i(10, 6))
 	var w2 := GraphManager.extend_road(w1, Vector2i(11, 6))

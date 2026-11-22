@@ -51,6 +51,7 @@ var _boat_edges := {}           # id cạnh boat_only -> true
 var _flood_links := {}          # id cạnh lối xuống nước (ô đường ↔ nút nước) -> true; FloodManager đặt trạng thái theo ô đường
 var _next_boat_edge := 0        # mã cạnh ca-nô kế tiếp = BOAT_EDGE_ID_BASE + số này
 var _ferry_edges := {}              # edge id phà -> Edge
+var _fadj := {}                     # id node -> Array id cạnh phà kề (đồ thị riêng của phà phao, không chung _adj để không vẽ nhầm mặt đường)
 var _ferry_routes: Array = []       # danh sách thông tin các tuyến phà hiện có
 var _next_ferry_edge := 0
 var _ferries_total: int = 1         # tổng số phà cho phép đặt
@@ -90,6 +91,7 @@ func _clear_edges() -> void:
 	for eid in _ferry_edges.keys():
 		_edges.erase(eid)
 	_ferry_edges.clear()
+	_fadj.clear()
 	_ferry_routes.clear()
 	_next_ferry_edge = 0
 	_ferries_available = _ferries_total
@@ -807,7 +809,7 @@ func _dijkstra(from_id: int, to_id: int, vehicle_type: int, edge_penalty: Dictio
 		if _gates_enabled and vehicle_type == Types.VehicleType.BOAT and u != from_id and _nodes.has(u) and _nodes[u].kind != Types.NodeKind.ROAD:
 			continue  # bản đồ có cổng: ca-nô chỉ xuất phát hoặc cập bến ở điểm, không đi xuyên qua (vào bến này ra bến kia là chạy qua đất)
 		var du: float = dist[u]
-		for list in [_adj.get(u, []), _badj.get(u, [])]:
+		for list in [_adj.get(u, []), _badj.get(u, []), _fadj.get(u, [])]:
 			for eid in list:
 				var e: Edge = _edges[eid]
 				if _ring_from.has(eid) and _ring_from[eid] != u:
@@ -1152,6 +1154,9 @@ func get_ferry_edge_ids() -> Array[int]:
 func can_place_ferry(cell_a: Vector2i, cell_b: Vector2i) -> bool:
 	if _ferries_available <= 0 or cell_a == cell_b or not _in_grid(cell_a) or not _in_grid(cell_b):
 		return false
+	# Bắt buộc bờ A xuất phát phải là ô đường đã được người chơi nối sẵn
+	if road_at(cell_a) == -1:
+		return false
 	if cell_is_water(cell_a) or cell_is_water(cell_b):
 		return false
 	if _point_cells.has(cell_a) or _point_cells.has(cell_b):
@@ -1167,14 +1172,12 @@ func place_ferry(cell_a: Vector2i, cell_b: Vector2i) -> bool:
 	if _ferries_available <= 0 or cell_a == cell_b or not _in_grid(cell_a) or not _in_grid(cell_b):
 		return false
 
+	# Bờ A: BẮT BUỘC phải là ô đường đã có sẵn (không cho chọn từ đất trống)
 	var u := road_at(cell_a)
 	if u == -1:
-		if cell_is_water(cell_a) or _point_cells.has(cell_a):
-			return false
-		u = extend_road(-1, cell_a)
-		if u == -1:
-			return false
+		return false
 
+	# Bờ B: nếu ô mép bờ đối diện chưa có đường thì tự tạo ô đường đầu bến
 	var v := road_at(cell_b)
 	if v == -1:
 		if cell_is_water(cell_b) or _point_cells.has(cell_b):
@@ -1210,10 +1213,15 @@ func place_ferry(cell_a: Vector2i, cell_b: Vector2i) -> bool:
 	e.state = Types.EdgeState.DRY
 	_edges[eid] = e
 	_ferry_edges[eid] = e
-	if not _adj[u].has(eid):
-		_adj[u].append(eid)
-	if not _adj[v].has(eid):
-		_adj[v].append(eid)
+	# Lưu cạnh phà vào _fadj (đồ thị riêng), KHÔNG đưa vào _adj để tránh EdgeLayer vẽ nhầm thành mặt đường
+	if not _fadj.has(u):
+		_fadj[u] = []
+	if not _fadj.has(v):
+		_fadj[v] = []
+	if not _fadj[u].has(eid):
+		_fadj[u].append(eid)
+	if not _fadj[v].has(eid):
+		_fadj[v].append(eid)
 
 	_ferries_available = maxi(0, _ferries_available - 1)
 	_ferry_routes.append({
@@ -1248,10 +1256,10 @@ func remove_ferry_at_cell(cell: Vector2i) -> bool:
 			var eid: int = r.edge_id
 			if _ferry_edges.has(eid):
 				var fe: Edge = _ferry_edges[eid]
-				if _adj.has(fe.node_a):
-					_adj[fe.node_a].erase(eid)
-				if _adj.has(fe.node_b):
-					_adj[fe.node_b].erase(eid)
+				if _fadj.has(fe.node_a):
+					_fadj[fe.node_a].erase(eid)
+				if _fadj.has(fe.node_b):
+					_fadj[fe.node_b].erase(eid)
 				_edges.erase(eid)
 				_ferry_edges.erase(eid)
 				EventBus.edge_removed.emit(eid)
@@ -1275,17 +1283,21 @@ func _update_ferry_fallbacks() -> void:
 				var eid: int = r.edge_id
 				if _ferry_edges.has(eid):
 					var fe: Edge = _ferry_edges[eid]
-					if _adj.has(fe.node_a):
-						_adj[fe.node_a].erase(eid)
-					if _adj.has(fe.node_b):
-						_adj[fe.node_b].erase(eid)
+					if _fadj.has(fe.node_a):
+						_fadj[fe.node_a].erase(eid)
+					if _fadj.has(fe.node_b):
+						_fadj[fe.node_b].erase(eid)
 					fe.node_a = u
 					fe.node_b = v
 					fe.length = _nodes[u].pos.distance_to(_nodes[v].pos)
-					if not _adj[u].has(eid):
-						_adj[u].append(eid)
-					if not _adj[v].has(eid):
-						_adj[v].append(eid)
+					if not _fadj.has(u):
+						_fadj[u] = []
+					if not _fadj.has(v):
+						_fadj[v] = []
+					if not _fadj[u].has(eid):
+						_fadj[u].append(eid)
+					if not _fadj[v].has(eid):
+						_fadj[v].append(eid)
 					r.node_a = u
 					r.node_b = v
 					r.pos_a = _nodes[u].pos

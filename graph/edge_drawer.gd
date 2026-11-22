@@ -115,7 +115,8 @@ func _on_mouse_button_ferry(mb: InputEventMouseButton) -> void:
 			if not GameManager.is_in_play(GraphManager.cell_center(target_cell)):
 				_reject(target_cell)
 				return
-			if GraphManager.cell_is_water(target_cell):
+			# Chỉ cho phép chọn điểm xuất phát Bến phà từ ô ĐÃ CÓ ĐƯỜNG
+			if GraphManager.road_at(target_cell) == -1:
 				_reject(target_cell)
 				return
 			_ferry_start_cell = target_cell
@@ -250,13 +251,16 @@ func _draw_ferry_preview() -> void:
 			draw_rect(_cell_rect(_hover_cell), col, false, 2.0)
 			draw_circle(p_hover, 6.0, col)
 	else:
-		if _hover_cell != NO_CELL:
+		if _hover_cell != NO_CELL and GameManager.is_in_play(GraphManager.cell_center(_hover_cell)):
 			var p_hover: Vector2 = GraphManager.cell_center(_hover_cell)
-			var is_water: bool = GraphManager.cell_is_water(_hover_cell)
-			var col: Color = Color(1.0, 0.3, 0.2, 0.6) if is_water else Color(0.2, 0.8, 1.0, 0.7 * pulse)
-			draw_rect(_cell_rect(_hover_cell), col, false, 2.0)
-			if not is_water:
-				draw_circle(p_hover, 5.0, col)
+			var is_road: bool = (GraphManager.road_at(_hover_cell) != -1)
+			if is_road:
+				# Gợi ý ô đường hợp lệ để bắt đầu đặt bến phà
+				draw_rect(_cell_rect(_hover_cell), Color(0.2, 0.8, 1.0, 0.8 * pulse), false, 2.5)
+				draw_circle(p_hover, 6.0, Color(0.2, 0.8, 1.0, 0.9))
+			else:
+				# Ô đất trống hoặc nước: không thể bắt đầu từ đây
+				draw_rect(_cell_rect(_hover_cell), Color(0.6, 0.6, 0.6, 0.3), false, 1.5)
 
 
 # Chấm lưới hiện trong lúc kéo tô hoặc xóa.
