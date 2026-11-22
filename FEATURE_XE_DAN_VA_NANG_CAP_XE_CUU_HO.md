@@ -302,14 +302,13 @@ Bổ sung 2 thẻ nâng cấp vào hệ thống Reward:
 ---
 
 #### 📋 Tiến độ NGƯỜI D (UI Shop & State)
-- [ ] Khai báo biến `truck_capacity`, `boat_capacity` trong `GameManager`
-- [ ] Bổ sung tín hiệu thông báo nâng cấp trong `EventBus`
-- [ ] Thiết kế & Tinh chỉnh layout 5 thẻ trong `reward_popup.gd`
-- [ ] Khóa thẻ khi đã mua (chỉ mua 1 lần)
-- [ ] Kiểm thử trừ tiền Quỹ và hiệu lực nâng cấp trong ván chơi
-
+- [x] Khai báo biến `truck_capacity`, `boat_capacity` trong `GameManager`
+- [x] Bổ sung tín hiệu thông báo nâng cấp trong `EventBus`
+- [x] Thiết kế & Tinh chỉnh layout 5 thẻ trong `reward_popup.gd`
+- [x] Khóa thẻ khi đã mua (chỉ mua 1 lần)
+- [ ] Kiểm thử trừ Quỹ và hiệu lực nâng cấp trong ván chơi *(đã xác nhận Quỹ bị trừ khi mua. Chờ người C tích hợp Multi-drop để kiểm tra xe tải và ca-nô có giao được 2 kiện cho 2 nhà trong cùng một chuyến)*.
 *Ghi chú của D:*
-> `[D - Ngày ...]` Đã làm: ... | Vướng mắc: ... | Cần hỏi Lộc: ...
+> `[D - Ngày 20/11/2026]` Đã làm: Bố trí Shop 5 thẻ, gồm Xe tải 2 ngăn (150 Quỹ) và Ca-nô 2 ngăn (120 Quỹ). Khi mua thành công, `GameManager` trừ Quỹ, tăng sức chứa tương ứng từ 1 lên 2 và phát tín hiệu nâng cấp. Thẻ đã mua hiện `✓ ĐÃ SỞ HỮU` và chỉ mua được một lần mỗi ván. Khi bắt đầu ván mới, sức chứa của cả hai loại xe trở về 1. | Vướng mắc: `RescueManager` hiện chưa dùng hai biến sức chứa để giao 2 kiện trong một chuyến. | Cần hỏi Lộc: Không có câu hỏi.
 
 ---
 
