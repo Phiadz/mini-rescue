@@ -14,8 +14,6 @@ const GRID_ROWS := 18
 # --- Tốc độ phương tiện (px/giây) ---
 const TRUCK_SPEED := 180.0
 const BOAT_SPEED := 135.0
-const MOTORBIKE_SPEED := 220.0
-const CAR_SPEED := 160.0
 
 # --- Lũ ---
 const SHALLOW_MAX := 15.0
@@ -50,17 +48,6 @@ const STOCK_MAX := 20
 const STOCK_REGEN := 10.0
 const MAX_PRIORITIZED := 2
 
-# --- Xe dân (xe máy, ô tô con của từng nhà) ---
-const CIVILIAN_LOAD_TIME := 0.3    # giây nhận hàng ở kho
-const MOTORBIKE_RATIO := 0.7       # 70% nhà có xe máy, còn lại là ô tô con
-const CIVILIAN_FADE_TIME := 0.25   # giây mờ dần khi xe gặp ngập và biến mất
-
-# --- Nâng cấp tải trọng xe cứu hộ ---
-const TRUCK_CAPACITY_DEFAULT := 1
-const BOAT_CAPACITY_DEFAULT := 1
-const CAPACITY_UPGRADED := 2
-const MULTIDROP_RADIUS := 120.0    # px: hai SOS gần nhau trong bán kính này thì gom một chuyến
-
 # --- Điểm ---
 const POINTS := {0: 10, 1: 20}
 const BONUS_RATIO := 1.5
@@ -69,18 +56,16 @@ const REWARD_VEHICLE_BONUS := 2  # số xe mỗi lần mua xe tải hoặc ca-n�
 
 # --- Cửa hàng cứu trợ (mở trong lượt nghỉ giữa hai đợt) ---
 # Mỗi SOS cứu được cộng vào quỹ đúng bằng số điểm nhận được; mua hàng chỉ trừ quỹ, không trừ điểm.
-# Khóa là Types.Reward: 0 MORE_EDGES (+REWARD_EDGE_BONUS ô đường), 1 EXTRA_TRUCK, 2 EXTRA_BOAT, 3 UPGRADE_TRUCK_CAP, 4 UPGRADE_BOAT_CAP.
+# Khóa là Types.Reward: 0 MORE_EDGES (+REWARD_EDGE_BONUS ô đường), 1 EXTRA_TRUCK, 2 EXTRA_BOAT.
 const SHOP_PRICES := {0: 60, 1: 100, 2: 80, 3: 150, 4: 120}  # 3,4 là nâng cấp sức chứa phương tiện cứu hộ
 const FUND_UNIT_VND := 10000000  # mỗi đơn vị quỹ hiển thị là 10 triệu đồng (chỉ để hiển thị)
 const SHOP_PRICE_GROWTH := 1.5  # mỗi lần mua cùng một món trong ván, giá món đó nhân thêm (làm tròn 5)
 
 # --- Hệ số tốc độ: SPEED_FACTOR[loại xe][trạng thái tuyến] ---
-# Loại xe: 0 TRUCK, 1 BOAT, 2 MOTORBIKE, 3 CAR. Trạng thái tuyến: 0 DRY, 1 SHALLOW, 2 DEEP
+# Loại xe: 0 TRUCK, 1 BOAT. Trạng thái tuyến: 0 DRY, 1 SHALLOW, 2 DEEP
 const SPEED_FACTOR := {
 	0: [1.0, 0.5, 0.0],
 	1: [0.0, 0.5, 1.0],  # ca-nô không lên đất khô; chạy trên sông (cạnh boat_only, luôn DEEP), đường ngập sâu, đường ngập nhẹ thì chậm
-	2: [1.0, 0.4, 0.0],  # xe máy: lội chậm qua ngập nông, không đi ngập sâu
-	3: [1.0, 0.0, 0.0],  # ô tô con: chỉ đi đường khô
 }
 
 # --- Các đợt lũ (chỉ số 0, 1, 2) ---
@@ -101,9 +86,4 @@ const HOUSE_RADIUS := 3
 var SURVEY_URL := 'https://docs.google.com/forms/d/e/1FAIpQLSdjOjb0RipPcebnFNh5uKQh2SgIuu_9ysoWz64FoBmw0bJSZQ/viewform'
 
 func base_speed(vehicle_type: int) -> float:
-	match vehicle_type:
-		Types.VehicleType.TRUCK: return TRUCK_SPEED
-		Types.VehicleType.BOAT: return BOAT_SPEED
-		Types.VehicleType.MOTORBIKE: return MOTORBIKE_SPEED
-		Types.VehicleType.CAR: return CAR_SPEED
-	return TRUCK_SPEED
+	return TRUCK_SPEED if vehicle_type == 0 else BOAT_SPEED
