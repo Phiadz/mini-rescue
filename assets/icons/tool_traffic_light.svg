@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <!-- Minimalist Traffic Light matching Mini Motorways -->
+  <rect x="16" y="8" width="16" height="32" rx="8" fill="currentColor"/>
+  <circle cx="24" cy="15" r="3.2" fill="#25282c"/>
+  <circle cx="24" cy="24" r="3.2" fill="#25282c"/>
+  <circle cx="24" cy="33" r="3.2" fill="#25282c"/>
+  <!-- Light visors on sides -->
+  <path d="M 16 13 Q 13 15 16 17" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <path d="M 32 13 Q 35 15 32 17" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <path d="M 16 22 Q 13 24 16 26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <path d="M 32 22 Q 35 24 32 26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <path d="M 16 31 Q 13 33 16 35" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <path d="M 32 31 Q 35 33 32 35" fill="none" stroke="currentColor" stroke-width="1.5"/>
+</svg>

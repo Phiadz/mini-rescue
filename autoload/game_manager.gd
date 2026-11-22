@@ -7,6 +7,7 @@ const MAIN_SCENE := 'res://game/main.tscn'
 const SPEEDS: Array[int] = [1, 2, 3]  # tua nhanh: phím F hoặc nút trên HUD
 const ScoreSystemScript := preload('res://game/score_system.gd')
 const StageViewScript := preload('res://game/stage_view.gd')
+const FerryLayerScript := preload('res://graph/ferry_layer.gd')
 
 var state: int = Types.GameState.MENU
 # Số giây nghỉ còn lại (chỉ đọc), 0 khi không ở lượt nghỉ. Bảng chọn thưởng của D đọc để đếm ngược;
@@ -98,6 +99,7 @@ func start_game() -> void:
 	await get_tree().process_frame  # chờ scene sẵn sàng
 	GraphManager.load_map(Config.MAP_PATH)  # 1. nạp bản đồ
 	_mount_stage_view()
+	_mount_ferry_layer()
 	EventBus.game_started.emit()  # 2. các module tự reset, NodeLayer vẽ node
 	get_tree().paused = false
 	_score_system.enabled = true
@@ -303,6 +305,17 @@ func _mount_stage_view() -> void:
 	(world if world != null else scene).add_child(_stage_view)
 	_enter_stage(0, false)
 
+
+func _mount_ferry_layer() -> void:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	var world := scene.get_node_or_null('World')
+	var target = world if world != null else scene
+	if target.get_node_or_null('FerryLayer') == null:
+		var fl := FerryLayerScript.new()
+		fl.name = 'FerryLayer'
+		target.add_child(fl)
 
 func _set_state(s: int) -> void:
 	state = s

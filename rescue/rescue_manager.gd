@@ -160,6 +160,14 @@ class Vehicle extends Node2D:
 	var parked := false           # xe dân đang đỗ trong nhà (PARKED): ẩn hoàn toàn
 	var _fading := false          # đang chạy Tween mờ dần khi gặp nước ngập
 	var _fade_tween: Tween = null
+	var _ferry_tex: Texture2D = null
+
+	func is_on_ferry() -> bool:
+		if path != null and path_index < path.edge_ids.size():
+			var eid: int = path.edge_ids[path_index]
+			var e: Edge = GraphManager.get_edge(eid)
+			return e != null and e.is_ferry
+		return false
 
 	func is_civilian_type() -> bool:
 		return type == VEHICLE_TYPE_MOTORBIKE or type == VEHICLE_TYPE_CAR
@@ -252,7 +260,7 @@ class Vehicle extends Node2D:
 
 	func _update_lane(delta: float) -> void:
 		var want := Vector2.ZERO
-		if state_id != Types.VehicleState.IDLE and not RescueManager.in_lot(self):  # trong bãi: đi giữa lối, không lệch làn
+		if state_id != Types.VehicleState.IDLE and not RescueManager.in_lot(self) and not is_on_ferry():  # trong bãi hoặc trên phà: đi giữa lối, không lệch làn
 			want = heading.rotated(PI / 2.0) * LANE_OFFSET
 		if _lane != want:
 			_lane = _lane.move_toward(want, LANE_OFFSET * 2.0 / LANE_SWITCH * delta)
@@ -440,6 +448,7 @@ class Vehicle extends Node2D:
 		return ICON_SIZE
 
 	func _draw() -> void:
+		var on_ferry: bool = is_on_ferry()
 		var offset := _lane
 		if not is_civilian_type() and state_id == Types.VehicleState.IDLE and slot < 0:
 			offset.x = -PARK_OFFSET if type == Types.VehicleType.TRUCK else PARK_OFFSET
@@ -447,9 +456,34 @@ class Vehicle extends Node2D:
 		var icon_size := _vehicle_icon_size()
 		var left := heading.x < 0.0  # lật hình để xe không chổng ngược khi đi sang trái
 		var sc: float = RescueManager.draw_scale(self)
-		draw_set_transform(offset, heading.angle() + (PI if left else 0.0), Vector2(-sc if left else sc, sc))
-		draw_texture_rect(icon, Rect2(-icon_size / 2.0, icon_size), false)
-		draw_set_transform(Vector2.ZERO)
+
+		if on_ferry:
+			# 1. Bọt nước và vệt sóng rẽ nước sau đuôi phà
+			var rear_dir := -heading
+			var rear_pos := offset + rear_dir * 18.0
+			var side_vec := heading.rotated(PI / 2.0) * 11.0
+			draw_line(rear_pos + side_vec * 0.6, rear_pos + side_vec * 1.5 + rear_dir * 12.0, Color(0.9, 0.95, 1.0, 0.65), 2.2)
+			draw_line(rear_pos - side_vec * 0.6, rear_pos - side_vec * 1.5 + rear_dir * 12.0, Color(0.9, 0.95, 1.0, 0.65), 2.2)
+			draw_circle(rear_pos, 4.0, Color(1.0, 1.0, 1.0, 0.5))
+
+			# 2. Vẽ Tàu Phao (Pontoon Ferry) bên dưới xe tải
+			draw_set_transform(offset, heading.angle() + (PI if left else 0.0), Vector2(-sc if left else sc, sc))
+			if _ferry_tex == null and ResourceLoader.exists('res://assets/icons/pontoon_ferry.svg'):
+				_ferry_tex = load('res://assets/icons/pontoon_ferry.svg')
+			var f_size := Vector2(38, 26)
+			if _ferry_tex != null:
+				draw_texture_rect(_ferry_tex, Rect2(-f_size / 2.0, f_size), false)
+			else:
+				draw_rect(Rect2(-f_size.x / 2.0, -f_size.y / 2.0, f_size.x, f_size.y), Color('#264757'))
+				draw_rect(Rect2(-f_size.x / 2.0 + 2.0, -f_size.y / 2.0 + 3.0, f_size.x - 4.0, f_size.y - 6.0), Color('#cfd8dc'))
+
+			# 3. Vẽ xe tải đỗ ngay ngắn trên sàn phà
+			draw_texture_rect(icon, Rect2(-icon_size / 2.0, icon_size), false)
+			draw_set_transform(Vector2.ZERO)
+		else:
+			draw_set_transform(offset, heading.angle() + (PI if left else 0.0), Vector2(-sc if left else sc, sc))
+			draw_texture_rect(icon, Rect2(-icon_size / 2.0, icon_size), false)
+			draw_set_transform(Vector2.ZERO)
 		if state_id == Types.VehicleState.STRANDED:
 			draw_arc(offset, icon_size.x / 2.0 + 4.0, 0.0, TAU, 24, Color('#FF4500'), 2.0)
 		if jammed and state_id != Types.VehicleState.IDLE:  # đèn phanh ở đuôi xe
@@ -768,6 +802,13 @@ func congestion_factor(v: Vehicle, others: Array = []) -> float:
 				return 0.0
 			if along < FOLLOW_GAP:
 				f = minf(f, FOLLOW_SLOW)
+		# Tuyến phà vượt sông: xe ngược chiều đang qua phà thì nhường đường ở bến
+		if v.path != null and v.path_index < v.path.edge_ids.size():
+			var v_eid: int = v.path.edge_ids[v.path_index]
+			var fe: Edge = g().get_edge(v_eid)
+			if fe != null and fe.is_ferry and u.is_moving() and u.path != null and u.path_index < u.path.edge_ids.size():
+				if u.path.edge_ids[u.path_index] == v_eid and u.heading.dot(v.heading) < -0.3:
+					return 0.0
 		if not approaching:
 			continue
 		var du: float = u.position.distance_to(jpos)
@@ -1314,6 +1355,9 @@ func get_vehicle_ids() -> Array[int]:
 	for k in _vehicles:
 		ids.append(k)
 	return ids
+
+func get_vehicles() -> Array:
+	return _vehicles.values()
 
 func get_vehicle_position(vehicle_id: int) -> Vector2:  # ngoài hợp đồng, cho D nếu cần
 	if _vehicles.has(vehicle_id):

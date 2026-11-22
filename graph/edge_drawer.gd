@@ -19,6 +19,10 @@ const REJECT_TIME := 0.4
 ## Scene thử tắt cờ này để chạy riêng, không cần GameManager.
 @export var only_in_round := true
 
+enum Tool { ROAD = 0, FERRY = 1 }
+var active_tool: int = Tool.ROAD
+var _ferry_start_cell := NO_CELL
+
 var _painting := false
 var _erasing := false
 var _last_node := -1          # nút vừa tô, ô sau nối tiếp từ đây
@@ -38,7 +42,17 @@ func _ready() -> void:
 	add_child(_dots)
 	EventBus.game_started.connect(_cancel)
 	EventBus.game_state_changed.connect(func(_s: int) -> void: _cancel())  # bỏ thao tác dở khi tạm dừng, kết thúc
+	EventBus.active_tool_changed.connect(_on_tool_changed)
 	set_process(false)
+
+
+func _on_tool_changed(tool_id: int) -> void:
+	active_tool = tool_id
+	_ferry_start_cell = NO_CELL
+	_painting = false
+	_erasing = false
+	_sync_dots()
+	queue_redraw()
 
 
 func _process(delta: float) -> void:
@@ -73,6 +87,10 @@ func _on_mouse_motion() -> void:
 
 
 func _on_mouse_button(mb: InputEventMouseButton) -> void:
+	if active_tool == Tool.FERRY:
+		_on_mouse_button_ferry(mb)
+		return
+
 	if mb.button_index == MOUSE_BUTTON_LEFT:
 		if mb.pressed:
 			_start_paint()
@@ -90,10 +108,64 @@ func _on_mouse_button(mb: InputEventMouseButton) -> void:
 	get_viewport().set_input_as_handled()
 
 
-func _on_key(key: InputEventKey) -> void:
-	if key.pressed and not key.echo and key.keycode == KEY_DELETE and GraphManager.remove_road(_hover_cell):
-		queue_redraw()
+func _on_mouse_button_ferry(mb: InputEventMouseButton) -> void:
+	if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
+		var target_cell := _hover_cell
+		if _ferry_start_cell == NO_CELL:
+			if not GameManager.is_in_play(GraphManager.cell_center(target_cell)):
+				_reject(target_cell)
+				return
+			if GraphManager.cell_is_water(target_cell):
+				_reject(target_cell)
+				return
+			_ferry_start_cell = target_cell
+			queue_redraw()
+		else:
+			if target_cell == _ferry_start_cell or not GameManager.is_in_play(GraphManager.cell_center(target_cell)):
+				_reject(target_cell)
+				return
+			if GraphManager.place_ferry(_ferry_start_cell, target_cell):
+				_ferry_start_cell = NO_CELL
+				if GraphManager.get_ferries_available() <= 0:
+					EventBus.active_tool_changed.emit(Tool.ROAD)
+			else:
+				_reject(target_cell)
+			queue_redraw()
 		get_viewport().set_input_as_handled()
+	elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
+		if _ferry_start_cell != NO_CELL:
+			_ferry_start_cell = NO_CELL
+			queue_redraw()
+		else:
+			if GraphManager.remove_ferry_at_cell(_hover_cell):
+				queue_redraw()
+			else:
+				EventBus.active_tool_changed.emit(Tool.ROAD)
+		get_viewport().set_input_as_handled()
+
+
+func _on_key(key: InputEventKey) -> void:
+	if not key.pressed or key.echo:
+		return
+	if key.keycode == KEY_1:
+		EventBus.active_tool_changed.emit(Tool.ROAD)
+		get_viewport().set_input_as_handled()
+	elif key.keycode == KEY_2:
+		if GraphManager.get_ferries_available() > 0:
+			EventBus.active_tool_changed.emit(Tool.FERRY)
+			get_viewport().set_input_as_handled()
+	elif key.keycode == KEY_ESCAPE:
+		if active_tool == Tool.FERRY:
+			if _ferry_start_cell != NO_CELL:
+				_ferry_start_cell = NO_CELL
+			else:
+				EventBus.active_tool_changed.emit(Tool.ROAD)
+			queue_redraw()
+			get_viewport().set_input_as_handled()
+	elif key.keycode == KEY_DELETE:
+		if GraphManager.remove_ferry_at_cell(_hover_cell) or GraphManager.remove_road(_hover_cell):
+			queue_redraw()
+			get_viewport().set_input_as_handled()
 
 
 func _start_paint() -> void:
@@ -143,10 +215,48 @@ func _paint_cell() -> Vector2i:
 
 
 func _draw() -> void:
-	if _hover_cell != NO_CELL:
-		draw_rect(_cell_rect(_hover_cell), HOVER_COLOR, false, 2.0)
+	if active_tool == Tool.FERRY:
+		_draw_ferry_preview()
+	else:
+		if _hover_cell != NO_CELL:
+			draw_rect(_cell_rect(_hover_cell), HOVER_COLOR, false, 2.0)
 	if _reject_left > 0.0:
 		draw_rect(_cell_rect(_reject_cell), REJECT_COLOR)
+
+
+func _draw_ferry_preview() -> void:
+	var time_sec := Time.get_ticks_msec() / 1000.0
+	var pulse := 0.8 + 0.2 * sin(time_sec * 5.0)
+
+	if _ferry_start_cell != NO_CELL:
+		var p_start: Vector2 = GraphManager.cell_center(_ferry_start_cell)
+		# Bến bờ A đã chọn
+		draw_circle(p_start, 13.0 * pulse, Color(0.15, 0.65, 0.85, 0.4))
+		draw_circle(p_start, 7.0, Color(0.2, 0.8, 1.0, 0.9))
+		draw_rect(_cell_rect(_ferry_start_cell), Color(0.2, 0.8, 1.0, 0.8), false, 2.5)
+
+		# Đường nối preview sang bờ B / con trỏ
+		if _hover_cell != NO_CELL and _hover_cell != _ferry_start_cell:
+			var p_hover: Vector2 = GraphManager.cell_center(_hover_cell)
+			var valid: bool = GraphManager.can_place_ferry(_ferry_start_cell, _hover_cell)
+			var col: Color = Color(0.25, 0.85, 1.0, 0.85) if valid else Color(1.0, 0.3, 0.2, 0.75)
+			var dist := p_start.distance_to(p_hover)
+			var steps := maxi(3, int(dist / 14.0))
+			for s in steps:
+				if s % 2 == 0:
+					var pt1 := p_start.lerp(p_hover, float(s) / steps)
+					var pt2 := p_start.lerp(p_hover, float(s + 1) / steps)
+					draw_line(pt1, pt2, col, 3.0)
+			draw_rect(_cell_rect(_hover_cell), col, false, 2.0)
+			draw_circle(p_hover, 6.0, col)
+	else:
+		if _hover_cell != NO_CELL:
+			var p_hover: Vector2 = GraphManager.cell_center(_hover_cell)
+			var is_water: bool = GraphManager.cell_is_water(_hover_cell)
+			var col: Color = Color(1.0, 0.3, 0.2, 0.6) if is_water else Color(0.2, 0.8, 1.0, 0.7 * pulse)
+			draw_rect(_cell_rect(_hover_cell), col, false, 2.0)
+			if not is_water:
+				draw_circle(p_hover, 5.0, col)
 
 
 # Chấm lưới hiện trong lúc kéo tô hoặc xóa.
@@ -174,6 +284,7 @@ func _cancel() -> void:
 	_erasing = false
 	_sync_dots()
 	_hover_cell = NO_CELL
+	_ferry_start_cell = NO_CELL
 	queue_redraw()
 
 

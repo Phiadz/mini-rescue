@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <!-- Water ripples -->
+  <circle cx="24" cy="24" r="21" fill="#4baed1" opacity=".3"/>
+  <circle cx="24" cy="24" r="17" fill="#213f55" opacity=".25"/>
+  <!-- Outer bumper ring -->
+  <circle cx="24" cy="24" r="14" fill="#263238"/>
+  <!-- Segmented float ring (Rescue orange & white) -->
+  <path d="M 24,11 A 13,13 0 0,1 37,24 L 24,24 Z" fill="#ff5722"/>
+  <path d="M 37,24 A 13,13 0 0,1 24,37 L 24,24 Z" fill="#ffffff"/>
+  <path d="M 24,37 A 13,13 0 0,1 11,24 L 24,24 Z" fill="#ff5722"/>
+  <path d="M 11,24 A 13,13 0 0,1 24,11 L 24,24 Z" fill="#ffffff"/>
+  <!-- Central beacon base -->
+  <circle cx="24" cy="24" r="7" fill="#37474f"/>
+  <!-- Solar beacon lens -->
+  <circle cx="24" cy="24" r="4.5" fill="#ffea00"/>
+  <circle cx="24" cy="24" r="2" fill="#ffffff"/>
+</svg>

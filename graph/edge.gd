@@ -9,11 +9,16 @@ var elevation: float = 0.0   # độ cao chung của cả đoạn chứa cạnh 
 var segment: int = -1        # id đoạn, GraphManager tính lại mỗi lần tô hoặc xóa ô
 var state: int = 0           # Types.EdgeState: 0 DRY, 1 SHALLOW, 2 DEEP
 var boat_only := false       # cạnh chỉ dành cho ca-nô: xe tải không đi được
+var is_ferry := false        # Feature D: cạnh phà phao vượt sông chở xe tải
 
 func other_end(n: int) -> int:
 	return node_b if n == node_a else node_a
 
 func speed_factor(vehicle_type: int) -> float:
+	if is_ferry:
+		if vehicle_type == Types.VehicleType.TRUCK:
+			return 0.75  # xe tải qua phà chạy 75% tốc độ an toàn
+		return 0.0      # ca-nô không dùng cạnh phà
 	if boat_only and vehicle_type == Types.VehicleType.TRUCK:
 		return 0.0
 	return Config.SPEED_FACTOR[vehicle_type][state]

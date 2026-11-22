@@ -11,6 +11,7 @@ const WATER_ID_BASE := 2000 # mã nút nước (ô ca-nô đi được) = WATER_
 const WATER_VIA_BASE := 3000 # nút điểm gãy trên sông (cạnh sông vòng qua khúc quanh), không gắn với ô nào
 const FLOOD_ID_BASE := 4000  # nút vùng ngập: ô đất ngập sâu thành nước cho ca-nô = FLOOD_ID_BASE + chỉ số ô
 const BOAT_EDGE_ID_BASE := 100000  # cạnh của ca-nô đánh mã riêng, không bao giờ trùng mã cạnh đường (kể cả sau khi nạp lại bản đồ)
+const FERRY_EDGE_ID_BASE := 200000  # mã cạnh phà phao vượt sông cho xe tải (Feature D)
 
 var _nodes := {}        # id -> MapNode (cả điểm trên bản đồ và ô đường)
 var _edges := {}        # id -> Edge
@@ -49,11 +50,17 @@ var _badj := {}                 # id node -> Array id cạnh boat_only kề
 var _boat_edges := {}           # id cạnh boat_only -> true
 var _flood_links := {}          # id cạnh lối xuống nước (ô đường ↔ nút nước) -> true; FloodManager đặt trạng thái theo ô đường
 var _next_boat_edge := 0        # mã cạnh ca-nô kế tiếp = BOAT_EDGE_ID_BASE + số này
+var _ferry_edges := {}              # edge id phà -> Edge
+var _ferry_routes: Array = []       # danh sách thông tin các tuyến phà hiện có
+var _next_ferry_edge := 0
+var _ferries_total: int = 1         # tổng số phà cho phép đặt
+var _ferries_available: int = 1     # số phà còn chưa dùng
 
 func _ready() -> void:
 	_limit = Config.EDGE_LIMIT_START
 	EventBus.game_started.connect(_on_game_started)
 	EventBus.point_added.connect(_add_docks)
+	EventBus.water_level_changed.connect(func(_l: float) -> void: _update_ferry_fallbacks())
 
 func _on_game_started() -> void:
 	_clear_edges()
@@ -79,6 +86,14 @@ func _clear_edges() -> void:
 	_boat_edges.clear()
 	_flood_links.clear()
 	_shortcuts.clear()
+	# --- Dọn dữ liệu phà phao ---
+	for eid in _ferry_edges.keys():
+		_edges.erase(eid)
+	_ferry_edges.clear()
+	_ferry_routes.clear()
+	_next_ferry_edge = 0
+	_ferries_available = _ferries_total
+	EventBus.ferry_inventory_changed.emit(_ferries_available, _ferries_total)
 
 # --- Nạp bản đồ (gọi nhiều lần vẫn đúng: luôn xóa dữ liệu cũ trước) ---
 func load_map(path: String) -> void:
@@ -137,11 +152,11 @@ func _has_node(id: int) -> bool:
 func get_edge(edge_id: int) -> Edge:
 	return _edges.get(edge_id)
 
-# Chỉ cạnh đường bộ (đường–đường, điểm–đường); cạnh boat_only của ca-nô không có ở đây.
+# Chỉ cạnh đường bộ (đường–đường, điểm–đường); cạnh boat_only của ca-nô và cạnh phà không có ở đây.
 func get_edge_ids() -> Array[int]:
 	var out: Array[int] = []
 	for k in _edges.keys():
-		if not _boat_edges.has(k):
+		if not _boat_edges.has(k) and not _ferry_edges.has(k):
 			out.append(k)
 	return out
 
@@ -274,6 +289,7 @@ func remove_road(cell: Vector2i) -> bool:
 	var id := road_at(cell)
 	if id == -1 or _gate_cells.has(cell):
 		return false  # ô cổng thuộc về điểm, không xóa được
+	remove_ferry_at_cell(cell)
 	_unlink_road_from_water(id)
 	for eid in _adj[id].duplicate():
 		_unlink(eid)
@@ -1107,3 +1123,225 @@ func get_flood_links() -> Array[int]:
 	for k in _flood_links:
 		out.append(k)
 	return out
+
+# --- Feature D: Hệ thống Phà Phao Vượt Sông Đặt Thủ Công (Multi-Modal Logistics) ---
+
+func get_ferries_available() -> int:
+	return _ferries_available
+
+func get_ferries_total() -> int:
+	return _ferries_total
+
+func add_ferry_token(count := 1) -> void:
+	_ferries_total += count
+	_ferries_available += count
+	EventBus.ferry_inventory_changed.emit(_ferries_available, _ferries_total)
+
+func get_ferry_routes() -> Array:
+	return _ferry_routes
+
+func is_ferry_edge(edge_id: int) -> bool:
+	return _ferry_edges.has(edge_id)
+
+func get_ferry_edge_ids() -> Array[int]:
+	var out: Array[int] = []
+	for k in _ferry_edges.keys():
+		out.append(k)
+	return out
+
+func can_place_ferry(cell_a: Vector2i, cell_b: Vector2i) -> bool:
+	if _ferries_available <= 0 or cell_a == cell_b or not _in_grid(cell_a) or not _in_grid(cell_b):
+		return false
+	if cell_is_water(cell_a) or cell_is_water(cell_b):
+		return false
+	if _point_cells.has(cell_a) or _point_cells.has(cell_b):
+		return false
+	var pos_a: Vector2 = cell_center(cell_a)
+	var pos_b: Vector2 = cell_center(cell_b)
+	var dist: float = pos_a.distance_to(pos_b)
+	if dist < 40.0 or dist > 450.0:
+		return false
+	return _is_water_crossing(cell_a, cell_b, pos_a, pos_b)
+
+func place_ferry(cell_a: Vector2i, cell_b: Vector2i) -> bool:
+	if _ferries_available <= 0 or cell_a == cell_b or not _in_grid(cell_a) or not _in_grid(cell_b):
+		return false
+
+	var u := road_at(cell_a)
+	if u == -1:
+		if cell_is_water(cell_a) or _point_cells.has(cell_a):
+			return false
+		u = extend_road(-1, cell_a)
+		if u == -1:
+			return false
+
+	var v := road_at(cell_b)
+	if v == -1:
+		if cell_is_water(cell_b) or _point_cells.has(cell_b):
+			return false
+		v = extend_road(-1, cell_b)
+		if v == -1:
+			return false
+
+	if u == v or not _nodes.has(u) or not _nodes.has(v):
+		return false
+
+	var pos_a: Vector2 = _nodes[u].pos
+	var pos_b: Vector2 = _nodes[v].pos
+	var dist: float = pos_a.distance_to(pos_b)
+	if dist < 40.0 or dist > 450.0:
+		return false
+
+	if not _is_water_crossing(cell_a, cell_b, pos_a, pos_b):
+		return false
+
+	for r in _ferry_routes:
+		if (r.node_a == u and r.node_b == v) or (r.node_a == v and r.node_b == u):
+			return false
+
+	var eid := FERRY_EDGE_ID_BASE + _next_ferry_edge
+	_next_ferry_edge += 1
+	var e := Edge.new()
+	e.id = eid
+	e.node_a = u
+	e.node_b = v
+	e.length = dist
+	e.is_ferry = true
+	e.state = Types.EdgeState.DRY
+	_edges[eid] = e
+	_ferry_edges[eid] = e
+	if not _adj[u].has(eid):
+		_adj[u].append(eid)
+	if not _adj[v].has(eid):
+		_adj[v].append(eid)
+
+	_ferries_available = maxi(0, _ferries_available - 1)
+	_ferry_routes.append({
+		"edge_id": eid,
+		"node_a": u,
+		"node_b": v,
+		"pos_a": pos_a,
+		"pos_b": pos_b,
+		"cell_a": cell_a,
+		"cell_b": cell_b,
+		"length": dist,
+	})
+
+	EventBus.edge_added.emit(eid)
+	EventBus.ferry_routes_changed.emit()
+	EventBus.ferry_inventory_changed.emit(_ferries_available, _ferries_total)
+	if has_node("/root/RescueManager"):
+		RescueManager.mark_dirty()
+	return true
+
+func remove_ferry_at_cell(cell: Vector2i) -> bool:
+	var removed := false
+	for i in range(_ferry_routes.size() - 1, -1, -1):
+		var r: Dictionary = _ferry_routes[i]
+		var match_cell: bool = (r.cell_a == cell or r.cell_b == cell)
+		if not match_cell:
+			if _nodes.has(r.node_a) and cell_of(_nodes[r.node_a].pos) == cell:
+				match_cell = true
+			elif _nodes.has(r.node_b) and cell_of(_nodes[r.node_b].pos) == cell:
+				match_cell = true
+		if match_cell:
+			var eid: int = r.edge_id
+			if _ferry_edges.has(eid):
+				var fe: Edge = _ferry_edges[eid]
+				if _adj.has(fe.node_a):
+					_adj[fe.node_a].erase(eid)
+				if _adj.has(fe.node_b):
+					_adj[fe.node_b].erase(eid)
+				_edges.erase(eid)
+				_ferry_edges.erase(eid)
+				EventBus.edge_removed.emit(eid)
+			_ferry_routes.remove_at(i)
+			_ferries_available = mini(_ferries_total, _ferries_available + 1)
+			removed = true
+	if removed:
+		EventBus.ferry_routes_changed.emit()
+		EventBus.ferry_inventory_changed.emit(_ferries_available, _ferries_total)
+		if has_node("/root/RescueManager"):
+			RescueManager.mark_dirty()
+	return removed
+
+func _update_ferry_fallbacks() -> void:
+	var changed := false
+	for r in _ferry_routes:
+		var u: int = _resolve_fallback_dock(r.node_a)
+		var v: int = _resolve_fallback_dock(r.node_b)
+		if u != r.node_a or v != r.node_b:
+			if _nodes.has(u) and _nodes.has(v) and u != v:
+				var eid: int = r.edge_id
+				if _ferry_edges.has(eid):
+					var fe: Edge = _ferry_edges[eid]
+					if _adj.has(fe.node_a):
+						_adj[fe.node_a].erase(eid)
+					if _adj.has(fe.node_b):
+						_adj[fe.node_b].erase(eid)
+					fe.node_a = u
+					fe.node_b = v
+					fe.length = _nodes[u].pos.distance_to(_nodes[v].pos)
+					if not _adj[u].has(eid):
+						_adj[u].append(eid)
+					if not _adj[v].has(eid):
+						_adj[v].append(eid)
+					r.node_a = u
+					r.node_b = v
+					r.pos_a = _nodes[u].pos
+					r.pos_b = _nodes[v].pos
+					r.length = fe.length
+					changed = true
+	if changed:
+		EventBus.ferry_routes_changed.emit()
+		if has_node("/root/RescueManager"):
+			RescueManager.mark_dirty()
+
+func _is_water_crossing(cell_a: Vector2i, cell_b: Vector2i, pos_a: Vector2, pos_b: Vector2) -> bool:
+	var dist: float = pos_a.distance_to(pos_b)
+	var steps: int = maxi(3, int(ceil(dist / 10.0)))
+	var water_hits := 0
+	var land_cells := 0
+
+	for s in range(1, steps):
+		var t := float(s) / float(steps)
+		var p: Vector2 = pos_a.lerp(pos_b, t)
+		var c: Vector2i = cell_of(p)
+		if c == cell_a or c == cell_b:
+			continue
+		if _point_cells.has(c):
+			return false
+		if cell_is_water(c) or _water_at(c) != -1 or _flood_at(c) != -1 or cell_is_boat(c):
+			water_hits += 1
+		else:
+			land_cells += 1
+
+	return water_hits >= 1 and (float(water_hits) / float(water_hits + land_cells)) >= 0.5
+
+# Thuật toán Auto-Fallback: Tự động lùi vị trí Bến phà về ô cạn gần nhất khi ô mép nước bị ngập DEEP
+func _resolve_fallback_dock(node_id: int) -> int:
+	var cur_id: int = node_id
+	var visited := {}
+	while has_node("/root/FloodManager"):
+		var c: Vector2i = cell_of(_nodes[cur_id].pos)
+		var depth: float = FloodManager.depth_at(c)
+		if depth < Config.SHALLOW_MAX:
+			break
+		visited[cur_id] = true
+		var found_fallback := -1
+		for eid in _adj.get(cur_id, []):
+			if _boat_edges.has(eid) or _ferry_edges.has(eid):
+				continue
+			var other: int = _edges[eid].other_end(cur_id)
+			if visited.has(other) or not _nodes.has(other):
+				continue
+			var other_cell: Vector2i = cell_of(_nodes[other].pos)
+			var other_depth: float = FloodManager.depth_at(other_cell)
+			if other_depth < depth:
+				found_fallback = other
+				break
+		if found_fallback != -1:
+			cur_id = found_fallback
+		else:
+			break
+	return cur_id
