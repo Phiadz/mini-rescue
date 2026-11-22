@@ -14,6 +14,6 @@ func other_end(n: int) -> int:
 	return node_b if n == node_a else node_a
 
 func speed_factor(vehicle_type: int) -> float:
-	if boat_only and vehicle_type != Types.VehicleType.BOAT:
-		return 0.0  # sông, bến, lối xuống nước: chỉ ca-nô đi, mọi xe đường bộ (tải, xe máy, ô tô) bị chặn
+	if boat_only and vehicle_type == Types.VehicleType.TRUCK:
+		return 0.0
 	return Config.SPEED_FACTOR[vehicle_type][state]
