@@ -287,17 +287,17 @@ Bổ sung 2 thẻ nâng cấp vào hệ thống Reward:
 > *Mỗi thành viên cập nhật nhật ký của mình vào bảng dưới đây trước khi báo cáo cho Lộc.*
 
 #### 📋 Tiến độ NGƯỜI C (Backend Core)
-- [ ] Thiết lập Enum & Config (`types.gd`, `config.gd`, `base_speed()`)
-- [ ] Cập nhật chặn xe đường bộ trên cạnh `boat_only` (`edge.gd`)
-- [ ] Tìm đường cho Xe máy & Ô tô (`graph_manager.gd`)
-- [ ] Khởi tạo xe cá nhân cho toàn bộ nhà dân (`rescue_manager.gd`)
-- [ ] Phân luồng điều phối xe dân xuất phát lấy hàng
-- [ ] Cơ chế xe dân biến mất khi gặp ngập & bàn giao SOS cho xe cứu hộ
-- [ ] Thuật toán gom cụm Multi-drop cho xe tải/ca-nô chở 2 hàng
-- [ ] Kiểm thử tự động (Unit Test / Bot Test)
+- [x] Thiết lập Enum & Config (`types.gd`, `config.gd`, `base_speed()`)
+- [x] Cập nhật chặn xe đường bộ trên cạnh `boat_only` (`edge.gd`)
+- [x] Tìm đường cho Xe máy & Ô tô (`graph_manager.gd`)
+- [x] Khởi tạo xe cá nhân cho toàn bộ nhà dân (`rescue_manager.gd`)
+- [x] Phân luồng điều phối xe dân xuất phát lấy hàng
+- [x] Cơ chế xe dân biến mất khi gặp ngập & bàn giao SOS cho xe cứu hộ
+- [x] Thuật toán gom cụm Multi-drop cho xe tải/ca-nô chở 2 hàng
+- [x] Kiểm thử và sửa lỗi vòng lặp trùng lặp / xung đột điều phối khi nối đường
 
 *Ghi chú của C:*
-> `[C - Ngày ...]` Đã làm: ... | Vướng mắc: ... | Cần hỏi Lộc: ...
+> `[C - Ngày 23/11/2026]` Đã làm: Hoàn tất toàn bộ logic xe dân (Xe máy 70%, Ô tô 30%) và multi-drop cho xe cứu hộ nâng cấp. Đã xử lý khôi phục code sau sự cố Revert PR #30, dọn sạch khối điều phối trùng lặp trong `_dispatch()`, cập nhật `_on_graph_changed` để ưu tiên xe dân chạy ngay khi có đường nối mới. | Vướng mắc: Không còn. | Cần hỏi Lộc: Không.
 
 ---
 
