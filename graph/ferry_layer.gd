@@ -57,11 +57,37 @@ func _draw() -> void:
 		_draw_minimal_dock(pos_a, dir_a, normal_a)
 		_draw_minimal_dock(pos_b, dir_b, normal_b)
 
-		# 2. Tàu phao neo đậu đứng im tại bến A chờ đón xe khi tuyến đang rảnh
-		var has_crossing_truck := _is_truck_crossing_route(r)
-		if not has_crossing_truck:
-			var dock_wait_pos := pos_a + dir_a * 17.0
+	# 2. Vẽ các Tàu phao (Ferry Vessels) độc lập di chuyển hoặc neo đậu tại bến
+	var drawn_routes := {}
+	if has_node("/root/RescueManager"):
+		var vessels: Array = RescueManager.get_ferry_vessels()
+		for fv in vessels:
+			drawn_routes[fv.route_id] = true
+			_draw_ferry_vessel(fv)
+
+	# Fallback vẽ tàu đứng yên nếu RescueManager chưa khởi tạo tàu
+	for r in routes:
+		var rid: int = r.get("edge_id", -1)
+		if not drawn_routes.has(rid):
+			var dir_a := GraphManager.get_shore_river_direction(r.cell_a)
+			if dir_a == Vector2.ZERO:
+				dir_a = r.pos_a.direction_to(r.pos_b)
+			var dock_wait_pos := r.pos_a + dir_a * 17.0
 			_draw_stationed_ferry(dock_wait_pos, dir_a)
+
+func _draw_ferry_vessel(fv) -> void:
+	var pos: Vector2 = fv.position
+	var heading: Vector2 = fv.heading
+	if fv.is_sailing():
+		_draw_vessel_wake(pos, heading)
+	_draw_stationed_ferry(pos, heading)
+
+func _draw_vessel_wake(pos: Vector2, heading: Vector2) -> void:
+	var wake_color := Color(1.0, 1.0, 1.0, 0.42)
+	var rear := pos - heading * 14.0
+	var normal := heading.rotated(PI / 2.0)
+	draw_line(rear - heading * 2.0, rear - heading * 14.0 + normal * 9.0, wake_color, 1.6)
+	draw_line(rear - heading * 2.0, rear - heading * 14.0 - normal * 9.0, wake_color, 1.6)
 
 # Vẽ mố bến phà phẳng tối giản (Minimalist Dock Berth)
 func _draw_minimal_dock(pos: Vector2, out_dir: Vector2, normal: Vector2) -> void:
@@ -89,15 +115,3 @@ func _draw_stationed_ferry(at: Vector2, heading: Vector2) -> void:
 		draw_rect(Rect2(-FERRY_SIZE.x / 2.0, -FERRY_SIZE.y / 2.0, FERRY_SIZE.x, FERRY_SIZE.y), Color("#2b4f63"))
 		draw_rect(Rect2(-FERRY_SIZE.x / 2.0 + 3, -FERRY_SIZE.y / 2.0 + 3, FERRY_SIZE.x - 6, FERRY_SIZE.y - 6), Color("#cfd8dc"))
 	draw_set_transform(Vector2.ZERO)
-
-# Kiểm tra xem có xe nào đang di chuyển trên tuyến phà này không
-func _is_truck_crossing_route(r: Dictionary) -> bool:
-	if not has_node("/root/RescueManager"):
-		return false
-	var eids: Array = r.get("edge_ids", [r.get("edge_id")])
-	var vehicles: Array = RescueManager.get_vehicles()
-	for v in vehicles:
-		if v.is_moving() and v.path != null and v.path_index < v.path.edge_ids.size():
-			if eids.has(v.path.edge_ids[v.path_index]):
-				return true
-	return false
