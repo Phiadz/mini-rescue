@@ -231,6 +231,10 @@ func road_at(cell: Vector2i) -> int:
 	var id := _road_id(cell)
 	return id if _nodes.has(id) else -1
 
+# Nút bản đồ tại ô (điểm công trình hoặc ô đường), hoặc -1.
+func get_node_at_cell(cell: Vector2i) -> int:
+	return _point_cells.get(cell, road_at(cell))
+
 func _road_id(cell: Vector2i) -> int:
 	return ROAD_ID_BASE + _cell_index(cell)
 
@@ -522,6 +526,9 @@ func get_dock_dir(point_id: int) -> Vector2:
 
 func is_gate_cell(cell: Vector2i) -> bool:
 	return _gate_cells.has(cell)
+
+func is_point_cell(cell: Vector2i) -> bool:
+	return _point_cells.has(cell)
 
 # Ô đặt được nhà: trong lưới, đất liền (không phải ô sông, ô ca-nô hay mép sông), chưa có đường, không phải điểm hay cổng,
 # không kề điểm khác, không sát bãi kho, và có một hướng hợp lệ cho lối vào (nhà mọc sát đường cũng được).

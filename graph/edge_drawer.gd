@@ -27,6 +27,7 @@ var _painting := false
 var _erasing := false
 var _last_node := -1          # nút vừa tô, ô sau nối tiếp từ đây
 var _last_cell := NO_CELL     # ô cuối cùng đã xử lý khi đang kéo
+var _stroke_cells: Array[Vector2i] = []  # chuỗi ô trong nét kéo hiện tại để nhận diện nắn đường chéo
 var _cursor := Vector2.ZERO
 var _hover_cell := NO_CELL
 var _reject_cell := NO_CELL
@@ -96,8 +97,10 @@ func _on_mouse_button(mb: InputEventMouseButton) -> void:
 			_start_paint()
 		else:
 			_painting = false
+			_stroke_cells.clear()
 	elif mb.button_index == MOUSE_BUTTON_RIGHT:
 		_erasing = mb.pressed
+		_stroke_cells.clear()
 		if _erasing:
 			_last_cell = _hover_cell
 			GraphManager.remove_road(_hover_cell)
@@ -179,19 +182,63 @@ func _start_paint() -> void:
 		_reject(cell)
 		return
 	_last_cell = cell
+	_stroke_cells = [cell]
 	_painting = true
 
 
 func _paint_to(to: Vector2i) -> void:
 	for cell in _cells_to(to):
+		if cell == _last_cell:
+			continue
+		_try_collapse_corner(cell)
 		var next := GraphManager.extend_road(_last_node, cell) if GameManager.is_in_play(GraphManager.cell_center(cell)) else -1
 		if next == -1:
 			_painting = false
+			_stroke_cells.clear()
 			_sync_dots()
 			_reject(cell)
 			return
 		_last_node = next
 		_last_cell = cell
+		if _stroke_cells.is_empty() or _stroke_cells[-1] != cell:
+			_stroke_cells.append(cell)
+
+
+# Nhận diện nét kéo chéo và gập góc vuông L thành 1 cạnh chéo duy nhất
+func _try_collapse_corner(to: Vector2i) -> bool:
+	if _stroke_cells.size() < 2:
+		return false
+	var a: Vector2i = _stroke_cells[-2]
+	var b: Vector2i = _stroke_cells[-1]
+	var c: Vector2i = to
+	
+	# C phải là ô chéo của A
+	if absi(c.x - a.x) != 1 or absi(c.y - a.y) != 1:
+		return false
+	
+	# B phải là ô góc vuông trung gian giữa A và C
+	if not ((b.x == a.x and b.y == c.y) or (b.x == c.x and b.y == a.y)):
+		return false
+	
+	# Đường chéo A -> C phải hợp lệ theo luật bản đồ (không bị cấn góc công trình/cổng)
+	if not GraphManager.diagonal_ok(a, c):
+		return false
+	
+	# Ô góc B phải là ô đường thuần túy được tạo trong nét vẽ, chưa có nhánh rẽ nào khác
+	var b_id: int = GraphManager.road_at(b)
+	if b_id == -1:
+		return false
+	if GraphManager.is_point_cell(b) or GraphManager.is_gate_cell(b) or GraphManager.is_lot_cell(b):
+		return false
+	if GraphManager.get_edges_of(b_id).size() > 1:
+		return false # B đã có đường khác rẽ vào, không được phá vỡ
+	
+	# Hợp lệ: Gỡ bỏ góc B, trả lại 1 hạn mức đường và nối thẳng chéo A -> C
+	GraphManager.remove_road(b)
+	_stroke_cells.pop_back()
+	_last_node = GraphManager.get_node_at_cell(a)
+	_last_cell = a
+	return true
 
 
 func _erase_to(to: Vector2i) -> void:
@@ -301,6 +348,7 @@ func _cell_rect(cell: Vector2i) -> Rect2:
 func _cancel() -> void:
 	_painting = false
 	_erasing = false
+	_stroke_cells.clear()
 	_sync_dots()
 	_hover_cell = NO_CELL
 	_ferry_start_cell = NO_CELL

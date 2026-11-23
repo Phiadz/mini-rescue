@@ -37,6 +37,7 @@ const JUNCTION_RADIUS := 24.0        # bán kính ngã ba, ngã tư (px)
 const JUNCTION_APPROACH := 46.0      # trong khoảng này trước ngã ba thì xét nhường đường
 const JAM_GIVE_UP := 3.0             # đứng chờ quá lâu (giây) thì đi chậm qua, tránh tắc vĩnh viễn
 const CONGESTION_PATH_COST := 1.5    # giây cộng thêm khi tìm đường qua cạnh sắp có xe đi
+const WATER_VESSEL_CONGESTION_COST := 35.0 # phạt nặng trên luồng nước để thuyền tự động chọn ô nước thoáng lân cận lách qua nhau
 # Nút giao tự động (góp ý của Lộc): ngã ba đường thành vòng xoay, ngã tư đường trở lên có đèn giao thông.
 const JUNCTION_NONE := 0             # không phải nút giao
 const JUNCTION_YIELD := 1            # nhường theo khoảng cách: điểm có từ 3 cạnh, chữ T trước cổng nhà
@@ -161,6 +162,16 @@ class Vehicle extends Node2D:
 	var _fading := false          # đang chạy Tween mờ dần khi gặp nước ngập
 	var _fade_tween: Tween = null
 	var _ferry_tex: Texture2D = null
+	var _water_detour_cooldown: float = 0.0
+
+	func request_water_detour() -> void:
+		# Tính lại đường với chi phí chiếm đóng hiện tại (congestion_penalty) để thuyền
+		# tự động lách vào nhánh sông thoáng thay vì dừng đối đầu.
+		if _water_detour_cooldown > 0.0 or dest == -1 or type != Types.VehicleType.BOAT:
+			return
+		_water_detour_cooldown = 2.5
+		# plan() gọi RescueManager.find_path() bao gồm congestion_penalty → tự né đường đắt
+		plan(dest)
 
 	func is_on_ferry() -> bool:
 		if path != null and path_index < path.edge_ids.size():
@@ -326,6 +337,8 @@ class Vehicle extends Node2D:
 	# Đi dọc đường. Trả true khi xe đứng ở cuối đoạn (cần ra quyết định).
 	# Xe đã vào một đoạn thì đi hết đoạn đó, tốc độ tối thiểu MIN_EDGE_SPEED_FACTOR.
 	func advance(delta: float) -> bool:
+		if _water_detour_cooldown > 0.0:
+			_water_detour_cooldown -= delta
 		if path == null or path_index >= path.edge_ids.size():
 			return true
 		if not waypoints.is_empty():
@@ -706,15 +719,18 @@ func _nearby(p: Vector2) -> Array:
 	return out
 
 
-# Mỗi xe đang chạy làm 3 cạnh sắp đi của nó đắt thêm CONGESTION_PATH_COST giây.
+# Mỗi xe đang chạy làm các cạnh sắp đi của nó đắt thêm chi phí để xe khác tự né đường.
 func congestion_penalty(exclude: Vehicle = null) -> Dictionary:
 	var pen := {}
 	for v in _vehicles.values():
-		if v == exclude or not v.is_moving():
+		if v == exclude or not v.is_moving() or v.path == null:
 			continue
-		for k in range(v.path_index, mini(v.path_index + 3, v.path.edge_ids.size())):
+		var is_water: bool = (v.type == Types.VehicleType.BOAT or v.is_on_ferry())
+		var cost: float = WATER_VESSEL_CONGESTION_COST if is_water else CONGESTION_PATH_COST
+		var lookahead: int = 5 if is_water else 3
+		for k in range(v.path_index, mini(v.path_index + lookahead, v.path.edge_ids.size())):
 			var eid: int = v.path.edge_ids[k]
-			pen[eid] = float(pen.get(eid, 0.0)) + CONGESTION_PATH_COST
+			pen[eid] = float(pen.get(eid, 0.0)) + cost
 	return pen
 
 
@@ -840,6 +856,7 @@ func _process(delta: float) -> void:
 	if _retry_stranded:
 		_retry_all_stranded()
 	_rebuild_grid()
+	_tick_water_detour(delta)
 	for h in _hubs.values():
 		for s in h.tick(delta):
 			EventBus.stock_changed.emit(h.id, s, h.stock[s])
@@ -853,6 +870,25 @@ func _process(delta: float) -> void:
 		_graph_dirty = false
 		_dispatch_timer = 0.0
 		_dispatch()
+
+# Phát hiện 2 thuyền / phà đối đầu ngược chiều trên mặt nước và kích hoạt tìm đường vòng lách tránh.
+func _tick_water_detour(delta: float) -> void:
+	var water_vessels: Array = []
+	for v in _vehicles.values():
+		if v.is_moving() and (v.type == Types.VehicleType.BOAT or v.is_on_ferry()):
+			water_vessels.append(v)
+	for i in range(water_vessels.size()):
+		var v: Vehicle = water_vessels[i]
+		for j in range(i + 1, water_vessels.size()):
+			var u: Vehicle = water_vessels[j]
+			var dist: float = v.position.distance_to(u.position)
+			if dist > 90.0:
+				continue
+			# Hai thuyền đối đầu ngược chiều
+			if v.heading.dot(u.heading) < -0.5:
+				# Thuyền có ID nhỏ hơn (ưu tiên thấp) nhường đường, tìm đường vòng khác
+				var lower: Vehicle = v if v.id < u.id else u
+				lower.request_water_detour()
 
 func _tick_requests(delta: float) -> void:
 	for rid in _requests.keys():
