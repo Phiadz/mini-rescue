@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="64" viewBox="0 0 96 64">
+  <defs>
+    <linearGradient id="pontoon_hull" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3d6275"/>
+      <stop offset="50%" stop-color="#264757"/>
+      <stop offset="100%" stop-color="#193340"/>
+    </linearGradient>
+    <linearGradient id="deck_metal" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#b0bec5"/>
+      <stop offset="15%" stop-color="#cfd8dc"/>
+      <stop offset="85%" stop-color="#cfd8dc"/>
+      <stop offset="100%" stop-color="#b0bec5"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Water shadow -->
+  <path d="M 6,36 L 14,58 L 82,58 L 90,36 Z" fill="#112234" opacity=".35"/>
+
+  <!-- Left & Right Pontoons (Port & Starboard) -->
+  <!-- Top pontoon -->
+  <rect x="6" y="5" width="84" height="13" rx="6" fill="url(#pontoon_hull)"/>
+  <rect x="12" y="7" width="72" height="3" rx="1.5" fill="#58859e"/>
+  <rect x="22" y="5" width="4" height="13" fill="#152b36"/>
+  <rect x="46" y="5" width="4" height="13" fill="#152b36"/>
+  <rect x="70" y="5" width="4" height="13" fill="#152b36"/>
+
+  <!-- Bottom pontoon -->
+  <rect x="6" y="46" width="84" height="13" rx="6" fill="url(#pontoon_hull)"/>
+  <rect x="12" y="48" width="72" height="3" rx="1.5" fill="#58859e"/>
+  <rect x="22" y="46" width="4" height="13" fill="#152b36"/>
+  <rect x="46" y="46" width="4" height="13" fill="#152b36"/>
+  <rect x="70" y="46" width="4" height="13" fill="#152b36"/>
+
+  <!-- Loading Deck (Corrugated Steel) -->
+  <rect x="10" y="14" width="76" height="36" rx="4" fill="url(#deck_metal)"/>
+  <rect x="14" y="17" width="68" height="30" rx="2" fill="#90a4ae"/>
+  
+  <!-- Wheel guide tracks -->
+  <rect x="15" y="19" width="66" height="7" rx="1" fill="#78909c"/>
+  <rect x="15" y="38" width="66" height="7" rx="1" fill="#78909c"/>
+  
+  <!-- Non-slip ribbed lines -->
+  <path d="M 22,17 v30 M 30,17 v30 M 38,17 v30 M 46,17 v30 M 54,17 v30 M 62,17 v30 M 70,17 v30" stroke="#b0bec5" stroke-width="1.5" opacity=".7"/>
+
+  <!-- Bow (Front) loading ramp with hazard stripes -->
+  <rect x="78" y="15" width="10" height="34" rx="2" fill="#37474f"/>
+  <path d="M 79,16 L 87,22 M 79,24 L 87,30 M 79,32 L 87,38 M 79,40 L 87,46" stroke="#fbc02d" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- Stern (Rear) loading ramp with hazard stripes -->
+  <rect x="8" y="15" width="10" height="34" rx="2" fill="#37474f"/>
+  <path d="M 9,16 L 17,22 M 9,24 L 17,30 M 9,32 L 17,38 M 9,40 L 17,46" stroke="#fbc02d" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- Side Rails -->
+  <line x1="16" y1="14" x2="80" y2="14" stroke="#cfd8dc" stroke-width="2"/>
+  <line x1="16" y1="50" x2="80" y2="50" stroke="#cfd8dc" stroke-width="2"/>
+
+  <!-- Operator Cabin / Pilot Bridge on Side -->
+  <rect x="38" y="43" width="20" height="14" rx="3" fill="#f4511e"/>
+  <rect x="42" y="46" width="12" height="7" rx="1.5" fill="#263238"/>
+  <rect x="43" y="47" width="10" height="4" rx="1" fill="#80deea" opacity=".8"/>
+  <!-- Warning beacon on cabin roof -->
+  <circle cx="48" cy="43" r="3.5" fill="#ffeb3b"/>
+  <circle cx="48" cy="43" r="1.8" fill="#ffffff"/>
+
+  <!-- Rescue Markings: Center Rescue Star / Cross -->
+  <circle cx="48" cy="32" r="7" fill="#ffffff" opacity=".85"/>
+  <path d="M 46,27 h4 v10 h-4 Z M 43,30 h10 v4 h-10 Z" fill="#d32f2f"/>
+
+  <!-- Lifebuoy on railing -->
+  <circle cx="28" cy="14" r="4.5" fill="#ffffff"/>
+  <circle cx="28" cy="14" r="2.2" fill="#90a4ae"/>
+  <path d="M 28,9.5 v2 M 28,16.5 v2 M 23.5,14 h2 M 30.5,14 h2" stroke="#e53935" stroke-width="1.8"/>
+
+  <circle cx="68" cy="14" r="4.5" fill="#ffffff"/>
+  <circle cx="68" cy="14" r="2.2" fill="#90a4ae"/>
+  <path d="M 68,9.5 v2 M 68,16.5 v2 M 63.5,14 h2 M 70.5,14 h2" stroke="#e53935" stroke-width="1.8"/>
+</svg>

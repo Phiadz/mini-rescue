@@ -37,6 +37,7 @@ const JUNCTION_RADIUS := 24.0        # bán kính ngã ba, ngã tư (px)
 const JUNCTION_APPROACH := 46.0      # trong khoảng này trước ngã ba thì xét nhường đường
 const JAM_GIVE_UP := 3.0             # đứng chờ quá lâu (giây) thì đi chậm qua, tránh tắc vĩnh viễn
 const CONGESTION_PATH_COST := 1.5    # giây cộng thêm khi tìm đường qua cạnh sắp có xe đi
+const WATER_VESSEL_CONGESTION_COST := 35.0 # phạt nặng trên luồng nước để thuyền tự động chọn ô nước thoáng lân cận lách qua nhau
 # Nút giao tự động (góp ý của Lộc): ngã ba đường thành vòng xoay, ngã tư đường trở lên có đèn giao thông.
 const JUNCTION_NONE := 0             # không phải nút giao
 const JUNCTION_YIELD := 1            # nhường theo khoảng cách: điểm có từ 3 cạnh, chữ T trước cổng nhà
@@ -166,6 +167,33 @@ class Vehicle extends Node2D:
 	var parked := false           # xe dân đang đỗ trong nhà (PARKED): ẩn hoàn toàn
 	var _fading := false          # đang chạy Tween mờ dần khi gặp nước ngập
 	var _fade_tween: Tween = null
+	var _ferry_tex: Texture2D = null
+	var _water_detour_cooldown: float = 0.0
+	var is_boarded_on_ferry := false
+	var waiting_at_ferry := false
+
+	func ferry_weight() -> int:
+		match type:
+			Types.VehicleType.TRUCK:
+				return 2
+			VEHICLE_TYPE_CAR:
+				return 2
+			VEHICLE_TYPE_MOTORBIKE:
+				return 1
+			_:
+				return 2
+
+	func request_water_detour() -> void:
+		# Tính lại đường với chi phí chiếm đóng hiện tại (congestion_penalty) để thuyền
+		# tự động lách vào nhánh sông thoáng thay vì dừng đối đầu.
+		if _water_detour_cooldown > 0.0 or dest == -1 or type != Types.VehicleType.BOAT:
+			return
+		_water_detour_cooldown = 2.5
+		# plan() gọi RescueManager.find_path() bao gồm congestion_penalty → tự né đường đắt
+		plan(dest)
+
+	func is_on_ferry() -> bool:
+		return is_boarded_on_ferry
 
 	func is_civilian_type() -> bool:
 		return type == VEHICLE_TYPE_MOTORBIKE or type == VEHICLE_TYPE_CAR
@@ -262,7 +290,7 @@ class Vehicle extends Node2D:
 
 	func _update_lane(delta: float) -> void:
 		var want := Vector2.ZERO
-		if state_id != Types.VehicleState.IDLE and not RescueManager.in_lot(self):  # trong bãi: đi giữa lối, không lệch làn
+		if state_id != Types.VehicleState.IDLE and not RescueManager.in_lot(self) and not is_on_ferry():  # trong bãi hoặc trên phà: đi giữa lối, không lệch làn
 			want = heading.rotated(PI / 2.0) * LANE_OFFSET
 		if _lane != want:
 			_lane = _lane.move_toward(want, LANE_OFFSET * 2.0 / LANE_SWITCH * delta)
@@ -273,6 +301,10 @@ class Vehicle extends Node2D:
 
 	# Xe đang chạy trên đường (không đứng ở kho, ở khu dân cư hay kẹt vì mất đường).
 	func is_moving() -> bool:
+		if waiting_at_ferry:
+			return false
+		if is_boarded_on_ferry:
+			return true
 		var running: bool = state_id == Types.VehicleState.EN_ROUTE or state_id == Types.VehicleState.RETURNING
 		return running and path != null and path_index < path.edge_ids.size()
 
@@ -328,6 +360,10 @@ class Vehicle extends Node2D:
 	# Đi dọc đường. Trả true khi xe đứng ở cuối đoạn (cần ra quyết định).
 	# Xe đã vào một đoạn thì đi hết đoạn đó, tốc độ tối thiểu MIN_EDGE_SPEED_FACTOR.
 	func advance(delta: float) -> bool:
+		if _water_detour_cooldown > 0.0:
+			_water_detour_cooldown -= delta
+		if is_boarded_on_ferry:
+			return false
 		if path == null or path_index >= path.edge_ids.size():
 			return true
 		if not waypoints.is_empty():
@@ -337,6 +373,12 @@ class Vehicle extends Node2D:
 		if e == null:
 			_cut()
 			return true
+		if e.is_ferry:
+			# Xe gặp bến phà: dừng lại ở bờ và vào hàng đợi chờ phà đón
+			waiting_at_ferry = true
+			RescueManager.register_ferry_passenger(self, current_node)
+			return false
+		waiting_at_ferry = false
 		var next_id: int = path.node_ids[path_index + 1]
 		var target: Vector2 = RescueManager.arrive_pos(self, next_id)  # điểm có cổng: dừng ở lối vào; về kho: tới lối đi cạnh chỗ đã giữ
 		var f := e.speed_factor(type)
@@ -530,7 +572,17 @@ class Vehicle extends Node2D:
 				return CAR_ICON_SIZE
 		return ICON_SIZE
 
+	func _draw_water_wake(center_offset: Vector2, rear_dist: float, spread: float, wake_len: float) -> void:
+		if not is_moving():
+			return
+		var rear_pos := center_offset - heading * rear_dist
+		var side_vec := heading.rotated(PI / 2.0) * spread
+		var col := Color(1.0, 1.0, 1.0, 0.42)
+		draw_line(rear_pos + side_vec * 0.7, rear_pos + side_vec * 1.4 - heading * wake_len, col, 1.6)
+		draw_line(rear_pos - side_vec * 0.7, rear_pos - side_vec * 1.4 - heading * wake_len, col, 1.6)
+
 	func _draw() -> void:
+		var on_ferry: bool = is_on_ferry()
 		var offset := _lane
 		if not is_civilian_type() and state_id == Types.VehicleState.IDLE and slot < 0:
 			offset.x = -PARK_OFFSET if type == Types.VehicleType.TRUCK else PARK_OFFSET
@@ -538,12 +590,23 @@ class Vehicle extends Node2D:
 		var icon_size := _vehicle_icon_size()
 		var left := heading.x < 0.0  # lật hình để xe không chổng ngược khi đi sang trái
 		var sc: float = RescueManager.draw_scale(self)
-		draw_set_transform(offset, heading.angle() + (PI if left else 0.0), Vector2(-sc if left else sc, sc))
-		draw_texture_rect(icon, Rect2(-icon_size / 2.0, icon_size), false)
-		draw_set_transform(Vector2.ZERO)
+
+		if on_ferry:
+			# Xe đỗ trên sàn phà: chỉ vẽ icon xe, thân phà và vệt rẽ nước do FerryLayer vẽ
+			draw_set_transform(Vector2.ZERO, heading.angle() + (PI if left else 0.0), Vector2(-sc if left else sc, sc))
+			draw_texture_rect(icon, Rect2(-icon_size / 2.0, icon_size), false)
+			draw_set_transform(Vector2.ZERO)
+		else:
+			# Ca-nô lướt sóng trên mặt nước
+			if type == Types.VehicleType.BOAT:
+				_draw_water_wake(offset, icon_size.x * 0.4, icon_size.y * 0.4, 11.0)
+
+			draw_set_transform(offset, heading.angle() + (PI if left else 0.0), Vector2(-sc if left else sc, sc))
+			draw_texture_rect(icon, Rect2(-icon_size / 2.0, icon_size), false)
+			draw_set_transform(Vector2.ZERO)
 		if state_id == Types.VehicleState.STRANDED:
 			draw_arc(offset, icon_size.x / 2.0 + 4.0, 0.0, TAU, 24, Color('#FF4500'), 2.0)
-		if jammed and state_id != Types.VehicleState.IDLE:  # đèn phanh ở đuôi xe
+		if (jammed or waiting_at_ferry) and state_id != Types.VehicleState.IDLE:  # đèn phanh ở đuôi xe
 			var rear := offset - heading * (icon_size.x / 2.0 - 1.0)
 			var brake_r := 1.8 if is_civilian_type() else 2.4
 			if type == VEHICLE_TYPE_MOTORBIKE:
@@ -661,6 +724,269 @@ class VehicleFactory extends RefCounted:
 		v.set_initial_state()
 		return v
 
+# ===== FERRY VESSEL (Thực thể Tàu phao vận tải độc lập) =====
+class FerryVessel extends RefCounted:
+	enum VesselState { DOCKED_A, SAILING_TO_B, DOCKED_B, SAILING_TO_A }
+
+	var route_id: int
+	var route_dict: Dictionary
+	var node_a: int
+	var node_b: int
+	var pos_a: Vector2
+	var pos_b: Vector2
+	var dir_a: Vector2
+	var dir_b: Vector2
+	var dock_wait_pos_a: Vector2
+	var dock_wait_pos_b: Vector2
+	var path_points: PackedVector2Array = []
+	var total_path_len: float = 0.0
+
+	var state: int = VesselState.DOCKED_A
+	var position: Vector2
+	var heading: Vector2
+
+	var capacity: int = 4 # Tải trọng tối đa: Xe tải=2, Ô tô=2, Xe máy=1
+	var carried_vehicles: Array = []
+	var queue_a: Array = []
+	var queue_b: Array = []
+
+	var progress_dist: float = 0.0
+	var speed: float = 70.0
+	var dwell_timer: float = 0.0
+	const DWELL_MAX := 3.0
+
+	func _init(r: Dictionary) -> void:
+		update_route(r)
+		position = dock_wait_pos_a
+		heading = dir_a
+
+	func update_route(r: Dictionary) -> void:
+		route_dict = r
+		route_id = r.get("edge_id", -1)
+		node_a = r.get("node_a", -1)
+		node_b = r.get("node_b", -1)
+		pos_a = r.get("pos_a", Vector2.ZERO)
+		pos_b = r.get("pos_b", Vector2.ZERO)
+		var route_nodes: Array = r.get("route_nodes", [])
+		var n1 = GraphManager.get_map_node(route_nodes[1]) if route_nodes.size() >= 3 else null
+		var n_penult = GraphManager.get_map_node(route_nodes[-2]) if route_nodes.size() >= 3 else null
+		dir_a = GraphManager.get_shore_river_direction(r.cell_a, n1.pos if n1 != null else Vector2.INF)
+		if dir_a == Vector2.ZERO:
+			dir_a = pos_a.direction_to(pos_b)
+		dir_b = GraphManager.get_shore_river_direction(r.cell_b, n_penult.pos if n_penult != null else Vector2.INF)
+		if dir_b == Vector2.ZERO:
+			dir_b = pos_b.direction_to(pos_a)
+		dock_wait_pos_a = pos_a + dir_a * 17.0
+		dock_wait_pos_b = pos_b + dir_b * 17.0
+		_build_path()
+
+	func _build_path() -> void:
+		path_points.clear()
+		total_path_len = 0.0
+		path_points.append(dock_wait_pos_a)
+		var route_nodes: Array = route_dict.get("route_nodes", [])
+		if route_nodes.size() > 2:
+			for i in range(1, route_nodes.size() - 1):
+				var wid: int = route_nodes[i]
+				var wn = GraphManager.get_map_node(wid)
+				if wn != null:
+					path_points.append(wn.pos)
+		path_points.append(dock_wait_pos_b)
+		for i in range(path_points.size() - 1):
+			total_path_len += path_points[i].distance_to(path_points[i + 1])
+
+	func is_sailing() -> bool:
+		return state == VesselState.SAILING_TO_B or state == VesselState.SAILING_TO_A
+
+	func _current_load() -> int:
+		var total := 0
+		for v in carried_vehicles:
+			if is_instance_valid(v):
+				total += v.ferry_weight()
+		return total
+
+	func get_point_at_dist(d: float) -> Dictionary:
+		if path_points.size() < 2:
+			return {"pos": position, "dir": heading}
+		var clamped_d := clampf(d, 0.0, total_path_len)
+		var accum := 0.0
+		for i in range(path_points.size() - 1):
+			var p1 := path_points[i]
+			var p2 := path_points[i + 1]
+			var seg_len := p1.distance_to(p2)
+			if accum + seg_len >= clamped_d or i == path_points.size() - 2:
+				var t := (clamped_d - accum) / maxf(0.001, seg_len)
+				var pos := p1.lerp(p2, clampf(t, 0.0, 1.0))
+				var dir := (p2 - p1).normalized() if p1 != p2 else heading
+				return {"pos": pos, "dir": dir}
+			accum += seg_len
+		return {"pos": path_points[-1], "dir": heading}
+
+	func tick(delta: float) -> void:
+		_clean_queues()
+		match state:
+			VesselState.DOCKED_A:
+				position = dock_wait_pos_a
+				heading = dir_a
+				if not carried_vehicles.is_empty():
+					_unboard_passengers(node_a, pos_a)
+				_board_passengers(queue_a)
+				_sync_carried_positions()
+				if not carried_vehicles.is_empty():
+					if _current_load() >= capacity:
+						state = VesselState.SAILING_TO_B
+						progress_dist = 0.0
+						dwell_timer = 0.0
+					else:
+						if RescueManager.has_approaching_vehicle_to_dock(node_a, capacity - _current_load(), 3.0):
+							dwell_timer += delta
+							if dwell_timer >= DWELL_MAX:
+								state = VesselState.SAILING_TO_B
+								progress_dist = 0.0
+								dwell_timer = 0.0
+						else:
+							state = VesselState.SAILING_TO_B
+							progress_dist = 0.0
+							dwell_timer = 0.0
+
+			VesselState.SAILING_TO_B:
+				progress_dist += speed * delta
+				var sample := get_point_at_dist(progress_dist)
+				position = sample.pos
+				heading = sample.dir
+				_sync_carried_positions()
+				if progress_dist >= total_path_len:
+					state = VesselState.DOCKED_B
+					progress_dist = 0.0
+					dwell_timer = 0.0
+					position = dock_wait_pos_b
+					heading = dir_b
+
+			VesselState.DOCKED_B:
+				position = dock_wait_pos_b
+				heading = dir_b
+				if not carried_vehicles.is_empty():
+					_unboard_passengers(node_b, pos_b)
+				_board_passengers(queue_b)
+				_sync_carried_positions()
+				if not carried_vehicles.is_empty():
+					if _current_load() >= capacity:
+						state = VesselState.SAILING_TO_A
+						progress_dist = total_path_len
+						dwell_timer = 0.0
+					else:
+						if RescueManager.has_approaching_vehicle_to_dock(node_b, capacity - _current_load(), 3.0):
+							dwell_timer += delta
+							if dwell_timer >= DWELL_MAX:
+								state = VesselState.SAILING_TO_A
+								progress_dist = total_path_len
+								dwell_timer = 0.0
+						else:
+							state = VesselState.SAILING_TO_A
+							progress_dist = total_path_len
+							dwell_timer = 0.0
+
+			VesselState.SAILING_TO_A:
+				progress_dist -= speed * delta
+				var sample := get_point_at_dist(progress_dist)
+				position = sample.pos
+				heading = -sample.dir
+				_sync_carried_positions()
+				if progress_dist <= 0.0:
+					state = VesselState.DOCKED_A
+					progress_dist = 0.0
+					dwell_timer = 0.0
+					position = dock_wait_pos_a
+					heading = dir_a
+
+	func _clean_queues() -> void:
+		var valid_a: Array = []
+		for v in queue_a:
+			if is_instance_valid(v) and v.path != null and v.waiting_at_ferry:
+				valid_a.append(v)
+		queue_a = valid_a
+		var valid_b: Array = []
+		for v in queue_b:
+			if is_instance_valid(v) and v.path != null and v.waiting_at_ferry:
+				valid_b.append(v)
+		queue_b = valid_b
+
+	func _board_passengers(q: Array) -> void:
+		while not q.is_empty():
+			var v: Vehicle = q[0]
+			if not is_instance_valid(v) or v.path == null:
+				q.pop_front()
+				continue
+			var w: int = v.ferry_weight()
+			if _current_load() + w <= capacity:
+				q.pop_front()
+				v.waiting_at_ferry = false
+				v.is_boarded_on_ferry = true
+				carried_vehicles.append(v)
+			else:
+				break
+
+	func _unboard_passengers(dest_node: int, dest_pos: Vector2) -> void:
+		for v in carried_vehicles:
+			if is_instance_valid(v):
+				v.is_boarded_on_ferry = false
+				v.waiting_at_ferry = false
+				v.current_node = dest_node
+				v.position = dest_pos
+				while v.path != null and v.path_index < v.path.edge_ids.size():
+					var eid: int = v.path.edge_ids[v.path_index]
+					var e: Edge = GraphManager.get_edge(eid)
+					if e != null and e.is_ferry:
+						v.path_index += 1
+					else:
+						break
+				v.visible = true
+				v.queue_redraw()
+		carried_vehicles.clear()
+
+	func _sync_carried_positions() -> void:
+		var count := carried_vehicles.size()
+		if count == 0:
+			return
+		elif count == 1:
+			var v: Vehicle = carried_vehicles[0]
+			if is_instance_valid(v):
+				v.position = position
+				v.heading = heading
+		elif count == 2:
+			for i in range(2):
+				var v: Vehicle = carried_vehicles[i]
+				if is_instance_valid(v):
+					var offset := heading * (-6.0 if i == 0 else 6.0)
+					v.position = position + offset
+					v.heading = heading
+		else:
+			var normal := heading.rotated(PI / 2.0)
+			for i in range(count):
+				var v: Vehicle = carried_vehicles[i]
+				if is_instance_valid(v):
+					var f_off := heading * (-6.0 if i < 2 else 6.0)
+					var s_off := normal * (-4.0 if i % 2 == 0 else 4.0)
+					v.position = position + f_off + s_off
+					v.heading = heading
+
+	func destroy() -> void:
+		for v in carried_vehicles:
+			if is_instance_valid(v):
+				v.is_boarded_on_ferry = false
+				v.go_home()
+		carried_vehicles.clear()
+		for v in queue_a:
+			if is_instance_valid(v):
+				v.waiting_at_ferry = false
+				v.go_home()
+		queue_a.clear()
+		for v in queue_b:
+			if is_instance_valid(v):
+				v.waiting_at_ferry = false
+				v.go_home()
+		queue_b.clear()
+
 # ===== MANAGER =====
 var path_provider: Callable = Callable()  # tùy chọn: hàm tìm đường giả cho scene thử
 var _requests := {}      # req_id -> SosRequest (SOS còn hiệu lực)
@@ -669,6 +995,7 @@ var _vehicles := {}      # vehicle_id -> Vehicle
 var _civilians := {}       # nhà (node id) -> xe dân của nhà đó (tạo khi nhà có SOS đầu tiên)
 var _civilian_type := {}   # nhà -> loại xe dân (xe máy hoặc ô tô), giữ nguyên trong ván
 var _fresh: Array = []     # xe cứu hộ vừa nhận SOS trong lượt điều phối này (để thử gom thêm SOS thứ hai)
+var _ferry_vessels := {}   # route_id -> FerryVessel
 var _next_req_id := 0
 var _next_vehicle_id := 0
 var _wave := 0
@@ -689,6 +1016,7 @@ func _ready() -> void:
 	EventBus.edge_added.connect(_on_edge_added)
 	EventBus.edge_removed.connect(_on_edge_removed)
 	EventBus.edge_state_changed.connect(_on_edge_state_changed)
+	EventBus.ferry_routes_changed.connect(_sync_ferry_vessels)
 
 func reset() -> void:
 	for v in _vehicles.values():
@@ -702,6 +1030,8 @@ func reset() -> void:
 	_requests.clear()
 	_hubs.clear()
 	_last_rescued.clear()
+	_ferry_vessels.clear()
+	_sync_ferry_vessels()
 	_next_req_id = 0
 	_next_vehicle_id = 0
 	_wave = 0
@@ -800,15 +1130,18 @@ func _nearby(p: Vector2) -> Array:
 	return out
 
 
-# Mỗi xe đang chạy làm 3 cạnh sắp đi của nó đắt thêm CONGESTION_PATH_COST giây.
+# Mỗi xe đang chạy làm các cạnh sắp đi của nó đắt thêm chi phí để xe khác tự né đường.
 func congestion_penalty(exclude: Vehicle = null) -> Dictionary:
 	var pen := {}
 	for v in _vehicles.values():
-		if v == exclude or not v.is_moving():
+		if v == exclude or not v.is_moving() or v.path == null:
 			continue
-		for k in range(v.path_index, mini(v.path_index + 3, v.path.edge_ids.size())):
+		var is_water: bool = (v.type == Types.VehicleType.BOAT or v.is_on_ferry())
+		var cost: float = WATER_VESSEL_CONGESTION_COST if is_water else CONGESTION_PATH_COST
+		var lookahead: int = 5 if is_water else 3
+		for k in range(v.path_index, mini(v.path_index + lookahead, v.path.edge_ids.size())):
 			var eid: int = v.path.edge_ids[k]
-			pen[eid] = float(pen.get(eid, 0.0)) + CONGESTION_PATH_COST
+			pen[eid] = float(pen.get(eid, 0.0)) + cost
 	return pen
 
 
@@ -904,6 +1237,13 @@ func congestion_factor(v: Vehicle, others: Array = []) -> float:
 				return 0.0
 			if along < FOLLOW_GAP:
 				f = minf(f, FOLLOW_SLOW)
+		# Tuyến phà vượt sông: xe ngược chiều đang qua phà thì nhường đường ở bến
+		if v.path != null and v.path_index < v.path.edge_ids.size():
+			var v_eid: int = v.path.edge_ids[v.path_index]
+			var fe: Edge = g().get_edge(v_eid)
+			if fe != null and fe.is_ferry and u.is_moving() and u.path != null and u.path_index < u.path.edge_ids.size():
+				if u.path.edge_ids[u.path_index] == v_eid and u.heading.dot(v.heading) < -0.3:
+					return 0.0
 		if not approaching:
 			continue
 		var du: float = u.position.distance_to(jpos)
@@ -927,6 +1267,8 @@ func _process(delta: float) -> void:
 	if _retry_stranded:
 		_retry_all_stranded()
 	_rebuild_grid()
+	_tick_water_detour(delta)
+	_tick_ferry_vessels(delta)
 	for h in _hubs.values():
 		for s in h.tick(delta):
 			EventBus.stock_changed.emit(h.id, s, h.stock[s])
@@ -940,6 +1282,85 @@ func _process(delta: float) -> void:
 		_graph_dirty = false
 		_dispatch_timer = 0.0
 		_dispatch()
+
+# Phát hiện 2 thuyền / phà đối đầu ngược chiều trên mặt nước và kích hoạt tìm đường vòng lách tránh.
+func _tick_water_detour(delta: float) -> void:
+	var water_vessels: Array = []
+	for v in _vehicles.values():
+		if v.is_moving() and (v.type == Types.VehicleType.BOAT or v.is_on_ferry()):
+			water_vessels.append(v)
+	for i in range(water_vessels.size()):
+		var v: Vehicle = water_vessels[i]
+		for j in range(i + 1, water_vessels.size()):
+			var u: Vehicle = water_vessels[j]
+			var dist: float = v.position.distance_to(u.position)
+			if dist > 90.0:
+				continue
+			# Hai thuyền đối đầu ngược chiều
+			if v.heading.dot(u.heading) < -0.5:
+				# Thuyền có ID nhỏ hơn (ưu tiên thấp) nhường đường, tìm đường vòng khác
+				var lower: Vehicle = v if v.id < u.id else u
+				lower.request_water_detour()
+
+func get_ferry_vessels() -> Array:
+	if _ferry_vessels.is_empty() and not g().get_ferry_routes().is_empty():
+		_sync_ferry_vessels()
+	return _ferry_vessels.values()
+
+func _sync_ferry_vessels() -> void:
+	var routes: Array = g().get_ferry_routes()
+	var active_ids := {}
+	for r in routes:
+		var rid: int = r.get("edge_id", -1)
+		if rid == -1:
+			continue
+		active_ids[rid] = true
+		if not _ferry_vessels.has(rid):
+			_ferry_vessels[rid] = FerryVessel.new(r)
+		else:
+			_ferry_vessels[rid].update_route(r)
+	var to_remove := []
+	for rid in _ferry_vessels.keys():
+		if not active_ids.has(rid):
+			to_remove.append(rid)
+	for rid in to_remove:
+		_ferry_vessels[rid].destroy()
+		_ferry_vessels.erase(rid)
+
+func _tick_ferry_vessels(delta: float) -> void:
+	for fv in _ferry_vessels.values():
+		fv.tick(delta)
+
+func register_ferry_passenger(v: Vehicle, dock_node: int) -> void:
+	if _ferry_vessels.is_empty():
+		_sync_ferry_vessels()
+	for fv in _ferry_vessels.values():
+		if fv.node_a == dock_node:
+			if not fv.queue_a.has(v):
+				fv.queue_a.append(v)
+			return
+		elif fv.node_b == dock_node:
+			if not fv.queue_b.has(v):
+				fv.queue_b.append(v)
+			return
+
+func has_approaching_vehicle_to_dock(dock_node: int, max_weight: int, max_eta: float) -> bool:
+	var dock_n = g().get_map_node(dock_node)
+	if dock_n == null:
+		return false
+	for v in _vehicles.values():
+		if not v.is_moving() or v.is_on_ferry() or v.path == null:
+			continue
+		if v.ferry_weight() > max_weight:
+			continue
+		for k in range(v.path_index, mini(v.path_index + 4, v.path.node_ids.size())):
+			if v.path.node_ids[k] == dock_node:
+				var dist: float = v.position.distance_to(dock_n.pos)
+				var speed: float = Config.base_speed(v.type)
+				if dist / maxf(1.0, speed) <= max_eta:
+					return true
+				break
+	return false
 
 func _tick_requests(delta: float) -> void:
 	for rid in _requests.keys():
@@ -1569,6 +1990,9 @@ func get_vehicle_ids() -> Array[int]:
 		if is_instance_valid(_vehicles[k]) and not _vehicles[k].is_civilian:
 			ids.append(k)
 	return ids
+
+func get_vehicles() -> Array:
+	return _vehicles.values()
 
 func get_vehicle_position(vehicle_id: int) -> Vector2:  # ngoài hợp đồng, cho D nếu cần
 	if _vehicles.has(vehicle_id):

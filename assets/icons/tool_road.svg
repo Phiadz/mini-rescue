@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <!-- Stacked road segments matching Mini Motorways icon -->
+  <!-- Layer 3 (bottom) -->
+  <rect x="8" y="28" width="32" height="7" rx="3.5" transform="rotate(-35 24 31.5)" fill="currentColor" opacity="0.6"/>
+  <!-- Layer 2 (middle) -->
+  <rect x="8" y="21" width="32" height="7" rx="3.5" transform="rotate(-35 24 24.5)" fill="currentColor" opacity="0.85"/>
+  <!-- Layer 1 (top) -->
+  <g transform="rotate(-35 24 16.5)">
+    <rect x="8" y="13" width="32" height="7" rx="3.5" fill="currentColor"/>
+    <!-- Dashed road marking inside top road segment -->
+    <line x1="14" y1="16.5" x2="20" y2="16.5" stroke="#25282c" stroke-width="1.8" stroke-linecap="round"/>
+    <line x1="28" y1="16.5" x2="34" y2="16.5" stroke="#25282c" stroke-width="1.8" stroke-linecap="round"/>
+  </g>
+</svg>
