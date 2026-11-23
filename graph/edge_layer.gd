@@ -337,6 +337,7 @@ func _bezier(a: Vector2, c: Vector2, b: Vector2, t0: float, t1: float) -> Packed
 # Lối vào ngắn của khu, nhà chưa nối đường (bản đồ có cổng): từ mép lô đất tới đúng mép ô theo hướng gate, đầu vuông,
 # nằm gọn trong ô của nhà (không lòi sang ô bên cạnh).
 # Nối đường vào từ cạnh nào thì GraphManager xoay gate về cạnh đó; đã nối thì đoạn đường nối thay cho lối vào này.
+# Hỗ trợ cả gate thẳng (4 hướng) lẫn gate chéo (4 hướng) khi nhà đã nối đường chéo.
 func _draw_stubs() -> void:
 	if not GraphManager.uses_gates():
 		return
@@ -344,7 +345,7 @@ func _draw_stubs() -> void:
 		var n := GraphManager.get_map_node(id)
 		if n == null or n.kind == Types.NodeKind.HUB or n.gate == Vector2i.ZERO or GraphManager.get_gate_node(id) != -1:
 			continue
-		var d := Vector2(n.gate)
+		var d := Vector2(n.gate).normalized()
 		var r := GraphManager.point_radius(id)
 		var a := n.pos + d * (r - DRIVEWAY_TUCK)
 		var b := n.pos + d * (Config.CELL_SIZE / 2.0)

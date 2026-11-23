@@ -216,6 +216,11 @@ func _try_collapse_corner(to: Vector2i) -> bool:
 	if absi(c.x - a.x) != 1 or absi(c.y - a.y) != 1:
 		return false
 	
+	# Không tự động gập góc nếu A hoặc C là điểm công trình (nhà, kho, khu)
+	# để người chơi có thể chủ động rẽ thẳng vào nhà hoặc từ nhà rẽ ra mà không bị gập góc mất đoạn nối
+	if GraphManager.is_point_cell(a) or GraphManager.is_point_cell(c):
+		return false
+	
 	# B phải là ô góc vuông trung gian giữa A và C
 	if not ((b.x == a.x and b.y == c.y) or (b.x == c.x and b.y == a.y)):
 		return false

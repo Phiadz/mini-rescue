@@ -398,13 +398,21 @@ func _gate_ok(gcell: Vector2i, owner: int, level: int) -> bool:
 	return level >= 1 or not _near_point(gcell, owner)
 
 # Luật không cắt góc (bản đồ có cổng): bước chéo từ ô a sang ô b chạy qua góc chung của hai ô kề còn lại; đường rộng
-# nên lấn vào góc hai ô đó. Không cho đi chéo nếu một trong hai ô đó là điểm (kho, khu, nhà) hay ô bãi của kho.
+# nên lấn vào góc hai ô đó. Không cho đi chéo nếu một trong hai ô góc đó là điểm khác (không phải a hay b) hay bãi kho.
+# Cho phép đi thẳng vào/ra nhà theo đường chéo nếu chính ô nhà là a hoặc b.
 func diagonal_ok(a: Vector2i, b: Vector2i) -> bool:
 	if not _gates_enabled or absi(a.x - b.x) != 1 or absi(a.y - b.y) != 1:
 		return true
 	for c in [Vector2i(a.x, b.y), Vector2i(b.x, a.y)]:
-		if _point_cells.has(c) or _lot_cells.has(c):
+		if _lot_cells.has(c):
 			return false
+		var pid: int = _point_cells.get(c, -1)
+		if pid != -1:
+			# chặn chỉ khi ô góc là điểm khác (không phải ô a hay ô b)
+			var cpa: int = _point_cells.get(a, -1)
+			var cpb: int = _point_cells.get(b, -1)
+			if pid != cpa and pid != cpb:
+				return false
 	return true
 
 # Ô cell đang bị một đoạn đường chéo cắt qua góc (đoạn nối hai ô kề cạnh của nó theo đường chéo).
@@ -465,8 +473,8 @@ func _point_link_ok(p: int, other_id: int, other_cell: Vector2i) -> bool:
 	if _nodes[p].kind == Types.NodeKind.HUB:
 		return other_id != -1 and other_id == get_gate_node(p)
 	var d := other_cell - cell_of(_nodes[p].pos)
-	if absi(d.x) + absi(d.y) != 1:
-		return false  # lối vào chỉ theo 4 hướng
+	if absi(d.x) > 1 or absi(d.y) > 1 or (d.x == 0 and d.y == 0):
+		return false  # cho phép cả 8 hướng kề cạnh (4 thẳng và 4 chéo)
 	var linked := get_gate_node(p)
 	return linked == -1 or (other_id != -1 and linked == other_id)
 
@@ -475,7 +483,7 @@ func _turn_driveway(p: int, other: int) -> void:
 	if not _is_gated(p) or _nodes[p].kind == Types.NodeKind.HUB or not _nodes.has(other):
 		return
 	var d := cell_of(_nodes[other].pos) - cell_of(_nodes[p].pos)
-	if absi(d.x) + absi(d.y) == 1:
+	if absi(d.x) <= 1 and absi(d.y) <= 1 and (d.x != 0 or d.y != 0):
 		_nodes[p].gate = d
 
 # Nút đường ngay trước lối vào của điểm: kho là ô cổng dựng sẵn; khu, nhà là ô đường đang nối vào (-1 nếu chưa nối).

@@ -1400,7 +1400,7 @@ func stop_pos(node_id: int) -> Vector2:
 		return n.pos  # kho: trong nhà kho; chỗ đỗ ở bãi tính riêng (slot_pos)
 	if n.gate == Vector2i.ZERO:
 		return n.pos
-	return n.pos + Vector2(n.gate) * (g().point_radius(node_id) + PARK_GAP)
+	return n.pos + Vector2(n.gate).normalized() * (g().point_radius(node_id) + PARK_GAP)
 
 # ----- Bãi đỗ của kho (xe tải) và bến (ca-nô) -----
 # Bãi nằm ở ô giữa kho và cổng: lối đi giữa chạy từ kho ra cổng, mỗi bên 3 chỗ đỗ vuông góc (xe đỗ đầu vào trong).
