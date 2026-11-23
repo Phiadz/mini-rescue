@@ -42,16 +42,16 @@ func _draw() -> void:
 		var n1 = GraphManager.get_map_node(route_nodes[1]) if route_nodes.size() >= 3 else null
 		var n_penult = GraphManager.get_map_node(route_nodes[-2]) if route_nodes.size() >= 3 else null
 
-		var dir_a := GraphManager.get_shore_river_direction(r.cell_a, n1.pos if n1 != null else Vector2.INF)
+		var dir_a: Vector2 = GraphManager.get_shore_river_direction(r.cell_a, n1.pos if n1 != null else Vector2.INF)
 		if dir_a == Vector2.ZERO:
 			dir_a = pos_a.direction_to(pos_b)
 
-		var dir_b := GraphManager.get_shore_river_direction(r.cell_b, n_penult.pos if n_penult != null else Vector2.INF)
+		var dir_b: Vector2 = GraphManager.get_shore_river_direction(r.cell_b, n_penult.pos if n_penult != null else Vector2.INF)
 		if dir_b == Vector2.ZERO:
 			dir_b = pos_b.direction_to(pos_a)
 
-		var normal_a := dir_a.rotated(PI / 2.0)
-		var normal_b := dir_b.rotated(PI / 2.0)
+		var normal_a: Vector2 = dir_a.rotated(PI / 2.0)
+		var normal_b: Vector2 = dir_b.rotated(PI / 2.0)
 
 		# 1. Vẽ hai Bến đón / trả khách tinh gọn ở 2 đầu bờ sông
 		_draw_minimal_dock(pos_a, dir_a, normal_a)
@@ -69,10 +69,12 @@ func _draw() -> void:
 	for r in routes:
 		var rid: int = r.get("edge_id", -1)
 		if not drawn_routes.has(rid):
-			var dir_a := GraphManager.get_shore_river_direction(r.cell_a)
+			var pos_a: Vector2 = r.get("pos_a", Vector2.ZERO)
+			var pos_b: Vector2 = r.get("pos_b", Vector2.ZERO)
+			var dir_a: Vector2 = GraphManager.get_shore_river_direction(r.cell_a)
 			if dir_a == Vector2.ZERO:
-				dir_a = r.pos_a.direction_to(r.pos_b)
-			var dock_wait_pos := r.pos_a + dir_a * 17.0
+				dir_a = pos_a.direction_to(pos_b)
+			var dock_wait_pos: Vector2 = pos_a + dir_a * 17.0
 			_draw_stationed_ferry(dock_wait_pos, dir_a)
 
 func _draw_ferry_vessel(fv) -> void:
