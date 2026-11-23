@@ -578,7 +578,7 @@ func _refresh_segments() -> void:
 				if not seen.has(eid):
 					_walk(id, eid, seen)
 	for eid in _edges:                      # còn lại là vòng kín, không có đầu mút
-		if not seen.has(eid) and not _boat_edges.has(eid):
+		if not seen.has(eid) and not _boat_edges.has(eid) and not _ferry_edges.has(eid):
 			_walk(_edges[eid].node_a, eid, seen)
 	_detect_rings()
 
@@ -641,7 +641,7 @@ func _try_ring(tl: Vector2i, size: int) -> void:
 # Ô đường từng thuộc vòng 3×3 rồi vòng bị phá: nút đã về tâm ô, tính lại độ dài các cạnh của nó.
 func _fix_lengths() -> void:
 	for eid in _edges:
-		if not _boat_edges.has(eid):
+		if not _boat_edges.has(eid) and not _ferry_edges.has(eid):
 			var e: Edge = _edges[eid]
 			e.length = _nodes[e.node_a].pos.distance_to(_nodes[e.node_b].pos)
 
@@ -666,11 +666,16 @@ func get_rings() -> Array:
 	return _rings
 
 func _is_end(id: int) -> bool:
-	return _nodes[id].kind != Types.NodeKind.ROAD or _adj[id].size() != 2
+	if not _nodes.has(id):
+		return true
+	return _nodes[id].kind != Types.NodeKind.ROAD or _adj.get(id, []).size() != 2
 
 func _walk(start: int, first_edge: int, seen: Dictionary) -> void:
 	var chain: Array[int] = []
-	var sum: float = _nodes[start].elevation
+	var start_node := get_map_node(start)
+	if start_node == null:
+		return
+	var sum: float = start_node.elevation
 	var count := 1
 	var cur := start
 	var eid := first_edge
@@ -678,11 +683,16 @@ func _walk(start: int, first_edge: int, seen: Dictionary) -> void:
 		seen[eid] = true
 		chain.append(eid)
 		cur = _edges[eid].other_end(cur)
-		sum += _nodes[cur].elevation
+		var cur_node := get_map_node(cur)
+		if cur_node != null:
+			sum += cur_node.elevation
 		count += 1
 		if _is_end(cur):
 			break
-		eid = _adj[cur][0] if _adj[cur][0] != eid else _adj[cur][1]
+		var cur_adj: Array = _adj.get(cur, [])
+		if cur_adj.size() < 2:
+			break
+		eid = cur_adj[0] if cur_adj[0] != eid else cur_adj[1]
 	var seg: int = chain.min()
 	for id in chain:
 		_edges[id].segment = seg
@@ -1432,6 +1442,48 @@ func get_ferry_preview_points(cell_a: Vector2i, cell_b: Vector2i) -> PackedVecto
 			out.append(_water[wid].pos)
 	out.append(pos_b)
 	return out
+
+# Hướng vuông góc từ ô bờ đất quay thẳng ra lòng sông
+func get_shore_river_direction(cell: Vector2i, preferred_water_pos: Vector2 = Vector2.INF) -> Vector2:
+	const CARDINALS = [
+		Vector2i(1, 0),
+		Vector2i(-1, 0),
+		Vector2i(0, 1),
+		Vector2i(0, -1)
+	]
+	var water_dirs: Array[Vector2i] = []
+	for d in CARDINALS:
+		var c := cell + d
+		if cell_is_water(c) or _wet_at(c) != -1 or cell_is_boat(c):
+			water_dirs.append(d)
+	
+	if water_dirs.size() == 1:
+		return Vector2(water_dirs[0])
+	elif water_dirs.size() > 1:
+		if preferred_water_pos != Vector2.INF:
+			var cell_pos := cell_center(cell)
+			var target_dir := (preferred_water_pos - cell_pos).normalized()
+			var best_d: Vector2i = water_dirs[0]
+			var best_dot: float = -2.0
+			for d in water_dirs:
+				var dot := Vector2(d).dot(target_dir)
+				if dot > best_dot:
+					best_dot = dot
+					best_d = d
+			return Vector2(best_d)
+		else:
+			return Vector2(water_dirs[0])
+
+	# Nếu không có hướng chính nào là nước, thử tìm trong 8 hướng
+	for dy in range(-1, 2):
+		for dx in range(-1, 2):
+			if dx == 0 and dy == 0:
+				continue
+			var c := cell + Vector2i(dx, dy)
+			if cell_is_water(c) or _wet_at(c) != -1 or cell_is_boat(c):
+				return Vector2(dx, dy).normalized()
+
+	return Vector2.ZERO
 
 func _is_water_crossing(cell_a: Vector2i, cell_b: Vector2i, pos_a: Vector2, pos_b: Vector2) -> bool:
 	var dist: float = pos_a.distance_to(pos_b)

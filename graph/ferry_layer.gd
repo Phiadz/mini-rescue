@@ -39,15 +39,16 @@ func _draw() -> void:
 		var pos_b: Vector2 = r.pos_b
 		var route_nodes: Array = r.get("route_nodes", [])
 
-		var dir_a := pos_a.direction_to(pos_b)
-		var dir_b := pos_b.direction_to(pos_a)
-		if route_nodes.size() >= 3:
-			var n1 = GraphManager.get_map_node(route_nodes[1])
-			if n1 != null:
-				dir_a = pos_a.direction_to(n1.pos)
-			var n_penult = GraphManager.get_map_node(route_nodes[-2])
-			if n_penult != null:
-				dir_b = pos_b.direction_to(n_penult.pos)
+		var n1 = GraphManager.get_map_node(route_nodes[1]) if route_nodes.size() >= 3 else null
+		var n_penult = GraphManager.get_map_node(route_nodes[-2]) if route_nodes.size() >= 3 else null
+
+		var dir_a := GraphManager.get_shore_river_direction(r.cell_a, n1.pos if n1 != null else Vector2.INF)
+		if dir_a == Vector2.ZERO:
+			dir_a = pos_a.direction_to(pos_b)
+
+		var dir_b := GraphManager.get_shore_river_direction(r.cell_b, n_penult.pos if n_penult != null else Vector2.INF)
+		if dir_b == Vector2.ZERO:
+			dir_b = pos_b.direction_to(pos_a)
 
 		var normal_a := dir_a.rotated(PI / 2.0)
 		var normal_b := dir_b.rotated(PI / 2.0)
