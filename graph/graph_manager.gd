@@ -1445,15 +1445,15 @@ func get_ferry_preview_points(cell_a: Vector2i, cell_b: Vector2i) -> PackedVecto
 
 # Hướng vuông góc từ ô bờ đất quay thẳng ra lòng sông
 func get_shore_river_direction(cell: Vector2i, preferred_water_pos: Vector2 = Vector2.INF) -> Vector2:
-	const CARDINALS = [
+	const CARDINALS: Array[Vector2i] = [
 		Vector2i(1, 0),
 		Vector2i(-1, 0),
 		Vector2i(0, 1),
 		Vector2i(0, -1)
 	]
 	var water_dirs: Array[Vector2i] = []
-	for d in CARDINALS:
-		var c := cell + d
+	for d: Vector2i in CARDINALS:
+		var c: Vector2i = cell + d
 		if cell_is_water(c) or _wet_at(c) != -1 or cell_is_boat(c):
 			water_dirs.append(d)
 	
@@ -1461,12 +1461,12 @@ func get_shore_river_direction(cell: Vector2i, preferred_water_pos: Vector2 = Ve
 		return Vector2(water_dirs[0])
 	elif water_dirs.size() > 1:
 		if preferred_water_pos != Vector2.INF:
-			var cell_pos := cell_center(cell)
-			var target_dir := (preferred_water_pos - cell_pos).normalized()
+			var cell_pos: Vector2 = cell_center(cell)
+			var target_dir: Vector2 = (preferred_water_pos - cell_pos).normalized()
 			var best_d: Vector2i = water_dirs[0]
 			var best_dot: float = -2.0
-			for d in water_dirs:
-				var dot := Vector2(d).dot(target_dir)
+			for d: Vector2i in water_dirs:
+				var dot: float = Vector2(d).dot(target_dir)
 				if dot > best_dot:
 					best_dot = dot
 					best_d = d
@@ -1479,7 +1479,7 @@ func get_shore_river_direction(cell: Vector2i, preferred_water_pos: Vector2 = Ve
 		for dx in range(-1, 2):
 			if dx == 0 and dy == 0:
 				continue
-			var c := cell + Vector2i(dx, dy)
+			var c: Vector2i = cell + Vector2i(dx, dy)
 			if cell_is_water(c) or _wet_at(c) != -1 or cell_is_boat(c):
 				return Vector2(dx, dy).normalized()
 
