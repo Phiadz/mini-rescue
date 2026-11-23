@@ -447,6 +447,15 @@ class Vehicle extends Node2D:
 				return CAR_ICON_SIZE
 		return ICON_SIZE
 
+	func _draw_water_wake(center_offset: Vector2, rear_dist: float, spread: float, wake_len: float) -> void:
+		if not is_moving():
+			return
+		var rear_pos := center_offset - heading * rear_dist
+		var side_vec := heading.rotated(PI / 2.0) * spread
+		var col := Color(1.0, 1.0, 1.0, 0.42)
+		draw_line(rear_pos + side_vec * 0.7, rear_pos + side_vec * 1.4 - heading * wake_len, col, 1.6)
+		draw_line(rear_pos - side_vec * 0.7, rear_pos - side_vec * 1.4 - heading * wake_len, col, 1.6)
+
 	func _draw() -> void:
 		var on_ferry: bool = is_on_ferry()
 		var offset := _lane
@@ -458,13 +467,8 @@ class Vehicle extends Node2D:
 		var sc: float = RescueManager.draw_scale(self)
 
 		if on_ferry:
-			# 1. Bọt nước và vệt sóng rẽ nước sau đuôi phà
-			var rear_dir := -heading
-			var rear_pos := offset + rear_dir * 18.0
-			var side_vec := heading.rotated(PI / 2.0) * 11.0
-			draw_line(rear_pos + side_vec * 0.6, rear_pos + side_vec * 1.5 + rear_dir * 12.0, Color(0.9, 0.95, 1.0, 0.65), 2.2)
-			draw_line(rear_pos - side_vec * 0.6, rear_pos - side_vec * 1.5 + rear_dir * 12.0, Color(0.9, 0.95, 1.0, 0.65), 2.2)
-			draw_circle(rear_pos, 4.0, Color(1.0, 1.0, 1.0, 0.5))
+			# 1. Hiệu ứng rẽ nước tối giản sau đuôi phà khi đang chạy
+			_draw_water_wake(offset, 16.0, 10.0, 14.0)
 
 			# 2. Vẽ Tàu Phao (Pontoon Ferry) bên dưới xe tải
 			draw_set_transform(offset, heading.angle() + (PI if left else 0.0), Vector2(-sc if left else sc, sc))
@@ -481,6 +485,10 @@ class Vehicle extends Node2D:
 			draw_texture_rect(icon, Rect2(-icon_size / 2.0, icon_size), false)
 			draw_set_transform(Vector2.ZERO)
 		else:
+			# Ca-nô lướt sóng trên mặt nước
+			if type == Types.VehicleType.BOAT:
+				_draw_water_wake(offset, icon_size.x * 0.4, icon_size.y * 0.4, 11.0)
+
 			draw_set_transform(offset, heading.angle() + (PI if left else 0.0), Vector2(-sc if left else sc, sc))
 			draw_texture_rect(icon, Rect2(-icon_size / 2.0, icon_size), false)
 			draw_set_transform(Vector2.ZERO)

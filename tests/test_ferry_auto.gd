@@ -66,6 +66,9 @@ func _test_ferry_creation() -> void:
 		_check(e != null and e.is_ferry, "Cạnh tạo ra có cờ is_ferry = true")
 		_check(e.speed_factor(Types.VehicleType.TRUCK) > 0.0, "Xe tải được phép đi qua cạnh phà với tốc độ hợp lệ")
 		_check(e.speed_factor(Types.VehicleType.BOAT) == 0.0, "Ca-nô không đi cạnh phà mà đi đường sông riêng")
+		_check(r.has("route_nodes") and r.route_nodes.size() >= 3, "Tuyến phà được lập qua các nút nước trên sông")
+		var pts := GraphManager.get_ferry_preview_points(Vector2i(11, 6), Vector2i(17, 6))
+		_check(pts.size() >= 2, "get_ferry_preview_points trả về các điểm mốc uốn theo mặt nước")
 
 func _test_truck_pathfinding() -> void:
 	print("\n== 2. Thuật toán tìm đường Dijkstra cho xe tải vượt sông bằng Phà Phao")

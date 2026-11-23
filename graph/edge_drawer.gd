@@ -239,17 +239,32 @@ func _draw_ferry_preview() -> void:
 		# Đường nối preview sang bờ B / con trỏ
 		if _hover_cell != NO_CELL and _hover_cell != _ferry_start_cell:
 			var p_hover: Vector2 = GraphManager.cell_center(_hover_cell)
-			var valid: bool = GraphManager.can_place_ferry(_ferry_start_cell, _hover_cell)
+			var pts: PackedVector2Array = GraphManager.get_ferry_preview_points(_ferry_start_cell, _hover_cell)
+			var valid := not pts.is_empty() and GraphManager.can_place_ferry(_ferry_start_cell, _hover_cell)
 			var col: Color = Color(0.25, 0.85, 1.0, 0.85) if valid else Color(1.0, 0.3, 0.2, 0.75)
-			var dist := p_start.distance_to(p_hover)
-			var steps := maxi(3, int(dist / 14.0))
-			for s in steps:
-				if s % 2 == 0:
-					var pt1 := p_start.lerp(p_hover, float(s) / steps)
-					var pt2 := p_start.lerp(p_hover, float(s + 1) / steps)
-					draw_line(pt1, pt2, col, 3.0)
+
+			if valid and pts.size() >= 2:
+				for i in range(pts.size() - 1):
+					var p1 := pts[i]
+					var p2 := pts[i + 1]
+					var d := p1.distance_to(p2)
+					var steps := maxi(2, int(d / 14.0))
+					for s in steps:
+						if s % 2 == 0:
+							var t1 := float(s) / steps
+							var t2 := float(s + 1) / steps
+							draw_line(p1.lerp(p2, t1), p1.lerp(p2, t2), col, 2.5)
+			else:
+				var dist := p_start.distance_to(p_hover)
+				var steps := maxi(3, int(dist / 14.0))
+				for s in steps:
+					if s % 2 == 0:
+						var pt1 := p_start.lerp(p_hover, float(s) / steps)
+						var pt2 := p_start.lerp(p_hover, float(s + 1) / steps)
+						draw_line(pt1, pt2, col, 2.5)
+
 			draw_rect(_cell_rect(_hover_cell), col, false, 2.0)
-			draw_circle(p_hover, 6.0, col)
+			draw_circle(p_hover, 5.5, col)
 	else:
 		if _hover_cell != NO_CELL and GameManager.is_in_play(GraphManager.cell_center(_hover_cell)):
 			var p_hover: Vector2 = GraphManager.cell_center(_hover_cell)
