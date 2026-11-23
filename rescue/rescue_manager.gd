@@ -456,12 +456,18 @@ class Vehicle extends Node2D:
 		release_request()  # SOS về PENDING, hàng hoàn kho
 		if req != null:
 			req.heavy_only = true
+		fading = true
 		path = null
 		waypoints.clear()
 		change_state(IdleState.new(), Types.VehicleState.IDLE)
-		fade_out(false, _finish_vanish)
+		modulate.a = 1.0
+		var tw := create_tween()
+		tw.tween_property(self, 'modulate:a', 0.0, Config.CIVILIAN_FADE_TIME)
+		tw.tween_callback(_finish_vanish)
 
 	func _finish_vanish() -> void:
+		fading = false
+		_fading = false
 		parked = true
 		modulate.a = 1.0
 		current_node = home_id
@@ -747,8 +753,6 @@ func _on_edge_state_changed(_edge_id: int, _state: int) -> void:
 func _on_graph_changed() -> void:
 	_graph_dirty = true
 	_retry_stranded = true
-	for r in _requests.values():
-		r.civ_next_try = 0.0
 
 func _retry_all_stranded() -> void:
 	_retry_stranded = false
@@ -1312,6 +1316,42 @@ func _dispatch() -> void:
 		if is_instance_valid(v) and v.request != null:
 			_try_add_second(v, v.request)
 	_fresh.clear()
+	# Đồ thị thật: mỗi (kho, loại xe) chỉ tính một cây đường ngắn nhất cho cả lượt (lúc cần tới), rồi lấy
+	# đường tới từng SOS từ cây đó. Chi phí chỗ đông lấy lúc đầu lượt. Scene thử (đường giả, đồ thị giả) tính từng cặp như cũ.
+	var use_tree: bool = not path_provider.is_valid() and graph == null
+	var trees := {}
+	var pen := {}
+	for r in pending:
+		# SOS lớn cần nhiều xe: giao thêm xe rảnh cho tới khi đủ số phần. Xe sau tính đường có cộng
+		# chi phí chỗ đông (congestion_penalty) nên có thể tự chọn đường vòng.
+		while r.missing() > 0:
+			var best_v: Vehicle = null
+			var best_p: PathResult = null
+			var tried := {}  # xe rảnh cùng kho, cùng loại đứng cùng chỗ nên chung một đường: chỉ tính một lần
+			for v in _vehicles.values():
+				if v.state_id != Types.VehicleState.IDLE:
+					continue
+				if not _hubs.has(v.hub_id) or _hubs[v.hub_id].stock[r.supply] <= 0:
+					continue
+				var key := Vector2i(v.hub_id, v.type)
+				if tried.has(key):
+					continue
+				tried[key] = true
+				var p: PathResult
+				if use_tree:
+					if not trees.has(key):
+						if trees.is_empty():
+							pen = congestion_penalty()
+						trees[key] = g().shortest_tree(v.hub_id, v.type, pen)
+					p = g().path_from_tree(trees[key], v.hub_id, r.node_id)
+				else:
+					p = find_path(v.hub_id, r.node_id, v.type)
+				if p.found and (best_v == null or p.cost < best_p.cost):
+					best_v = v
+					best_p = p
+			if best_v == null:
+				break
+			_assign(r, best_v, best_p)
 
 func _assign(r: SosRequest, v: Vehicle, p: PathResult) -> void:
 	r.assigned += 1

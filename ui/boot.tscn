@@ -1,8 +1,8 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://c6ovf66v6lxv0"]
 
-[ext_resource type="Script" path="res://ui/boot.gd" id="1_boot"]
+[ext_resource type="Script" uid="uid://yc263qrxbu0e" path="res://ui/boot.gd" id="1_boot"]
 
-[node name="Boot" type="Control"]
+[node name="Boot" type="Control" unique_id=1668506406]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
