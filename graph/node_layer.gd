@@ -190,9 +190,13 @@ func _draw_plot(n: MapNode) -> void:
 	draw_style_box(box, Rect2(n.pos - Vector2.ONE * PLOT_SIZE / 2.0, Vector2.ONE * PLOT_SIZE))
 	if n.gate != Vector2i.ZERO:  # cạnh có lối vào (đường nối hoặc lối vào ngắn): xóa viền đúng bề rộng mặt đường
 		var d := Vector2(n.gate)
-		var edge := n.pos + d * (PLOT_SIZE / 2.0 - border / 2.0)
-		var gap := Vector2(border + 2.0, Road.ROAD_WIDTH) if d.y == 0.0 else Vector2(Road.ROAD_WIDTH, border + 2.0)
-		draw_rect(Rect2(edge - gap / 2.0, gap), c[0])
+		if d.x != 0.0 and d.y != 0.0:
+			var corner := n.pos + d.normalized() * (PLOT_SIZE / 2.0 - border / 2.0)
+			draw_circle(corner, Road.ROAD_WIDTH / 2.0 + 1.0, c[0])
+		else:
+			var edge := n.pos + d * (PLOT_SIZE / 2.0 - border / 2.0)
+			var gap := Vector2(border + 2.0, Road.ROAD_WIDTH) if d.y == 0.0 else Vector2(Road.ROAD_WIDTH, border + 2.0)
+			draw_rect(Rect2(edge - gap / 2.0, gap), c[0])
 
 
 # Màu mặt đường, viền, vạch theo trạng thái ngập (đúng màu EdgeLayer).

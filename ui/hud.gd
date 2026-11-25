@@ -29,6 +29,12 @@ var warn_time: float = 0.0
 var recede_panel: Panel        # băng "NƯỚC ĐANG RÚT" hiện vài giây khi mặt nước bắt đầu rút (nửa sau mỗi đợt)
 var recede_label: Label
 var recede_time := 0.0
+var ferry_panel: Panel
+var ferry_label: Label
+var ferry_time := 0.0
+var _prev_routes_count := 0
+const ToolBarScript := preload("res://ui/tool_bar.gd")
+var tool_bar: Control
 var _last_level := 0.0
 var _receding := false
 const RECEDE_BANNER := 3.0
@@ -76,6 +82,12 @@ func _ready() -> void:
 	recede_label = Style.text(self, "NƯỚC ĐANG RÚT", 440, 58, 400, 44, 21, Style.WHITE, true)
 	recede_panel.visible = false
 	recede_label.visible = false
+	ferry_panel = Style.rect(self, 380, 58, 520, 44, Color(0.02, 0.22, 0.32, 0.96), Style.CYAN, 10)
+	ferry_label = Style.text(self, "⚓ ĐÃ MỞ TUYẾN PHÀ PHAO VƯỢT SÔNG!", 380, 58, 520, 44, 20, Style.WHITE, true)
+	ferry_panel.visible = false
+	ferry_label.visible = false
+	EventBus.ferry_routes_changed.connect(_on_ferry_routes)
+	_build_tool_bar()
 	_connect_signals()
 
 func _build_fps() -> void:
@@ -186,11 +198,17 @@ func _road_sample(parent: Control, at: Vector2, fill: Color, dashed: bool) -> Ar
 
 func _build_hint() -> void:
 	Style.rect(self, 260, 690, 760, 26, Color(0.0, 0.05, 0.11, 0.8), Style.BORDER, 8)
-	var hint := Style.text(self, "Kéo trái: tô đường  •  Chuột phải / Delete: xóa ô  •  Bấm SOS: ưu tiên  •  Space: tạm dừng  •  F: tua nhanh",
-			260, 690, 760, 26, 14, Style.MUTED, true)
+	var hint := Style.text(self, "Chọn công cụ: 1 Vẽ đường  •  2 Bến Phà Phao  |  Chuột trái: vẽ/đặt  •  Chuột phải: xóa/hủy  •  Space: dừng  •  F: tua nhanh",
+			260, 690, 760, 26, 13, Style.MUTED, true)
 	hint.autowrap_mode = TextServer.AUTOWRAP_OFF # one line; with word wrap the label grew past its box
 	hint.size = Vector2(760, 26)
 	Style.text(self, MAP_CREDIT, 1024, 696, 250, 20, 11, Color("#4f6b7a"), true)
+
+func _build_tool_bar() -> void:
+	tool_bar = ToolBarScript.new()
+	tool_bar.name = "ToolBar"
+	tool_bar.position = Vector2(1015, 622)
+	add_child(tool_bar)
 
 func _connect_signals() -> void:
 	EventBus.game_started.connect(_build_badges)
@@ -252,6 +270,19 @@ func _process(delta: float) -> void:
 	var show_recede := recede_time > 0.0 and not warning_panel.visible  # cảnh báo ngập ưu tiên hơn
 	recede_panel.visible = show_recede
 	recede_label.visible = show_recede
+	if ferry_time > 0.0:
+		ferry_time -= delta
+	var show_ferry := ferry_time > 0.0 and not warning_panel.visible and not recede_panel.visible
+	ferry_panel.visible = show_ferry
+	ferry_label.visible = show_ferry
+
+func _on_ferry_routes() -> void:
+	if not has_node("/root/GraphManager"):
+		return
+	var count: int = GraphManager.get_ferry_routes().size()
+	if count > _prev_routes_count:
+		ferry_time = 3.5
+	_prev_routes_count = count
 
 func _on_score(value: int) -> void:
 	score_label.text = "ĐIỂM %d" % value

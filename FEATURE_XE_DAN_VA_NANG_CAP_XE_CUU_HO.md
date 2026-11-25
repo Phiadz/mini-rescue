@@ -287,41 +287,40 @@ Bổ sung 2 thẻ nâng cấp vào hệ thống Reward:
 > *Mỗi thành viên cập nhật nhật ký của mình vào bảng dưới đây trước khi báo cáo cho Lộc.*
 
 #### 📋 Tiến độ NGƯỜI C (Backend Core)
-- [ ] Thiết lập Enum & Config (`types.gd`, `config.gd`, `base_speed()`)
-- [ ] Cập nhật chặn xe đường bộ trên cạnh `boat_only` (`edge.gd`)
-- [ ] Tìm đường cho Xe máy & Ô tô (`graph_manager.gd`)
-- [ ] Khởi tạo xe cá nhân cho toàn bộ nhà dân (`rescue_manager.gd`)
-- [ ] Phân luồng điều phối xe dân xuất phát lấy hàng
-- [ ] Cơ chế xe dân biến mất khi gặp ngập & bàn giao SOS cho xe cứu hộ
-- [ ] Thuật toán gom cụm Multi-drop cho xe tải/ca-nô chở 2 hàng
-- [ ] Kiểm thử tự động (Unit Test / Bot Test)
+- [x] Thiết lập Enum & Config (`types.gd`, `config.gd`, `base_speed()`)
+- [x] Cập nhật chặn xe đường bộ trên cạnh `boat_only` (`edge.gd`)
+- [x] Tìm đường cho Xe máy & Ô tô (`graph_manager.gd`)
+- [x] Khởi tạo xe cá nhân cho toàn bộ nhà dân (`rescue_manager.gd`)
+- [x] Phân luồng điều phối xe dân xuất phát lấy hàng
+- [x] Cơ chế xe dân biến mất khi gặp ngập & bàn giao SOS cho xe cứu hộ
+- [x] Thuật toán gom cụm Multi-drop cho xe tải/ca-nô chở 2 hàng
+- [x] Kiểm thử và sửa lỗi vòng lặp trùng lặp / xung đột điều phối khi nối đường
 
 *Ghi chú của C:*
-> `[C - Ngày ...]` Đã làm: ... | Vướng mắc: ... | Cần hỏi Lộc: ...
+> `[C - Ngày 23/11/2026]` Đã làm: Hoàn tất toàn bộ logic xe dân (Xe máy 70%, Ô tô 30%) và multi-drop cho xe cứu hộ nâng cấp. Đã xử lý khôi phục code sau sự cố Revert PR #30, dọn sạch khối điều phối trùng lặp trong `_dispatch()`, cập nhật `_on_graph_changed` để ưu tiên xe dân chạy ngay khi có đường nối mới. | Vướng mắc: Không còn. | Cần hỏi Lộc: Không.
 
 ---
 
 #### 📋 Tiến độ NGƯỜI D (UI Shop & State)
-- [ ] Khai báo biến `truck_capacity`, `boat_capacity` trong `GameManager`
-- [ ] Bổ sung tín hiệu thông báo nâng cấp trong `EventBus`
-- [ ] Thiết kế & Tinh chỉnh layout 5 thẻ trong `reward_popup.gd`
-- [ ] Khóa thẻ khi đã mua (chỉ mua 1 lần)
-- [ ] Kiểm thử trừ tiền Quỹ và hiệu lực nâng cấp trong ván chơi
-
+- [x] Khai báo biến `truck_capacity`, `boat_capacity` trong `GameManager`
+- [x] Bổ sung tín hiệu thông báo nâng cấp trong `EventBus`
+- [x] Thiết kế & Tinh chỉnh layout 5 thẻ trong `reward_popup.gd`
+- [x] Khóa thẻ khi đã mua (chỉ mua 1 lần)
+- [ ] Kiểm thử trừ Quỹ và hiệu lực nâng cấp trong ván chơi *(đã xác nhận Quỹ bị trừ khi mua. Chờ người C tích hợp Multi-drop để kiểm tra xe tải và ca-nô có giao được 2 kiện cho 2 nhà trong cùng một chuyến)*.
 *Ghi chú của D:*
-> `[D - Ngày ...]` Đã làm: ... | Vướng mắc: ... | Cần hỏi Lộc: ...
+> `[D - Ngày 20/11/2026]` Đã làm: Bố trí Shop 5 thẻ, gồm Xe tải 2 ngăn (150 Quỹ) và Ca-nô 2 ngăn (120 Quỹ). Khi mua thành công, `GameManager` trừ Quỹ, tăng sức chứa tương ứng từ 1 lên 2 và phát tín hiệu nâng cấp. Thẻ đã mua hiện `✓ ĐÃ SỞ HỮU` và chỉ mua được một lần mỗi ván. Khi bắt đầu ván mới, sức chứa của cả hai loại xe trở về 1. | Vướng mắc: `RescueManager` hiện chưa dùng hai biến sức chứa để giao 2 kiện trong một chuyến. | Cần hỏi Lộc: Không có câu hỏi.
 
 ---
 
 #### 📋 Tiến độ NGƯỜI B (Visual & Hiển thị)
-- [ ] Nạp asset SVG có sẵn (`assets/icons/motorbike.svg`, `car.svg`)
-- [ ] Cài đặt kích thước hiển thị `(14×9)` và `(18×11)` px
-- [ ] Xoay đầu xe theo hướng chạy & lật hình khi sang trái
-- [ ] Hiệu ứng ẩn xe khi đỗ trong nhà và mờ dần khi gặp ngập biến mất
-- [ ] Kiểm tra thẩm mỹ tổng thể trên bản đồ mùa lũ
+- [x] Nạp asset SVG có sẵn (`assets/icons/motorbike.svg`, `car.svg`)
+- [x] Cài đặt kích thước hiển thị `(14×9)` và `(18×11)` px
+- [x] Xoay đầu xe theo hướng chạy & lật hình khi sang trái
+- [x] Hiệu ứng ẩn xe khi đỗ trong nhà và mờ dần khi gặp ngập biến mất
+- [ ] Kiểm tra thẩm mỹ tổng thể trên bản đồ mùa lũ *(chờ merge logic xe dân của Người C để kiểm thử trực quan)*
 
 *Ghi chú của B:*
-> `[B - Ngày ...]` Đã làm: ... | Vướng mắc: ... | Cần hỏi Lộc: ...
+> `[B - Ngày 20/11/2026]` Đã làm: Nạp sẵn `motorbike.svg` và `car.svg` trong `Vehicle`, hỗ trợ render kích thước `Vector2(14, 9)` (xe máy) & `Vector2(18, 11)` (ô tô), xoay hướng theo `heading.angle()` + lật ngang khi `heading.x < 0.0`, ẩn hoàn toàn khi `PARKED`, thêm API `fade_out(free_after, on_finished)` (Tween `modulate.a` 1.0 → 0.0 trong 0.25s) và `reset_visual()` trong `rescue/rescue_manager.gd`; giữ nguyên HUD không thêm bộ đếm xe dân. | Vướng mắc: Chưa có code của Người C (`MOTORBIKE = 2`, `CAR = 3` trong `Types.VehicleType`), đã dùng hằng số khớp giá trị enum (`2`, `3`) để không lỗi trước khi merge. | Cần hỏi Lộc: Không.
 
 ---
 

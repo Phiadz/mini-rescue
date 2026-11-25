@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<defs>
+ <linearGradient id="green" x1="0" y1="0" x2="0.75" y2="1"><stop stop-color="#b5ff00"/><stop offset="0.38" stop-color="#54f900"/><stop offset="1" stop-color="#0ac600"/></linearGradient>
+ <linearGradient id="shine" x1="0" y1="0" x2="0.7" y2="1"><stop stop-color="#e8ff89"/><stop offset="1" stop-color="#9bff00"/></linearGradient>
+ <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fff700"/><stop offset="1" stop-color="#ffcb00"/></linearGradient>
+</defs>
+<!-- Arrow outline and body -->
+<path d="M244 35 Q256 22 269 35 L421 190 Q440 211 424 228 Q418 235 405 233 L358 225 L358 419 Q358 450 327 450 L184 450 Q154 450 154 419 L154 225 L108 233 Q91 235 84 224 Q74 208 89 192 Z" fill="#004b17" stroke="#004215" stroke-width="13" stroke-linejoin="round"/>
+<path d="M246 51 Q256 41 267 52 L407 193 Q420 207 408 216 Q403 219 391 216 L343 206 L343 416 Q343 433 326 433 L186 433 Q169 433 169 416 L169 206 L120 216 Q106 219 102 210 Q99 204 110 192 Z" fill="url(#green)" stroke="#83ff14" stroke-width="11" stroke-linejoin="round"/>
+<path d="M244 59 Q256 47 269 61 L405 196 Q412 205 404 209 L261 165 L110 209 Q104 205 112 195 Z" fill="#7bff00" opacity=".55"/>
+<!-- shiny reflections -->
+<ellipse cx="213" cy="117" rx="31" ry="13" transform="rotate(-47 213 117)" fill="white" opacity=".93"/>
+<ellipse cx="171" cy="151" rx="12" ry="7" transform="rotate(-47 171 151)" fill="white" opacity=".92"/>
+<!-- yellow accent sparks -->
+<path d="M74 248 Q66 239 57 249 L28 278 Q19 290 32 298 L76 321 Q91 326 96 312 Q99 306 93 296 Z" fill="url(#gold)" stroke="#ee9200" stroke-width="10" stroke-linejoin="round"/>
+<path d="M76 344 L34 345 Q22 345 27 360 L37 381 Q43 393 55 386 L91 367 Q101 362 94 353 Q88 344 76 344 Z" fill="url(#gold)" stroke="#ee9200" stroke-width="10" stroke-linejoin="round"/>
+<path d="M438 248 Q446 239 455 249 L484 278 Q493 290 480 298 L436 321 Q421 326 416 312 Q413 306 419 296 Z" fill="url(#gold)" stroke="#ee9200" stroke-width="10" stroke-linejoin="round"/>
+<path d="M436 344 L478 345 Q490 345 485 360 L475 381 Q469 393 457 386 L421 367 Q411 362 418 353 Q424 344 436 344 Z" fill="url(#gold)" stroke="#ee9200" stroke-width="10" stroke-linejoin="round"/>
+<!-- UP text as vector outlines -->
+<g fill="#fffef7" stroke="#003a12" stroke-width="24" stroke-linejoin="round" paint-order="stroke fill"><path d="M188 1493H573V598Q573 413 633.5 333.5Q694 254 831 254Q969 254 1029.5 333.5Q1090 413 1090 598V1493H1475V598Q1475 281 1316.0 126.0Q1157 -29 831 -29Q506 -29 347.0 126.0Q188 281 188 598Z" transform="translate(137.04 354) scale(0.0751953 -0.0751953)"/><path d="M188 1493H827Q1112 1493 1264.5 1366.5Q1417 1240 1417 1006Q1417 771 1264.5 644.5Q1112 518 827 518H573V0H188ZM573 1214V797H786Q898 797 959.0 851.5Q1020 906 1020 1006Q1020 1106 959.0 1160.0Q898 1214 786 1214Z" transform="translate(262.09 354) scale(0.0751953 -0.0751953)"/></g>
+</svg>

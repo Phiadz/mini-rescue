@@ -7,6 +7,7 @@ const MAIN_SCENE := 'res://game/main.tscn'
 const SPEEDS: Array[int] = [1, 2, 3]  # tua nhanh: phím F hoặc nút trên HUD
 const ScoreSystemScript := preload('res://game/score_system.gd')
 const StageViewScript := preload('res://game/stage_view.gd')
+const FerryLayerScript := preload('res://graph/ferry_layer.gd')
 
 var state: int = Types.GameState.MENU
 # Số giây nghỉ còn lại (chỉ đọc), 0 khi không ở lượt nghỉ. Bảng chọn thưởng của D đọc để đếm ngược;
@@ -22,6 +23,9 @@ var _wave := 0
 var _phase_left := 0.0
 var _time_survived := 0.0
 var _bought := {}  # Types.Reward -> số lần đã mua trong ván
+# Sức chứa của xe cứu hộ
+var truck_capacity: int = 1
+var boat_capacity: int = 1
 var _starting := false
 var _score_system := ScoreSystemScript.new()
 # Tốc độ người chơi chọn (1, 2, 3). Chỉ đặt lại Engine.time_scale khi người chơi đã từng tua,
@@ -95,6 +99,7 @@ func start_game() -> void:
 	await get_tree().process_frame  # chờ scene sẵn sàng
 	GraphManager.load_map(Config.MAP_PATH)  # 1. nạp bản đồ
 	_mount_stage_view()
+	_mount_ferry_layer()
 	EventBus.game_started.emit()  # 2. các module tự reset, NodeLayer vẽ node
 	get_tree().paused = false
 	_score_system.enabled = true
@@ -136,17 +141,37 @@ func exit_to_menu() -> void:
 func choose_reward(reward: int) -> bool:
 	if state != Types.GameState.WAVE_BREAK or not Config.SHOP_PRICES.has(reward):
 		return false
+
+	# Nâng cấp sức chứa chỉ được mua một lần trong mỗi ván
+	if reward == Types.Reward.UPGRADE_TRUCK_CAP \
+			or reward == Types.Reward.UPGRADE_BOAT_CAP:
+		if get_bought_count(reward) >= 1:
+			return false
+
+	# Kiểm tra và trừ Quỹ
 	if not _score_system.spend(get_price(reward)):
 		return false
+
 	match reward:
 		Types.Reward.MORE_EDGES:
 			GraphManager.add_edge_limit(Config.REWARD_EDGE_BONUS)
+
 		Types.Reward.EXTRA_TRUCK:
 			for i in Config.REWARD_VEHICLE_BONUS:
 				RescueManager.add_vehicle(Types.VehicleType.TRUCK)
+
 		Types.Reward.EXTRA_BOAT:
 			for i in Config.REWARD_VEHICLE_BONUS:
 				RescueManager.add_vehicle(Types.VehicleType.BOAT)
+
+		Types.Reward.UPGRADE_TRUCK_CAP:
+			truck_capacity = 2
+			EventBus.truck_capacity_upgraded.emit(truck_capacity)
+
+		Types.Reward.UPGRADE_BOAT_CAP:
+			boat_capacity = 2
+			EventBus.boat_capacity_upgraded.emit(boat_capacity)
+
 	_bought[reward] = int(_bought.get(reward, 0)) + 1
 	EventBus.reward_chosen.emit(reward)
 	return true
@@ -281,6 +306,17 @@ func _mount_stage_view() -> void:
 	_enter_stage(0, false)
 
 
+func _mount_ferry_layer() -> void:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return
+	var world := scene.get_node_or_null('World')
+	var target = world if world != null else scene
+	if target.get_node_or_null('FerryLayer') == null:
+		var fl := FerryLayerScript.new()
+		fl.name = 'FerryLayer'
+		target.add_child(fl)
+
 func _set_state(s: int) -> void:
 	state = s
 	EventBus.game_state_changed.emit(s)
@@ -301,3 +337,5 @@ func _reset_counters() -> void:
 	_play_rect = Rect2(Vector2.ZERO, Vector2(1280, 720))
 	_score_system.enabled = false
 	_score_system.reset()
+	truck_capacity = 1
+	boat_capacity = 1

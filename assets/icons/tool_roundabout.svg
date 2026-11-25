@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <!-- Minimalist Roundabout arrows matching Mini Motorways -->
+  <g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+    <!-- Curved arrows in circle -->
+    <path d="M 24 10 A 14 14 0 0 1 38 24"/>
+    <path d="M 38 24 A 14 14 0 0 1 24 38"/>
+    <path d="M 24 38 A 14 14 0 0 1 10 24"/>
+    <path d="M 10 24 A 14 14 0 0 1 24 10"/>
+  </g>
+  <!-- Arrow heads -->
+  <polygon points="24,6 24,14 17,10" fill="currentColor"/>
+  <polygon points="24,42 24,34 31,38" fill="currentColor"/>
+</svg>

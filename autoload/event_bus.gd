@@ -10,6 +10,9 @@ signal edge_state_changed(edge_id: int, state: int)
 signal edge_budget_changed(used: int, limit: int)  # tính theo số ô đường
 signal road_changed  # vừa tô hoặc xóa ô, độ cao các đoạn đã tính lại
 signal point_added(point_id: int)  # điểm mới xuất hiện giữa ván (nhà mọc thêm), đã có ô cổng
+signal ferry_routes_changed  # Feature D: tuyến phà phao kết nối hoặc thay đổi bến
+signal ferry_inventory_changed(available: int, total: int)  # số phà còn lại / tổng số
+signal active_tool_changed(tool_id: int)  # 0: ROAD, 1: FERRY
 
 # --- Module B (Flood) ---
 signal water_level_changed(level: float)
@@ -31,6 +34,11 @@ signal wave_started(index: int)
 signal wave_ended(index: int)
 signal break_started(seconds: float)
 signal reward_offered(options: Array)
+
+# Thông báo nâng cấp sức chứa phương tiện cứu hộ
+signal truck_capacity_upgraded(new_capacity: int)
+signal boat_capacity_upgraded(new_capacity: int)
+
 signal reward_chosen(reward: int)
 signal score_changed(score: int)
 signal failed_changed(count: int, max_failed: int)
