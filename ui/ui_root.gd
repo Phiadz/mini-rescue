@@ -133,9 +133,14 @@ func _on_game_state_changed(state: int) -> void:
 		AudioManager.play_bgm(&"")
 		_show("menu")
 	elif state == Types.GameState.PAUSED:
-		_show("pause")
-	elif (state == Types.GameState.PLAYING or state == Types.GameState.WAVE_BREAK) and current_view == "pause":
-		_show("reward" if reward_pending else "hud")
+		# Pause không mở modal lớn che bản đồ; điều khiển Tiếp tục nằm ngay cụm đồng hồ HUD.
+		pause.visible = false
+		hud.set("enabled", false)
+	elif state == Types.GameState.PLAYING or state == Types.GameState.WAVE_BREAK:
+		if current_view == "pause":
+			_show("reward" if reward_pending else "hud")
+		else:
+			hud.set("enabled", current_view in ["hud", "reward"])
 
 func _on_reward_offered(options: Array) -> void:
 	reward_pending = true
