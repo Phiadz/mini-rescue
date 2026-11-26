@@ -73,6 +73,7 @@ func _ready() -> void:
 	var vp := get_viewport()
 	if vp != null and not vp.size_changed.is_connected(_layout_legacy_screens):
 		vp.size_changed.connect(_layout_legacy_screens)
+	_fit_window_to_screen()
 	_layout_legacy_screens()
 
 	menu.connect("start_pressed", _start)
@@ -165,6 +166,27 @@ func _setup_legacy_hud_scaling() -> void:
 		elif ctrl.position.x >= 960.0:
 			h_key = "r"
 		ctrl.reparent(_hud_anchors[v_key + h_key], false)
+
+# Đảm bảo cửa sổ desktop không bao giờ vượt quá vùng hiển thị thật của màn hình (tránh bị cắt mép dưới/taskbar).
+func _fit_window_to_screen() -> void:
+	if OS.has_feature("web") or DisplayServer.get_name() == "headless":
+		return
+	var win := get_window()
+	if win == null or win.mode != Window.MODE_WINDOWED:
+		return
+	var screen := DisplayServer.window_get_current_screen(win.get_window_id())
+	var usable := DisplayServer.screen_get_usable_rect(screen)
+	if usable.size.x <= 0 or usable.size.y <= 0:
+		return
+	var frame := DisplayServer.window_get_size_with_decorations(win.get_window_id()) - win.size
+	var max_client := Vector2i(maxi(320, usable.size.x - maxi(0, frame.x)), maxi(240, usable.size.y - maxi(0, frame.y)))
+	if win.size.x <= max_client.x and win.size.y <= max_client.y:
+		return
+	var ratio := minf(float(max_client.x) / maxf(1.0, float(win.size.x)), float(max_client.y) / maxf(1.0, float(win.size.y)))
+	var new_size := Vector2i(int(floor(float(win.size.x) * ratio)), int(floor(float(win.size.y) * ratio)))
+	win.size = new_size
+	var total_size := new_size + Vector2i(maxi(0, frame.x), maxi(0, frame.y))
+	win.position = usable.position + (usable.size - total_size) / 2
 
 # Căn giữa và phóng đồng tỷ lệ các màn hình 1280×720 cũ trong viewport 16:10 (1920×1200) không kéo giãn.
 # RewardPopup (Card Draft) tự scale liên tục theo toàn bộ viewport.
