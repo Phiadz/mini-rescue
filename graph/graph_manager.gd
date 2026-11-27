@@ -54,8 +54,6 @@ var _ferry_edges := {}              # edge id phà -> Edge
 var _fadj := {}                     # id node -> Array id cạnh phà kề (đồ thị riêng của phà phao, không chung _adj để không vẽ nhầm mặt đường)
 var _ferry_routes: Array = []       # danh sách thông tin các tuyến phà hiện có
 var _next_ferry_edge := 0
-var _ferries_total: int = 1         # tổng số phà cho phép đặt
-var _ferries_available: int = 1     # số phà còn chưa dùng
 
 func _ready() -> void:
 	_limit = Config.EDGE_LIMIT_START
@@ -94,8 +92,6 @@ func _clear_edges() -> void:
 	_fadj.clear()
 	_ferry_routes.clear()
 	_next_ferry_edge = 0
-	_ferries_available = _ferries_total
-	EventBus.ferry_inventory_changed.emit(_ferries_available, _ferries_total)
 
 # --- Nạp bản đồ (gọi nhiều lần vẫn đúng: luôn xóa dữ liệu cũ trước) ---
 func load_map(path: String) -> void:
@@ -1154,15 +1150,16 @@ func get_flood_links() -> Array[int]:
 # --- Feature D: Hệ thống Phà Phao Vượt Sông Đặt Thủ Công (Multi-Modal Logistics) ---
 
 func get_ferries_available() -> int:
-	return _ferries_available
+	if has_node('/root/GameManager'):
+		return GameManager.get_inventory(Types.Reward.FERRY)
+	return Config.START_FERRIES
 
 func get_ferries_total() -> int:
-	return _ferries_total
+	return get_ferries_available() + _ferry_routes.size()
 
 func add_ferry_token(count := 1) -> void:
-	_ferries_total += count
-	_ferries_available += count
-	EventBus.ferry_inventory_changed.emit(_ferries_available, _ferries_total)
+	if has_node('/root/GameManager'):
+		GameManager.grant_reward(Types.Reward.FERRY, count)
 
 func get_ferry_routes() -> Array:
 	return _ferry_routes
@@ -1177,7 +1174,7 @@ func get_ferry_edge_ids() -> Array[int]:
 	return out
 
 func can_place_ferry(cell_a: Vector2i, cell_b: Vector2i) -> bool:
-	if _ferries_available <= 0 or cell_a == cell_b or not _in_grid(cell_a) or not _in_grid(cell_b):
+	if get_ferries_available() <= 0 or cell_a == cell_b or not _in_grid(cell_a) or not _in_grid(cell_b):
 		return false
 	# Bắt buộc bờ A xuất phát phải là ô đường đã được người chơi nối sẵn
 	if road_at(cell_a) == -1:
@@ -1276,7 +1273,8 @@ func place_ferry(cell_a: Vector2i, cell_b: Vector2i) -> bool:
 		created_eids.append(eid)
 		total_dist += e.length
 
-	_ferries_available = maxi(0, _ferries_available - 1)
+	if has_node('/root/GameManager') and not GameManager.try_consume_item(Types.Reward.FERRY, 1):
+		return false
 	_ferry_routes.append({
 		"edge_id": created_eids[0],
 		"edge_ids": created_eids,
@@ -1293,7 +1291,6 @@ func place_ferry(cell_a: Vector2i, cell_b: Vector2i) -> bool:
 	for eid in created_eids:
 		EventBus.edge_added.emit(eid)
 	EventBus.ferry_routes_changed.emit()
-	EventBus.ferry_inventory_changed.emit(_ferries_available, _ferries_total)
 	if has_node("/root/RescueManager"):
 		RescueManager.mark_dirty()
 	return true
@@ -1321,11 +1318,11 @@ func remove_ferry_at_cell(cell: Vector2i) -> bool:
 					_ferry_edges.erase(eid)
 					EventBus.edge_removed.emit(eid)
 			_ferry_routes.remove_at(i)
-			_ferries_available = mini(_ferries_total, _ferries_available + 1)
+			if has_node('/root/GameManager'):
+				GameManager.refund_item(Types.Reward.FERRY, 1)
 			removed = true
 	if removed:
 		EventBus.ferry_routes_changed.emit()
-		EventBus.ferry_inventory_changed.emit(_ferries_available, _ferries_total)
 		if has_node("/root/RescueManager"):
 			RescueManager.mark_dirty()
 	return removed

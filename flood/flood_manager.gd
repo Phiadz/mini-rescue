@@ -86,9 +86,10 @@ func reset_flood() -> void:
 
 
 func start_wave(index: int) -> void:
-	if index >= 0 and index < Config.WAVES.size():
+	if index >= 0:
+		var profile: Dictionary = Config.get_wave_profile(index + 1)
 		_from = water_level
-		_peak = maxf(_from, Config.WAVES[index].water_peak)
+		_peak = maxf(_from, float(profile.water_peak))
 		_low = _peak - Config.RECEDE_RATIO * (_peak - _from)
 		_wave_t = 0.0
 		_running = true
