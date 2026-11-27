@@ -1,7 +1,7 @@
 shader_type canvas_item;
 // Lớp nước của FloodOverlay. Vẽ trên một hình chữ nhật phủ cả bản đồ, TEXTURE là height_field.png.
 // - field_prev, field_next: ảnh 32 × 18 (mỗi điểm ảnh là một ô), kênh R = mặt nước, G = độ ướt 0..1,
-//   B = mức phủ lũ lên sông, biển (cao khi đất quanh đó đã ngập).
+//   B = mức phủ lũ lên sông, biển (cao khi đất quanh đó đã ngập), A = trạng thái DEEP hoặc sông.
 //   Lọc tuyến tính nên giữa các ô được làm mịn; `blend` trộn dần từ nhịp lũ trước sang nhịp lũ sau.
 // - So mặt nước với độ cao từng điểm ảnh của height_field nên bờ nước chạy theo đường đồng mức.
 // - Điểm ảnh sông, biển: giữ hình nền khi đất quanh còn khô; phủ lũ khi đất quanh đã ngập để không lộ viền bờ.
@@ -12,7 +12,6 @@ uniform float blend = 1.0;
 uniform vec4 shallow_color : source_color = vec4(0.165, 0.549, 0.753, 1.0);
 uniform vec4 deep_color : source_color = vec4(0.102, 0.396, 0.592, 1.0);
 uniform vec4 foam_color : source_color = vec4(0.78, 0.93, 1.0, 1.0);
-uniform float shallow_max = 15.0;
 uniform float h0 = 16.7;      // height_field = h0 + hscale × độ cao (xem tools/bake_grid.gd)
 uniform float hscale = 0.667;
 uniform float sea_max = 1.0;
@@ -47,7 +46,11 @@ void fragment() {
 	if (a < 0.01) {
 		discard;
 	}
-	vec3 col = mix(shallow_color.rgb, deep_color.rgb, smoothstep(0.0, shallow_max, depth));
+	// Use terrain detail for the shoreline and foam, and the simulation cell for depth class.
+	ivec2 grid = textureSize(field_next, 0);
+	ivec2 cell = clamp(ivec2(floor(uv * vec2(grid))), ivec2(0), grid - ivec2(1));
+	float deep = mix(texelFetch(field_prev, cell, 0).a, texelFetch(field_next, cell, 0).a, blend);
+	vec3 col = mix(shallow_color.rgb, deep_color.rgb, deep);
 	col *= mix(1.0, 0.92, 1.0 - land);  // sông dưới lũ tối hơn một chút để vẫn lần ra dòng sông
 	// Gợn sóng nhẹ.
 	float ripple = vnoise(uv * vec2(160.0, 90.0) + vec2(TIME * 0.35, TIME * 0.2));

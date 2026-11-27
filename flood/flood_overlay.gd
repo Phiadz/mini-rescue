@@ -28,8 +28,8 @@ var _grid_style := false  # terrain.style = "grid": lũ vẽ theo ô (water_grid
 
 func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST  # height_field mã hóa 16 bit, không được nội suy
-	_prev_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBH)
-	_next_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBH)
+	_prev_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBAH)
+	_next_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBAH)
 	_prev_tex = ImageTexture.create_from_image(_prev_img)
 	_next_tex = ImageTexture.create_from_image(_next_img)
 	material = _new_material(WATER_SHADER)
@@ -66,9 +66,9 @@ func _apply_terrain() -> void:
 		_next_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGB8)
 		_prev_tex.set_image(_prev_img)
 		_next_tex.set_image(_next_img)
-	elif not _grid_style and _prev_img.get_format() != Image.FORMAT_RGBH:  # bản đồ thường: mặt nước là số thực
-		_prev_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBH)
-		_next_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBH)
+	elif not _grid_style and _prev_img.get_format() != Image.FORMAT_RGBAH:  # bản đồ thường: mặt nước và trạng thái sâu
+		_prev_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBAH)
+		_next_img = Image.create(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGBAH)
 		_prev_tex.set_image(_prev_img)
 		_next_tex.set_image(_next_img)
 	var want := WATER_GRID_SHADER if _grid_style else WATER_SHADER
@@ -87,7 +87,6 @@ func _new_material(shader: Shader) -> ShaderMaterial:
 	mat.shader = shader
 	mat.set_shader_parameter('field_prev', _prev_tex)
 	mat.set_shader_parameter('field_next', _next_tex)
-	mat.set_shader_parameter('shallow_max', Config.SHALLOW_MAX)
 	mat.set_shader_parameter('sea_max', Config.SEA_MAX_ELEVATION)
 	mat.set_shader_parameter('map_size', MAP_SIZE)
 	mat.set_shader_parameter('cell', MAP_SIZE.x / Config.GRID_COLS)
@@ -139,7 +138,7 @@ func _sea_cover() -> Dictionary:
 
 # Ảnh nhịp sau thành ảnh nhịp trước; dựng ảnh nhịp sau từ FloodManager.
 # Ô ướt: R = mặt nước, G = độ ướt (độ sâu / FLOOD_SPILL_DEPTH). Ô khô sát nước: R = mặt nước cao nhất
-# của ô kề để nội suy không kéo mặt nước tụt xuống ở mép, G = 0.
+# của ô kề để nội suy không kéo mặt nước tụt xuống ở mép, G = 0. A lưu trạng thái DEEP của ô.
 func _refresh() -> void:
 	_prev_img.copy_from(_next_img)
 	if _grid_style:
@@ -161,13 +160,16 @@ func _refresh() -> void:
 			var c := Vector2i(x, y)
 			var b: float = cover.get(c, 0.0)
 			if surface.has(c):
-				var g := 1.0 if FloodManager.is_sea(c) else clampf(FloodManager.depth_at(c) / Config.FLOOD_SPILL_DEPTH, 0.0, 1.0)
-				_next_img.set_pixel(x, y, Color(surface[c], g, b))
+				var sea := FloodManager.is_sea(c)
+				var depth := FloodManager.depth_at(c)
+				var g := 1.0 if sea else clampf(depth / Config.FLOOD_SPILL_DEPTH, 0.0, 1.0)
+				var deep := sea or FloodManager.state_for_depth(depth) == Types.EdgeState.DEEP
+				_next_img.set_pixel(x, y, Color(surface[c], g, b, 1.0 if deep else 0.0))
 				continue
 			var best := 0.0
 			for d in FloodManager.NEIGHBORS:
 				best = maxf(best, surface.get(c + d, 0.0))
-			_next_img.set_pixel(x, y, Color(best, 0.0, b))
+			_next_img.set_pixel(x, y, Color(best, 0.0, b, 0.0))
 	_wet_cells = wet
 	_prev_tex.update(_prev_img)
 	_next_tex.update(_next_img)
@@ -185,11 +187,11 @@ func _refresh_grid() -> void:
 		for x in Config.GRID_COLS:
 			var c := Vector2i(x, y)
 			var sea := FloodManager.is_sea(c)
-			var d := FloodManager.depth_at(c)
-			var has_water := sea or d >= FloodManager.DRY_EPSILON
+			var state := FloodManager.state_for_depth(FloodManager.depth_at(c))
+			var has_water := sea or state != Types.EdgeState.DRY
 			if has_water and not sea:
 				wet += 1
-			data[k] = 255 if sea or d >= Config.SHALLOW_MAX else 0
+			data[k] = 255 if sea or state == Types.EdgeState.DEEP else 0
 			data[k + 1] = 255 if has_water else 0
 			k += 3
 	_next_img.set_data(Config.GRID_COLS, Config.GRID_ROWS, false, Image.FORMAT_RGB8, data)
