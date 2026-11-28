@@ -34,21 +34,21 @@ const COLOR_MINT := Color("#5ee3b0")
 const COLOR_BLUE := Color("#7cb8ff")
 const COLOR_SHADOW := Color(0.0, 0.0, 0.0, 0.42)
 
-const BAR_SIZE := Vector2(344, 68)
-const HANDLE_SIZE := Vector2(72, 6)
-const HOVER_ZONE_HEIGHT := 98.0
-const HOVER_ZONE_PAD_X := 44.0
-const SHOWN_MARGIN_BOTTOM := 14.0
-const HIDDEN_OFFSET_Y := 60.0
+const BAR_SIZE := Vector2(510, 100)
+const HANDLE_SIZE := Vector2(108, 8)
+const HOVER_ZONE_HEIGHT := 148.0
+const HOVER_ZONE_PAD_X := 64.0
+const SHOWN_MARGIN_BOTTOM := 20.0
+const HIDDEN_OFFSET_Y := 88.0
 const SLIDE_DURATION := 0.16
 
-const SLOT_RADIUS := 21.0
+const SLOT_RADIUS := 31.0
 const SLOT_DEFS := [
-	{"tool": TOOL_ROUNDABOUT, "reward": REWARD_ROUNDABOUT, "pos": Vector2(44, 34), "accent": COLOR_MINT, "label": "Vòng xoay", "diamond": false},
-	{"tool": TOOL_TRAFFIC_LIGHT, "reward": REWARD_TRAFFIC_LIGHT, "pos": Vector2(104, 34), "accent": COLOR_MINT, "label": "Đèn giao thông", "diamond": false},
-	{"tool": TOOL_ROAD, "reward": -1, "pos": Vector2(172, 34), "accent": COLOR_GOLD, "label": "Đường", "diamond": true},
-	{"tool": TOOL_FERRY, "reward": REWARD_FERRY, "pos": Vector2(240, 34), "accent": COLOR_CYAN, "label": "Phà vượt sông", "diamond": false},
-	{"tool": TOOL_HIGHWAY, "reward": REWARD_HIGHWAY, "pos": Vector2(300, 34), "accent": COLOR_BLUE, "label": "Đường cao tốc", "diamond": false},
+	{"tool": TOOL_ROUNDABOUT, "reward": REWARD_ROUNDABOUT, "pos": Vector2(65, 50), "accent": COLOR_MINT, "label": "Vòng xoay", "diamond": false},
+	{"tool": TOOL_TRAFFIC_LIGHT, "reward": REWARD_TRAFFIC_LIGHT, "pos": Vector2(154, 50), "accent": COLOR_MINT, "label": "Đèn giao thông", "diamond": false},
+	{"tool": TOOL_ROAD, "reward": -1, "pos": Vector2(255, 50), "accent": COLOR_GOLD, "label": "Đường", "diamond": true},
+	{"tool": TOOL_FERRY, "reward": REWARD_FERRY, "pos": Vector2(356, 50), "accent": COLOR_CYAN, "label": "Phà vượt sông", "diamond": false},
+	{"tool": TOOL_HIGHWAY, "reward": REWARD_HIGHWAY, "pos": Vector2(445, 50), "accent": COLOR_BLUE, "label": "Đường cao tốc", "diamond": false},
 ]
 
 var _tex_road: Texture2D
@@ -114,11 +114,13 @@ func _load_assets() -> void:
 func _build_tooltip() -> void:
 	_tooltip_label = Label.new()
 	add_child(_tooltip_label)
-	_tooltip_label.position = Vector2(0, -24)
-	_tooltip_label.size = Vector2(BAR_SIZE.x, 20)
+	_tooltip_label.position = Vector2(0, -34)
+	_tooltip_label.size = Vector2(BAR_SIZE.x, 28)
 	_tooltip_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_tooltip_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_tooltip_label.add_theme_font_size_override("font_size", 12)
+	if _font_bold != null:
+		_tooltip_label.add_theme_font_override("font", _font_bold)
+	_tooltip_label.add_theme_font_size_override("font_size", 18)
 	_tooltip_label.add_theme_color_override("font_color", COLOR_INK)
 	_tooltip_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_tooltip_label.visible = false
@@ -289,7 +291,7 @@ func _slot_disabled(idx: int) -> bool:
 func _slot_at(pos: Vector2) -> int:
 	for i in SLOT_DEFS.size():
 		var def: Dictionary = SLOT_DEFS[i]
-		var r := 24.0 if def.diamond else 22.0
+		var r := 36.0 if bool(def.diamond) else 33.0
 		if pos.distance_to(def.pos) <= r:
 			return i
 	return -1
@@ -332,13 +334,13 @@ func _update_tooltip() -> void:
 
 func _draw() -> void:
 	# Thanh tay cầm nhỏ phía trên mép (vẫn thấy gọn khi toolbar trượt ẩn)
-	var handle_pos := Vector2((BAR_SIZE.x - HANDLE_SIZE.x) * 0.5, -10.0)
+	var handle_pos := Vector2((BAR_SIZE.x - HANDLE_SIZE.x) * 0.5, -14.0)
 	var handle_col := COLOR_CYAN if _bar_shown else COLOR_BORDER
 	draw_rect(Rect2(handle_pos, HANDLE_SIZE), handle_col, true)
 
 	# Nền thanh toolbar bo tròn tối màu đồng bộ với E
 	var pill_rect := Rect2(Vector2.ZERO, BAR_SIZE)
-	_draw_rounded_panel(pill_rect, 20.0, COLOR_BG, COLOR_BORDER)
+	_draw_rounded_panel(pill_rect, 28.0, COLOR_BG, COLOR_BORDER)
 
 	# Vẽ 5 công cụ
 	for i in SLOT_DEFS.size():
@@ -350,7 +352,7 @@ func _draw() -> void:
 		var is_disabled: bool = _slot_disabled(i)
 		var accent: Color = def.accent
 		if bool(def.diamond):
-			_draw_road_diamond(def.pos, 21.0, _tex_road, cnt, is_hover, is_active, accent)
+			_draw_road_diamond(def.pos, 32.0, _tex_road, cnt, is_hover, is_active, accent)
 		else:
 			var tex := _texture_for_tool(tool_id)
 			_draw_circle_tool(def.pos, SLOT_RADIUS, tool_id, tex, cnt, is_hover, is_active, is_disabled, accent)
@@ -370,17 +372,17 @@ func _draw_rounded_panel(rect: Rect2, radius: float, fill: Color, border: Color)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = fill
 	sb.border_color = border
-	sb.border_width_left = 1
-	sb.border_width_right = 1
-	sb.border_width_top = 1
-	sb.border_width_bottom = 1
+	sb.border_width_left = 2
+	sb.border_width_right = 2
+	sb.border_width_top = 2
+	sb.border_width_bottom = 2
 	sb.corner_radius_top_left = int(radius)
 	sb.corner_radius_top_right = int(radius)
 	sb.corner_radius_bottom_left = int(radius)
 	sb.corner_radius_bottom_right = int(radius)
 	sb.shadow_color = COLOR_SHADOW
-	sb.shadow_size = 6
-	sb.shadow_offset = Vector2(0, 3)
+	sb.shadow_size = 8
+	sb.shadow_offset = Vector2(0, 4)
 	draw_style_box(sb, rect)
 
 
@@ -393,10 +395,10 @@ func _draw_road_diamond(center: Vector2, half_size: float, tex: Texture2D, count
 		center + Vector2(-s, 0),
 	])
 	var shadow_pts := PackedVector2Array([
-		center + Vector2(0, -s + 2.5),
-		center + Vector2(s, 2.5),
-		center + Vector2(0, s + 2.5),
-		center + Vector2(-s, 2.5),
+		center + Vector2(0, -s + 3.5),
+		center + Vector2(s, 3.5),
+		center + Vector2(0, s + 3.5),
+		center + Vector2(-s, 3.5),
 	])
 	draw_colored_polygon(shadow_pts, COLOR_SHADOW)
 
@@ -405,59 +407,59 @@ func _draw_road_diamond(center: Vector2, half_size: float, tex: Texture2D, count
 	var fg_col := accent if active else COLOR_INK
 
 	draw_colored_polygon(pts, bg_col)
-	draw_polyline(pts + PackedVector2Array([pts[0]]), border_col, 2.2 if (active or hovered) else 1.2)
+	draw_polyline(pts + PackedVector2Array([pts[0]]), border_col, 2.8 if (active or hovered) else 1.8)
 
 	if tex != null:
-		var tex_size := Vector2(24, 24)
+		var tex_size := Vector2(36, 36)
 		draw_texture_rect(tex, Rect2(center - tex_size * 0.5, tex_size), false, fg_col)
 
-	_draw_badge(center + Vector2(16, -13), count, active, false, accent)
+	_draw_badge(center + Vector2(24, -19), count, active, false, accent)
 
 
 func _draw_circle_tool(center: Vector2, radius: float, tool_id: int, tex: Texture2D, count: int, hovered: bool, active: bool, disabled: bool, accent: Color) -> void:
 	if not disabled:
-		draw_circle(center + Vector2(0, 2), radius, COLOR_SHADOW)
+		draw_circle(center + Vector2(0, 3), radius, COLOR_SHADOW)
 
 	var bg_col := COLOR_BG_DISABLED if disabled else (COLOR_BG_SELECTED if active else (COLOR_BG_HOVER if hovered else Color("#162535")))
 	var border_col := COLOR_BORDER_DISABLED if disabled else (accent if active else (COLOR_INK if hovered else COLOR_BORDER))
 	var fg_col := COLOR_MUTED * Color(1, 1, 1, 0.45) if disabled else (accent if active else COLOR_INK)
 
 	draw_circle(center, radius, bg_col)
-	draw_arc(center, radius, 0.0, TAU, 32, border_col, 2.2 if (active or hovered) and not disabled else 1.2)
+	draw_arc(center, radius, 0.0, TAU, 36, border_col, 2.8 if (active or hovered) and not disabled else 1.8)
 
 	if tex != null:
-		var tex_size := Vector2(22, 22)
+		var tex_size := Vector2(34, 34)
 		draw_texture_rect(tex, Rect2(center - tex_size * 0.5, tex_size), false, fg_col)
 	elif tool_id == TOOL_HIGHWAY:
 		_draw_highway_vector_icon(center, fg_col)
 
-	_draw_badge(center + Vector2(14, -14), count, active, disabled, accent)
+	_draw_badge(center + Vector2(21, -21), count, active, disabled, accent)
 
 
 func _draw_highway_vector_icon(center: Vector2, col: Color) -> void:
 	# Biểu tượng đường cao tốc 2 làn cong đồng bộ style vector phẳng
-	var p0 := center + Vector2(-9, 6)
-	var p1 := center + Vector2(-2, -6)
-	var p2 := center + Vector2(9, -6)
-	draw_polyline(PackedVector2Array([p0, p1, p2]), col, 2.6, true)
-	draw_polyline(PackedVector2Array([p0 + Vector2(3, 3), p1 + Vector2(2, 3), p2 + Vector2(0, 3)]), col, 2.6, true)
-	draw_line(center + Vector2(-4, 7), center + Vector2(-4, 10), col, 2.0)
-	draw_line(center + Vector2(5, -2), center + Vector2(5, 3), col, 2.0)
+	var p0 := center + Vector2(-13, 9)
+	var p1 := center + Vector2(-3, -9)
+	var p2 := center + Vector2(13, -9)
+	draw_polyline(PackedVector2Array([p0, p1, p2]), col, 3.6, true)
+	draw_polyline(PackedVector2Array([p0 + Vector2(4, 5), p1 + Vector2(3, 5), p2 + Vector2(0, 5)]), col, 3.6, true)
+	draw_line(center + Vector2(-6, 10), center + Vector2(-6, 15), col, 3.0)
+	draw_line(center + Vector2(7, -3), center + Vector2(7, 5), col, 3.0)
 
 
 func _draw_badge(pos: Vector2, count: int, active: bool, disabled: bool, accent: Color) -> void:
-	var r := 10.0
+	var r := 15.0
 	var bg := COLOR_BG_DISABLED if disabled else (accent if active else Color("#0c1520"))
 	var fg := COLOR_MUTED * Color(1, 1, 1, 0.55) if disabled else (Color("#0c1520") if active else COLOR_INK)
 	var border := COLOR_BORDER_DISABLED if disabled else (accent if active else COLOR_BORDER)
 
-	draw_circle(pos + Vector2(0, 1), r, COLOR_SHADOW)
+	draw_circle(pos + Vector2(0, 1.5), r, COLOR_SHADOW)
 	draw_circle(pos, r, bg)
-	draw_arc(pos, r, 0.0, TAU, 24, border, 1.2)
+	draw_arc(pos, r, 0.0, TAU, 28, border, 1.8)
 
 	var font: Font = _font_bold if _font_bold != null else ThemeDB.fallback_font
 	var text := str(count)
-	var font_size: int = 11 if count < 100 else 9
+	var font_size: int = 16 if count < 100 else 13
 	var text_size: Vector2 = font.get_string_size(text, HORIZONTAL_ALIGNMENT_CENTER, -1, font_size)
 	var text_pos: Vector2 = pos + Vector2(-text_size.x * 0.5, text_size.y * 0.34)
 	draw_string(font, text_pos, text, HORIZONTAL_ALIGNMENT_CENTER, -1, font_size, fg)
