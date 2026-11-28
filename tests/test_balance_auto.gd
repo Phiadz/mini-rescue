@@ -49,7 +49,7 @@ func _run() -> void:
 		_won = false)
 	EventBus.wave_ended.connect(_print_states)
 	EventBus.point_added.connect(func(id: int) -> void: _link_house.call_deferred(id))
-	EventBus.break_started.connect(func(_s: float) -> void: _buy_edges.call_deferred())
+	EventBus.card_offers_ready.connect(func(offers: Array) -> void: _pick_card.call_deferred(offers))
 	EventBus.sos_spawned.connect(func(rid: int, node: int, _sup: int, _t: float) -> void: _sos_node[rid] = node)
 	EventBus.sos_assigned.connect(func(rid: int, _vid: int) -> void: _sos_taken[rid] = true)
 	EventBus.sos_failed.connect(_on_sos_failed)
@@ -236,13 +236,14 @@ func _connect(from_id: int, is_target: Callable, max_new: int) -> bool:
 	return true
 
 
-# Lượt nghỉ: mua thêm ô đường (tối đa 2 lần) nếu đủ quỹ, để còn nối được nhà mọc thêm.
-func _buy_edges() -> void:
-	if not GraphManager.uses_gates():
+func _pick_card(offers: Array) -> void:
+	if offers.is_empty():
 		return
-	for i in 2:
-		if not GameManager.choose_reward(Types.Reward.MORE_EDGES):
+	for o in offers:
+		if o.id == &'road_supply':
+			GameManager.choose_card(o.id)
 			return
+	GameManager.choose_card(offers[0].id)
 
 
 # Số cạnh đường theo trạng thái khi hết mỗi đợt, để so độ ngập với kỳ vọng.
