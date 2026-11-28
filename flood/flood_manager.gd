@@ -29,9 +29,10 @@ var _level := PackedFloat32Array()   # mặt nước từng ô, luôn >= nền
 var _prev := PackedFloat32Array()    # mặt nước ở lần cập nhật trước, để ước lượng tốc độ dâng
 var _sea := PackedByteArray()        # 1 nếu ô là biển
 var _last_dt := 0.0
-var _flooded := PackedByteArray()  # 1 nếu ô đất đã ngập sâu và đã báo GraphManager thành vùng nước cho ca-nô
+var _hydraulic_steps := PackedInt32Array()  # -1: dry or disconnected from the sources
+var _fourth_cell := PackedByteArray()  # map-designated lowland exceptions
+var _hydraulic_dirty := true
 var _spill := PackedFloat32Array()  # ngưỡng tràn: mức cao nhất phải vượt qua trên đường ra biển thấp nhất (chỉ theo địa hình)
-var _flood_st := PackedByteArray()  # trạng thái ngập (DRY/SHALLOW/DEEP) của ô vùng ngập ở lần cập nhật cạnh trước
 
 
 func _ready() -> void:
@@ -59,24 +60,25 @@ func reset() -> void:
 	_ground.resize(n)
 	_deck.resize(n)
 	_sea.resize(n)
-	_flooded.resize(n)
-	_flooded.fill(0)
+	_fourth_cell.resize(n)
+	_hydraulic_dirty = true
 	for i in n:
 		var g := GraphManager.cell_elevation(_cell(i)) if has_node("/root/GraphManager") else 50.0
 		var river := has_node("/root/GraphManager") and GraphManager.cell_is_water(_cell(i))
 		_deck[i] = g
 		_ground[i] = 0.0 if river else g
 		_sea[i] = 1 if river or g <= Config.SEA_MAX_ELEVATION else 0
+		_fourth_cell[i] = 1 if GraphManager.is_deep_flood_lowland(_cell(i)) else 0
 	_level = _ground.duplicate()
 	_prev = _level.duplicate()
-	_flood_st.resize(n)
-	_flood_st.fill(255)
+	_update_hydraulic_distance()
 	_spill.clear()  # ngưỡng tràn: lấy sẵn từ map (grid.spill), map không có thì tính lần đầu nước rút (_spread)
 	var pre: Array = GraphManager.get_spill() if has_node("/root/GraphManager") else []
 	if pre.size() == n:
 		_spill.resize(n)
 		for i in n:
 			_spill[i] = float(pre[i])
+	GraphManager.refresh_boat_depth()
 	if has_node("/root/EventBus"):
 		EventBus.water_level_changed.emit(water_level)
 
@@ -86,14 +88,21 @@ func reset_flood() -> void:
 
 
 func start_wave(index: int) -> void:
-	if index >= 0:
-		var profile: Dictionary = Config.get_wave_profile(index + 1)
-		_from = water_level
-		_peak = maxf(_from, float(profile.water_peak))
-		_low = _peak - Config.RECEDE_RATIO * (_peak - _from)
-		_wave_t = 0.0
-		_running = true
-		_warned.clear()  # đợt mới: nước đã rút, đường khô lại, cảnh báo lại từ đầu
+	if index < 0:
+		return
+	var profile: Dictionary = {}
+	if Config.has_method("get_wave_profile"):
+		profile = Config.call("get_wave_profile", index + 1)
+	elif index < Config.WAVES.size():
+		profile = Config.WAVES[index]
+	if not profile.has("water_peak"):
+		return
+	_from = water_level
+	_peak = maxf(_from, float(profile.water_peak))
+	_low = _peak - Config.RECEDE_RATIO * (_peak - _from)
+	_wave_t = 0.0
+	_running = true
+	_warned.clear()
 
 
 # Dừng mặt nước (đang dâng hay rút) ở mức hiện tại.
@@ -125,13 +134,13 @@ func get_water_level() -> float:
 
 func depth_at(cell: Vector2i) -> float:
 	var i := _index(cell)
-	return maxf(0.0, _level[i] - _deck[i]) if i >= 0 else 0.0
+	return _cell_depth(i) if i >= 0 else 0.0
 
 
 # Mặt nước của ô (ô khô thì bằng nền). FloodOverlay dùng để vẽ.
 func surface_at(cell: Vector2i) -> float:
 	var i := _index(cell)
-	return _level[i] if i >= 0 else 0.0
+	return minf(_level[i], _deck[i] + _cell_depth(i)) if i >= 0 else 0.0
 
 
 # Mặt nạ ô có nước (biển, sông hoặc ô đất đang ngập), mỗi ô một byte theo chỉ số ô. EdgeLayer dùng để vẽ cầu.
@@ -139,7 +148,7 @@ func wet_mask() -> PackedByteArray:
 	var m := PackedByteArray()
 	m.resize(_level.size())
 	for i in _level.size():
-		m[i] = 1 if _sea[i] == 1 or _level[i] - _deck[i] >= DRY_EPSILON else 0
+		m[i] = 1 if _sea[i] == 1 or _cell_depth(i) >= DRY_EPSILON else 0
 	return m
 
 
@@ -169,6 +178,7 @@ func compute_state(edge_elevation: float) -> int:
 # Dùng trong test: đặt mặt nước của mọi ô lên tối thiểu `level`, bỏ qua đường lan (như mô hình mực nước chung cũ).
 func fill_all(level: float) -> void:
 	water_level = level
+	_hydraulic_dirty = true
 	for i in _level.size():
 		_level[i] = maxf(_level[i], maxf(_ground[i], level))
 
@@ -178,6 +188,7 @@ func set_cell_level(cell: Vector2i, level: float) -> void:
 	var i := _index(cell)
 	if i >= 0:
 		_level[i] = maxf(_ground[i], level)
+		_hydraulic_dirty = true
 
 
 # --- Mô phỏng ---
@@ -198,17 +209,18 @@ func _process(delta: float) -> void:
 func step(dt: float) -> void:
 	_spread(dt)
 	_last_dt = dt
+	_update_edges()
 	if has_node("/root/EventBus"):
 		EventBus.water_level_changed.emit(water_level)
-	_update_edges()
 
 
 func _spread(dt: float) -> void:
+	_hydraulic_dirty = true
+	_prev = _level.duplicate()
 	# Mặt biển cập nhật trước, để ô đất sát biển nhận nước ngay trong bước này.
 	for i in _level.size():
 		if _sea[i] == 1:
 			_level[i] = maxf(_ground[i], water_level)
-	_prev = _level.duplicate()
 	var cols := Config.GRID_COLS
 	var rows := Config.GRID_ROWS
 	var step_max := Config.FLOOD_SPREAD_RATE * dt
@@ -230,8 +242,9 @@ func _spread(dt: float) -> void:
 				continue
 			var j := ny * cols + nx
 			var wet := _sea[j] == 1 or _prev[j] - _ground[j] >= Config.FLOOD_SPILL_DEPTH
-			if wet and _prev[j] > source:
-				source = _prev[j]
+			var neighbor_level := _level[j] if _sea[j] == 1 else _prev[j]
+			if wet and neighbor_level > source:
+				source = neighbor_level
 		var eq := maxf(water_level, _spill[i]) if draining else water_level  # mức cân bằng của ô với mặt biển hiện tại
 		if draining:
 			source = minf(source, eq)  # nước rút: không dâng ô lên quá mức cân bằng
@@ -284,11 +297,73 @@ func _above_sea() -> bool:
 			return true
 	return false
 
+# Raw water levels still drive spreading and drainage. Gameplay depth is capped only
+# after tracing a wet, cardinal path from a source, so the cap does not dam the flood.
+func hydraulic_distance_at(cell: Vector2i) -> int:
+	var i := _index(cell)
+	if i < 0:
+		return -1
+	_ensure_hydraulic_distance()
+	return _hydraulic_steps[i]
+
+
+func _ensure_hydraulic_distance() -> void:
+	if _hydraulic_dirty:
+		_update_hydraulic_distance()
+
+
+func _update_hydraulic_distance() -> void:
+	_hydraulic_dirty = false
+	_hydraulic_steps.resize(_level.size())
+	_hydraulic_steps.fill(-1)
+	var queue := PackedInt32Array()
+	for i in _level.size():
+		if _sea[i] == 1:
+			_hydraulic_steps[i] = 0
+			queue.append(i)
+	var head := 0
+	while head < queue.size():
+		var i := queue[head]
+		head += 1
+		var cell := _cell(i)
+		for direction in NEIGHBORS:
+			var j := _index(cell + direction)
+			if j < 0 or _hydraulic_steps[j] >= 0 or _level[j] - _ground[j] < DRY_EPSILON:
+				continue
+			_hydraulic_steps[j] = _hydraulic_steps[i] + 1
+			queue.append(j)
+
+
+func _can_be_deep(i: int) -> bool:
+	var distance := _hydraulic_steps[i]
+	if distance >= 0 and distance <= Config.DEEP_FLOOD_REACH:
+		return true
+	if distance != Config.DEEP_FLOOD_REACH + 1 or _fourth_cell[i] == 0:
+		return false
+	if _spill.size() != _ground.size():
+		_compute_spill()
+	return _spill[i] - _ground[i] >= DRY_EPSILON
+
+
+func _cell_depth(i: int) -> float:
+	_ensure_hydraulic_distance()
+	return _limited_depth(i, _level[i], _depth_limit(i))
+
+
+func _depth_limit(i: int) -> float:
+	return INF if _can_be_deep(i) else Config.SHALLOW_MAX - DRY_EPSILON
+
+
+func _limited_depth(i: int, surface: float, limit: float) -> float:
+	return clampf(surface - _deck[i], 0.0, limit)
+
+
 # Mỗi cạnh ngập theo nước tại chính hai ô nó nối (độ sâu trung bình hai ô), nên đường đổi màu đúng chỗ
 # nước phủ. Cảnh báo trước 5 giây vẫn gom theo đoạn: mỗi đoạn chỉ cảnh báo một lần cho mỗi mức ngập.
 func _update_edges() -> void:
 	if not has_node("/root/GraphManager"):
 		return
+	_ensure_hydraulic_distance()
 	for eid in GraphManager.get_edge_ids():
 		var e = GraphManager.get_edge(eid)
 		if e == null:
@@ -299,66 +374,7 @@ func _update_edges() -> void:
 			GraphManager.set_edge_state(eid, state)
 		var key: int = e.segment if e.segment >= 0 else -1 - eid
 		_check_warning(key, [eid], cells, state)
-	# Lối xuống nước của ca-nô (ô đường ↔ ô sông): ngập theo chính ô đường, khô thì ca-nô không lên được. Không cảnh báo.
-	for eid in GraphManager.get_flood_links():
-		var link = GraphManager.get_edge(eid)
-		var road = GraphManager.get_map_node(link.node_a) if link != null else null
-		if road == null:
-			continue
-		var link_state := state_for_depth(depth_at(GraphManager.cell_of(road.pos)))
-		if link.state != link_state:
-			GraphManager.set_edge_state(eid, link_state)
-	_update_flood_cells()
-
-
-# Ô đất ngập sâu lần đầu: báo GraphManager thành vùng nước cho ca-nô (mỗi ô một lần mỗi ván, nút giữ lại cả khi nước rút).
-# Cạnh của nút vùng ngập đổi trạng thái theo độ sâu ô (cạnh nối hai ô vùng ngập lấy ô nông hơn): nước rút thì nông dần
-# rồi khô, ca-nô không chạy vào nữa; nước dâng lại thì sâu trở lại.
-func _update_flood_cells() -> void:
-	if not GraphManager.has_method('add_flood_cell') or _flooded.size() != _level.size():
-		return
-	var changed := {}
-	for i in _level.size():
-		var d := _level[i] - _deck[i]
-		if _flooded[i] == 0:
-			if d < Config.SHALLOW_MAX:
-				continue
-			_flooded[i] = 1
-			GraphManager.add_flood_cell(_cell(i))
-		var st := state_for_depth(d)
-		if st != _flood_st[i]:
-			_flood_st[i] = st
-			changed[i] = true
-			GraphManager.set_flood_open(GraphManager.FLOOD_ID_BASE + i, st == Types.EdgeState.DEEP)
-	if changed.is_empty():
-		return
-	# Cạnh nối hai ô vùng ngập lấy ô nông hơn, nên cập nhật cả ô vùng ngập kề ô vừa đổi.
-	var last := []
-	var todo := {}
-	for i in changed:
-		var c := _cell(i)
-		for dy in range(-1, 2):
-			for dx in range(-1, 2):
-				var j := _index(c + Vector2i(dx, dy))
-				if j >= 0 and _flooded[j] == 1:
-					todo[j] = true
-	for i in todo:
-		var d := _level[i] - _deck[i]
-		var id: int = GraphManager.FLOOD_ID_BASE + i
-		for eid in GraphManager.boat_edges_of(id):
-			var e = GraphManager.get_edge(eid)
-			var other: int = e.other_end(id)
-			var dd := d
-			if GraphManager.is_flood_node(other):
-				var j: int = other - GraphManager.FLOOD_ID_BASE
-				dd = minf(d, _level[j] - _deck[j])
-			var st := state_for_depth(dd)
-			if GraphManager.set_edge_state(eid, st, true):
-				last = [eid, st]
-	# Nước rút làm hàng trăm cạnh vùng ngập đổi cùng lúc: phát một tín hiệu thay vì mỗi cạnh một (EdgeLayer, NodeLayer bỏ
-	# qua cạnh của riêng ca-nô; RescueManager chỉ cần biết đồ thị đã đổi).
-	if not last.is_empty():
-		EventBus.edge_state_changed.emit(last[0], last[1])
+	GraphManager.refresh_boat_depth()
 
 
 func _mean_depth(cells: Array) -> float:
@@ -366,7 +382,7 @@ func _mean_depth(cells: Array) -> float:
 		return 0.0
 	var total := 0.0
 	for i in cells:
-		total += maxf(0.0, _level[i] - _deck[i])
+		total += _cell_depth(i)
 	return total / cells.size()
 
 
@@ -376,22 +392,48 @@ func _mean_depth(cells: Array) -> float:
 func _check_warning(key: int, edges: Array, cells: Array, state: int) -> void:
 	if state >= Types.EdgeState.DEEP or _last_dt <= 0.0 or cells.is_empty():
 		return
+	var warn_key := Vector2i(key, state + 1)
+	if _warned.has(warn_key):
+		return
 	var eta := INF
 	if state == Types.EdgeState.DRY:
 		for i in cells:
 			eta = minf(eta, _eta(i, DRY_EPSILON))
 	else:
-		var rise := 0.0
-		for i in cells:
-			rise += maxf(0.0, _level[i] - _prev[i]) / _last_dt
-		rise /= cells.size()
-		if rise > 0.0:
-			eta = (Config.SHALLOW_MAX - _mean_depth(cells)) / rise
-	var warn_key := Vector2i(key, state + 1)
-	if eta <= Config.WARNING_SECONDS and not _warned.has(warn_key):
+		eta = _deep_warning_eta(cells)
+	if eta <= Config.WARNING_SECONDS:
 		_warned[warn_key] = true
 		if has_node("/root/EventBus"):
 			EventBus.flood_warning.emit(edges[0], maxf(eta, 0.0))
+
+
+# Extrapolate each cell's effective depth at its current hydraulic limit.
+func _deep_warning_eta(cells: Array) -> float:
+	var forecasts: Array[Vector3] = []  # current depth, rise per second, depth limit
+	for i in cells:
+		var limit := _depth_limit(i)
+		var depth := _limited_depth(i, _level[i], limit)
+		var rise := maxf(0.0, depth - _limited_depth(i, _prev[i], limit)) / _last_dt
+		forecasts.append(Vector3(depth, rise, limit))
+	var threshold := Config.SHALLOW_MAX * cells.size()
+	var upper := Config.WARNING_SECONDS
+	if _projected_depth_sum(forecasts, upper) < threshold:
+		return INF
+	var lower := 0.0
+	for iteration in 10:
+		var mid := (lower + upper) * 0.5
+		if _projected_depth_sum(forecasts, mid) < threshold:
+			lower = mid
+		else:
+			upper = mid
+	return upper
+
+
+func _projected_depth_sum(forecasts: Array[Vector3], seconds: float) -> float:
+	var total := 0.0
+	for forecast in forecasts:
+		total += minf(forecast.z, forecast.x + forecast.y * seconds)
+	return total
 
 
 # Số giây tới khi ô i sâu tới `threshold`. Ô đang ngập: theo tốc độ dâng của chính nó.
@@ -399,10 +441,12 @@ func _check_warning(key: int, edges: Array, cells: Array, state: int) -> void:
 # thì nước tràn sang ngay nhịp sau; ô kề đang dâng thì tính thời gian nó dâng tới nền ô này.
 func _eta(i: int, threshold: float) -> float:
 	var eta := INF
-	var rise := (_level[i] - _prev[i]) / _last_dt
+	var limit := _depth_limit(i)
+	var depth := _limited_depth(i, _level[i], limit)
+	var rise := (depth - _limited_depth(i, _prev[i], limit)) / _last_dt
 	if rise > 0.0:
-		eta = (_deck[i] + threshold - _level[i]) / rise
-	if _level[i] - _deck[i] >= DRY_EPSILON:
+		eta = (threshold - depth) / rise
+	if depth >= DRY_EPSILON:
 		return eta
 	var c := _cell(i)
 	for d in NEIGHBORS:
@@ -427,7 +471,7 @@ func _on_edge_added(edge_id: int) -> void:
 	if not has_node("/root/GraphManager") or _level.is_empty():
 		return
 	var e = GraphManager.get_edge(edge_id)
-	if e != null:
+	if e != null and not e.boat_only and not e.is_ferry and not e.is_highway:
 		var cells: Array = []
 		for node_id in [e.node_a, e.node_b]:
 			var n = GraphManager.get_map_node(node_id)

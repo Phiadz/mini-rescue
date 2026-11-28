@@ -17,8 +17,16 @@ const BOAT_SPEED := 135.0
 const MOTORBIKE_SPEED := 220.0
 const CAR_SPEED := 160.0
 
+const HIGHWAY_SPEED_FACTOR := 1.5
+# Pixels per second squared, indexed by Types.VehicleType in enum order.
+const ACCELERATION := [95.0, 65.0, 170.0, 120.0]
+const BRAKING := [290.0, 210.0, 380.0, 340.0]
+const JUNCTION_SPEED_FACTOR := 0.65
+
 # --- Lũ ---
 const SHALLOW_MAX := 15.0
+const DEEP_FLOOD_REACH := 3  # cardinal cells connected to a water source
+const BOAT_CHANNEL_MIN_DEPTH := SHALLOW_MAX  # marked land corridors open at DEEP
 const FLOOD_TICK := 0.25
 const WARNING_SECONDS := 5.0
 # Lũ lan theo ô: ô có độ cao tới SEA_MAX_ELEVATION là biển, mặt nước biển dâng rồi rút theo WAVES.
@@ -176,10 +184,10 @@ const SHOP_PRICE_GROWTH := 1.5  # mỗi lần mua cùng một món trong ván, g
 # --- Hệ số tốc độ: SPEED_FACTOR[loại xe][trạng thái tuyến] ---
 # Loại xe: 0 TRUCK, 1 BOAT, 2 MOTORBIKE, 3 CAR. Trạng thái tuyến: 0 DRY, 1 SHALLOW, 2 DEEP
 const SPEED_FACTOR := {
-	0: [1.0, 0.5, 0.0],
-	1: [0.0, 0.5, 1.0],  # ca-nô không lên đất khô; chạy trên sông (cạnh boat_only, luôn DEEP), đường ngập sâu, đường ngập nhẹ thì chậm
-	2: [1.0, 0.4, 0.0],  # xe máy: lội chậm qua ngập nông, không đi ngập sâu
-	3: [1.0, 0.0, 0.0],  # ô tô con: chỉ đi đường khô
+	Types.VehicleType.TRUCK: [1.0, 0.5, 0.0],
+	Types.VehicleType.BOAT: [0.0, 0.5, 1.0],  # ca-nô không lên đất khô; chạy trên sông (cạnh boat_only, luôn DEEP), đường ngập sâu, đường ngập nhẹ thì chậm
+	Types.VehicleType.MOTORBIKE: [1.0, 0.4, 0.0],  # xe máy: lội chậm qua ngập nông, không đi ngập sâu
+	Types.VehicleType.CAR: [1.0, 0.0, 0.0],  # ô tô con: chỉ đi đường khô
 }
 
 # --- Các đợt lũ (chỉ số 0, 1, 2) ---

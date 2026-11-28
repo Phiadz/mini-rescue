@@ -25,7 +25,6 @@ const DIRTY_DISPATCH_GAP := 0.1      # đồ thị đổi (tô đường, nướ
 									 # (SOS mới, xe rảnh vẫn điều phối ngay khung sau)
 const MIN_EDGE_SPEED_FACTOR := 0.5   # tốc độ tối thiểu khi đi hết cạnh
 const STRANDED_RETRY := 0.5          # giây giữa hai lần xe kẹt thử tìm đường
-const BOAT_ESCAPE_FACTOR := 0.1      # ca-nô mắc cạn (nước rút) tìm đường về được bò qua chỗ khô; chỗ khô tính đắt gấp 10
 const BONUS_TIME_RATIO := 0.5        # còn quá nửa thời gian thì được thưởng
 const ARRIVE_EPSILON := 0.5          # sai số khi tới node (px)
 # Kẹt xe: chỉ dùng khoảng cách và đồ thị, không dùng vật lý.
@@ -136,8 +135,6 @@ class Vehicle extends Node2D:
 	const ICON_SIZE := Vector2(21, 14)           # giữ tỉ lệ 96 × 64 của file SVG, vừa một làn của đường rộng 22 px
 	const MOTORBIKE_ICON_SIZE := Vector2(14, 9)  # xe máy: nhỏ gọn, chiếm 1/2 làn, 2 xe ngược chiều lách được
 	const CAR_ICON_SIZE := Vector2(18, 11)       # ô tô con: vừa vặn 1 làn đường, dễ tạo ùn ứ
-	const VEHICLE_TYPE_MOTORBIKE := 2            # khớp Types.VehicleType.MOTORBIKE
-	const VEHICLE_TYPE_CAR := 3                  # khớp Types.VehicleType.CAR
 	const FADE_OUT_DURATION := 0.25              # thời gian mờ dần (giây) khi xe dân gặp nước ngập
 	const PARK_OFFSET := 18.0  # lúc đỗ ở kho: xe tải lệch trái, ca-nô lệch phải để không chồng nhau
 	const LANE_OFFSET := 5.5   # xe chạy lệch sang phải hướng đi, mỗi chiều một làn (đường rộng 22 px)
@@ -149,6 +146,11 @@ class Vehicle extends Node2D:
 	var request: SosRequest
 	var path: PathResult
 	var path_index := 0
+	var current_speed := 0.0
+	var target_speed := 0.0
+	var traffic_stop_distance := INF
+	var _curve_edge := -1
+	var _curve_index := 0
 	var current_node := -1   # node xe vừa rời hoặc đang đứng
 	var dest := -1           # node đích của nhiệm vụ
 	var state_id: int = Types.VehicleState.IDLE
@@ -176,9 +178,9 @@ class Vehicle extends Node2D:
 		match type:
 			Types.VehicleType.TRUCK:
 				return 2
-			VEHICLE_TYPE_CAR:
+			Types.VehicleType.CAR:
 				return 2
-			VEHICLE_TYPE_MOTORBIKE:
+			Types.VehicleType.MOTORBIKE:
 				return 1
 			_:
 				return 2
@@ -186,17 +188,18 @@ class Vehicle extends Node2D:
 	func request_water_detour() -> void:
 		# Tính lại đường với chi phí chiếm đóng hiện tại (congestion_penalty) để thuyền
 		# tự động lách vào nhánh sông thoáng thay vì dừng đối đầu.
-		if _water_detour_cooldown > 0.0 or dest == -1 or type != Types.VehicleType.BOAT:
+		var goal := hub_id if state_id == Types.VehicleState.RETURNING else dest
+		if _water_detour_cooldown > 0.0 or goal == -1 or type != Types.VehicleType.BOAT:
 			return
 		_water_detour_cooldown = 2.5
 		# plan() gọi RescueManager.find_path() bao gồm congestion_penalty → tự né đường đắt
-		plan(dest)
+		plan(goal)
 
 	func is_on_ferry() -> bool:
 		return is_boarded_on_ferry
 
 	func is_civilian_type() -> bool:
-		return type == VEHICLE_TYPE_MOTORBIKE or type == VEHICLE_TYPE_CAR
+		return type == Types.VehicleType.MOTORBIKE or type == Types.VehicleType.CAR
 
 	func is_fading() -> bool:
 		return fading or _fading
@@ -254,6 +257,9 @@ class Vehicle extends Node2D:
 			_state.exit(self)
 		_state = new_state
 		state_id = new_id
+		if new_id in [Types.VehicleState.IDLE, Types.VehicleState.DELIVERING, Types.VehicleState.STRANDED]:
+			current_speed = 0.0
+			target_speed = 0.0
 		if is_civilian_type() and new_id == Types.VehicleState.EN_ROUTE:
 			parked = false
 			if _fading or modulate.a < 1.0:
@@ -294,6 +300,9 @@ class Vehicle extends Node2D:
 			want = heading.rotated(PI / 2.0) * LANE_OFFSET
 		if _lane != want:
 			_lane = _lane.move_toward(want, LANE_OFFSET * 2.0 / LANE_SWITCH * delta)
+			queue_redraw()
+		if type == Types.VehicleType.BOAT and _lane != Vector2.ZERO and not RescueManager._boat_segment_open(position, position + _lane):
+			_lane = Vector2.ZERO
 			queue_redraw()
 
 	func lane_offset() -> Vector2:
@@ -348,67 +357,182 @@ class Vehicle extends Node2D:
 			return true
 		return false
 
-	# Ca-nô mắc cạn (nước rút dưới chân): tìm đường về to_node được bò qua chỗ khô (ít chỗ khô nhất), không đứng kẹt trên đất.
-	func plan_escape(to_node: int) -> bool:
-		var p: PathResult = RescueManager.g().find_path(current_node, to_node, type, {}, BOAT_ESCAPE_FACTOR)
-		if not p.found:
-			return false
-		path = RescueManager.g().smooth_boat_path(p)
-		path_index = 0
-		return true
-
 	# Đi dọc đường. Trả true khi xe đứng ở cuối đoạn (cần ra quyết định).
-	# Xe đã vào một đoạn thì đi hết đoạn đó, tốc độ tối thiểu MIN_EDGE_SPEED_FACTOR.
+	# Xe đường bộ đã vào một đoạn thì đi hết đoạn đó, tốc độ tối thiểu MIN_EDGE_SPEED_FACTOR.
 	func advance(delta: float) -> bool:
-		if _water_detour_cooldown > 0.0:
-			_water_detour_cooldown -= delta
+		_water_detour_cooldown = maxf(0.0, _water_detour_cooldown - delta)
 		if is_boarded_on_ferry:
 			return false
 		if path == null or path_index >= path.edge_ids.size():
 			return true
 		if not waypoints.is_empty():
-			maneuver(delta)  # vừa rời chỗ đỗ: lùi ra lối đi trước
+			maneuver(delta)
 			return false
-		var e: Edge = RescueManager.g().get_edge(path.edge_ids[path_index])
-		if e == null:
-			_cut()
-			return true
-		if e.is_ferry:
-			# Xe gặp bến phà: dừng lại ở bờ và vào hàng đợi chờ phà đón
-			waiting_at_ferry = true
-			RescueManager.register_ferry_passenger(self, current_node)
-			return false
-		waiting_at_ferry = false
-		var next_id: int = path.node_ids[path_index + 1]
-		var target: Vector2 = RescueManager.arrive_pos(self, next_id)  # điểm có cổng: dừng ở lối vào; về kho: tới lối đi cạnh chỗ đã giữ
-		var f := e.speed_factor(type)
-		if f <= 0.0:
-			f = MIN_EDGE_SPEED_FACTOR  # cạnh vừa thành không đi được: đi nốt với tốc độ tối thiểu
-		if position.distance_to(target) > ARRIVE_EPSILON:
-			heading = position.direction_to(target)
-			queue_redraw()
-		var jam := settle_jam(RescueManager.congestion_factor(self), delta)
-		position = position.move_toward(target, Config.base_speed(type) * f * jam * delta)
-		if position.distance_to(target) < ARRIVE_EPSILON:
-			position = target
+		var remaining := delta
+		while remaining > 0.0 and path_index < path.edge_ids.size():
+			var edge: Edge = RescueManager.g().get_edge(path.edge_ids[path_index])
+			if edge == null or (edge.speed_factor(type) <= 0.0 and (type == Types.VehicleType.BOAT or edge.suspended)):
+				_cut()
+				return true
+			if edge.is_ferry:
+				current_speed = 0.0
+				target_speed = 0.0
+				waiting_at_ferry = true
+				RescueManager.register_ferry_passenger(self, current_node)
+				return false
+			waiting_at_ferry = false
+			var next_id: int = path.node_ids[path_index + 1]
+			if type == Types.VehicleType.BOAT and RescueManager._redirect_boat_departure(self, next_id):
+				return path.edge_ids.is_empty()
+			var target := RescueManager.arrive_pos(self, next_id)
+			if type == Types.VehicleType.BOAT and not RescueManager._boat_segment_open(position, target):
+				# A replan starts at the last graph node. The vessel may still be on its old edge.
+				var anchor: MapNode = RescueManager.g().get_map_node(current_node)
+				if anchor == null or anchor.kind != Types.NodeKind.WATER \
+						or not RescueManager._boat_segment_open(position, anchor.pos) \
+						or not RescueManager._boat_segment_open(anchor.pos, target):
+					_cut()
+					return true
+				heading = position.direction_to(anchor.pos)
+				var limit := sqrt(2.0 * Config.BRAKING[type] * position.distance_to(anchor.pos))
+				_drive_to(anchor.pos, minf(Config.base_speed(type), limit), INF, remaining)
+				return false
+			var last_point := true
+			var ahead := position.distance_to(target)
+			if edge.is_highway:
+				var forward := edge.node_a == current_node
+				if _curve_edge != edge.id:
+					_curve_edge = edge.id
+					_curve_index = 1 if forward else edge.curve.size() - 2
+				target = edge.curve[_curve_index]
+				last_point = _curve_index == (edge.curve.size() - 1 if forward else 0)
+				ahead = position.distance_to(target)
+				var direction := 1 if forward else -1
+				var i := _curve_index
+				while i + direction >= 0 and i + direction < edge.curve.size():
+					ahead += edge.curve[i].distance_to(edge.curve[i + direction])
+					i += direction
+			if position.distance_to(target) > ARRIVE_EPSILON:
+				heading = position.direction_to(target)
+			var factor := edge.speed_factor(type)
+			if factor <= 0.0:
+				factor = MIN_EDGE_SPEED_FACTOR
+			var jam := RescueManager.congestion_factor(self, [], true)
+			jam = settle_jam(jam, remaining)
+			var limit := Config.base_speed(type) * factor * jam
+			var brake: float = Config.BRAKING[type]
+			var approach_limit := _lookahead_speed_limit(ahead, brake, remaining)
+			var stop_limit := _approach_speed(0.0, traffic_stop_distance, brake, remaining)
+			limit = minf(limit, minf(approach_limit, stop_limit))
+			var leftover := _drive_to(target, limit, traffic_stop_distance, remaining)
+			if leftover < 0.0:
+				return false
+			remaining = leftover
+			if not last_point:
+				_curve_index += 1 if edge.node_a == current_node else -1
+				continue
+			_curve_edge = -1
 			current_node = next_id
 			path_index += 1
-			return not _next_edge_same_segment(e)
-		return false
+			var next_edge: Edge = RescueManager.g().get_edge(path.edge_ids[path_index]) if path_index < path.edge_ids.size() else null
+			if next_edge == null or next_edge.is_ferry:
+				current_speed = 0.0
+				target_speed = 0.0
+			if not _next_edge_same_segment(edge):
+				return true
+		return path_index >= path.edge_ids.size()
 
-	# Đi chậm tới từng điểm trong waypoints (lùi ra lối đi, hoặc đỗ vào chỗ). Trả true khi đã hết điểm.
+	# Look ahead across short tiles so braking can begin before entering the last edge.
+	func _lookahead_speed_limit(distance: float, brake: float, delta: float) -> float:
+		var result := INF
+		var base := Config.base_speed(type)
+		var horizon := maxf(current_speed, base * Config.HIGHWAY_SPEED_FACTOR)
+		horizon = horizon * horizon / (2.0 * brake)
+		for i in range(path_index, path.edge_ids.size()):
+			var next := RescueManager.g().get_edge(path.edge_ids[i + 1]) as Edge if i + 1 < path.edge_ids.size() else null
+			if next == null or next.is_ferry:
+				return minf(result, _approach_speed(0.0, distance, brake, delta))
+			var next_factor := next.speed_factor(type)
+			if next_factor > 0.0:
+				result = minf(result, _approach_speed(base * next_factor, distance, brake, delta))
+			if type != Types.VehicleType.BOAT:
+				var junction := path.node_ids[i + 1]
+				var kind := RescueManager.junction_kind(junction)
+				if kind != JUNCTION_NONE:
+					var turn := base * Config.JUNCTION_SPEED_FACTOR
+					if i > path_index and kind == JUNCTION_LIGHT:
+						var from: MapNode = RescueManager.g().get_map_node(path.node_ids[i])
+						var to: MapNode = RescueManager.g().get_map_node(junction)
+						if not RescueManager.light_green(junction, from.pos.direction_to(to.pos)):
+							turn = 0.0
+					result = minf(result, _approach_speed(turn, maxf(0.0, distance - JUNCTION_RADIUS), brake, delta))
+			if distance > horizon:
+				break
+			distance += next.length
+		return result
+
+	func _approach_speed(exit_speed: float, distance: float, brake: float, delta: float) -> float:
+		# Start braking before cruising for another frame would cross the braking envelope.
+		return sqrt(exit_speed * exit_speed + 2.0 * brake * maxf(0.0, distance - current_speed * delta))
+
+	# Return unused frame time on arrival. A traffic stop is a hard position limit even
+	# if a new obstacle appears closer than the physical braking distance.
+	func _drive_to(target: Vector2, limit: float, traffic_distance: float, delta: float) -> float:
+		target_speed = limit
+		var length := position.distance_to(target)
+		if traffic_distance <= 0.0:
+			current_speed = 0.0
+			return -1.0
+		if length == 0.0:
+			return delta
+		var start_speed := current_speed
+		var rate: float = Config.ACCELERATION[type] if limit > start_speed else Config.BRAKING[type]
+		var next_speed := move_toward(start_speed, limit, rate * delta)
+		var ramp := absf(next_speed - start_speed) / rate
+		var movement := (start_speed + next_speed) * 0.5 * ramp + next_speed * (delta - ramp)
+		var travel := minf(length, minf(traffic_distance, movement))
+		position = position.move_toward(target, travel)
+		current_speed = next_speed
+		queue_redraw()
+		if travel >= traffic_distance:
+			current_speed = 0.0
+			return -1.0
+		if travel < length:
+			return -1.0
+		var acceleration := signf(next_speed - start_speed) * rate
+		var ramp_distance := (start_speed + next_speed) * 0.5 * ramp
+		var used := ramp
+		if travel < ramp_distance:
+			current_speed = sqrt(maxf(0.0, start_speed * start_speed + 2.0 * acceleration * travel))
+			used = absf(current_speed - start_speed) / rate
+		elif next_speed > 0.0:
+			used += (travel - ramp_distance) / next_speed
+		return maxf(0.0, delta - used)
+
 	func maneuver(delta: float) -> bool:
-		while not waypoints.is_empty():
+		var remaining := delta
+		while not waypoints.is_empty() and remaining > 0.0:
 			var to: Vector2 = waypoints[0]
-			if position.distance_to(to) < ARRIVE_EPSILON:
-				position = to
-				waypoints.pop_front()
-				continue
-			heading = position.direction_to(to)
-			position = position.move_toward(to, Config.base_speed(type) * MANEUVER_SPEED * delta)
-			queue_redraw()
-			return false
-		return true
+			if type == Types.VehicleType.BOAT and not RescueManager._boat_segment_open(position, to):
+				waypoints.clear()
+				current_speed = 0.0
+				target_speed = 0.0
+				return true
+			if position.distance_to(to) > ARRIVE_EPSILON:
+				heading = position.direction_to(to)
+			var limit := Config.base_speed(type) * MANEUVER_SPEED
+			var distance := position.distance_to(to)
+			for i in range(1, waypoints.size()):
+				distance += waypoints[i - 1].distance_to(waypoints[i])
+			limit = minf(limit, _approach_speed(0.0, distance, Config.BRAKING[type], remaining))
+			remaining = _drive_to(to, limit, INF, remaining)
+			if remaining < 0.0:
+				return false
+			waypoints.pop_front()
+		if waypoints.is_empty() and state_id == Types.VehicleState.IDLE:
+			current_speed = 0.0
+			target_speed = 0.0
+		return waypoints.is_empty()
 
 	func _next_edge_same_segment(e: Edge) -> bool:
 		if path_index >= path.edge_ids.size():
@@ -421,9 +545,14 @@ class Vehicle extends Node2D:
 	func _cut() -> void:
 		if path != null and path_index < path.node_ids.size():
 			current_node = path.node_ids[path_index]
-			position = RescueManager.stop_pos(current_node)
+			var node: MapNode = RescueManager.g().get_map_node(current_node)
+			if type != Types.VehicleType.BOAT or (node != null and node.kind == Types.NodeKind.WATER):
+				position = RescueManager.stop_pos(current_node)
 		path = PathResult.new()
 		path_index = 0
+		_curve_edge = -1
+		current_speed = 0.0
+		target_speed = 0.0
 
 	func on_edge_removed(edge_id: int) -> void:
 		if path == null or path_index >= path.edge_ids.size():
@@ -544,9 +673,13 @@ class Vehicle extends Node2D:
 		path = null
 		_lane = Vector2.ZERO
 		waypoints.clear()
-		if slot >= 0:
+		if slot >= 0 and type == Types.VehicleType.BOAT:
+			waypoints = RescueManager._boat_berth_waypoints(self)
+			if waypoints.is_empty():
+				RescueManager.release_slot(self)
+		elif slot >= 0:
 			waypoints.append(RescueManager.slot_pos(self))  # từ lối đi vào đúng chỗ đã giữ
-		else:
+		if slot < 0:
 			position = RescueManager.stop_pos(hub_id)
 			heading = Vector2.RIGHT
 		change_state(IdleState.new(), Types.VehicleState.IDLE)
@@ -558,17 +691,17 @@ class Vehicle extends Node2D:
 				return TRUCK_ICON
 			Types.VehicleType.BOAT:
 				return BOAT_ICON
-			VEHICLE_TYPE_MOTORBIKE:
+			Types.VehicleType.MOTORBIKE:
 				return MOTORBIKE_ICON
-			VEHICLE_TYPE_CAR:
+			Types.VehicleType.CAR:
 				return CAR_ICON
 		return TRUCK_ICON
 
 	func _vehicle_icon_size() -> Vector2:
 		match type:
-			VEHICLE_TYPE_MOTORBIKE:
+			Types.VehicleType.MOTORBIKE:
 				return MOTORBIKE_ICON_SIZE
-			VEHICLE_TYPE_CAR:
+			Types.VehicleType.CAR:
 				return CAR_ICON_SIZE
 		return ICON_SIZE
 
@@ -609,7 +742,7 @@ class Vehicle extends Node2D:
 		if (jammed or waiting_at_ferry) and state_id != Types.VehicleState.IDLE:  # đèn phanh ở đuôi xe
 			var rear := offset - heading * (icon_size.x / 2.0 - 1.0)
 			var brake_r := 1.8 if is_civilian_type() else 2.4
-			if type == VEHICLE_TYPE_MOTORBIKE:
+			if type == Types.VehicleType.MOTORBIKE:
 				draw_circle(rear, brake_r, Color('#ff3b30'))
 			else:
 				var side := heading.rotated(PI / 2.0) * (icon_size.y * 0.28)
@@ -669,7 +802,7 @@ class StrandedState extends VehicleStateBase:
 			_t = 0.0
 			retry(v)
 	func retry(v: Vehicle) -> void:
-		if v.plan(v.hub_id) or (v.type == Types.VehicleType.BOAT and v.plan_escape(v.hub_id)):
+		if v.plan(v.hub_id):
 			v.change_state(ReturningState.new(), Types.VehicleState.RETURNING)
 
 # Xe dân: từ nhà ra kho. Đoạn đường ngập quá khả năng xe thì biến mất, SOS chuyển cho xe cứu hộ.
@@ -830,7 +963,7 @@ class FerryVessel extends RefCounted:
 				heading = dir_a
 				if not carried_vehicles.is_empty():
 					_unboard_passengers(node_a, pos_a)
-				_board_passengers(queue_a)
+				_board_passengers(queue_a, node_a)
 				_sync_carried_positions()
 				if not carried_vehicles.is_empty():
 					if _current_load() >= capacity:
@@ -838,7 +971,7 @@ class FerryVessel extends RefCounted:
 						progress_dist = 0.0
 						dwell_timer = 0.0
 					else:
-						if RescueManager.has_approaching_vehicle_to_dock(node_a, capacity - _current_load(), 3.0):
+						if RescueManager.has_approaching_vehicle_to_dock(node_a, capacity - _current_load(), 3.0, route_id):
 							dwell_timer += delta
 							if dwell_timer >= DWELL_MAX:
 								state = VesselState.SAILING_TO_B
@@ -867,7 +1000,7 @@ class FerryVessel extends RefCounted:
 				heading = dir_b
 				if not carried_vehicles.is_empty():
 					_unboard_passengers(node_b, pos_b)
-				_board_passengers(queue_b)
+				_board_passengers(queue_b, node_b)
 				_sync_carried_positions()
 				if not carried_vehicles.is_empty():
 					if _current_load() >= capacity:
@@ -875,7 +1008,7 @@ class FerryVessel extends RefCounted:
 						progress_dist = total_path_len
 						dwell_timer = 0.0
 					else:
-						if RescueManager.has_approaching_vehicle_to_dock(node_b, capacity - _current_load(), 3.0):
+						if RescueManager.has_approaching_vehicle_to_dock(node_b, capacity - _current_load(), 3.0, route_id):
 							dwell_timer += delta
 							if dwell_timer >= DWELL_MAX:
 								state = VesselState.SAILING_TO_A
@@ -899,22 +1032,24 @@ class FerryVessel extends RefCounted:
 					position = dock_wait_pos_a
 					heading = dir_a
 
-	func _clean_queues() -> void:
-		var valid_a: Array = []
-		for v in queue_a:
-			if is_instance_valid(v) and v.path != null and v.waiting_at_ferry:
-				valid_a.append(v)
-		queue_a = valid_a
-		var valid_b: Array = []
-		for v in queue_b:
-			if is_instance_valid(v) and v.path != null and v.waiting_at_ferry:
-				valid_b.append(v)
-		queue_b = valid_b
+	func can_queue(v: Variant, dock: int) -> bool:
+		if not is_instance_valid(v) or not v.waiting_at_ferry or v.current_node != dock:
+			return false
+		if v.path == null or v.path_index >= v.path.edge_ids.size() or v.path_index + 1 >= v.path.node_ids.size():
+			return false
+		var edge := GraphManager.get_edge(v.path.edge_ids[v.path_index])
+		var destination := node_b if dock == node_a else node_a
+		return (dock == node_a or dock == node_b) and edge != null and not edge.suspended \
+				and edge.ferry_route_id == route_id and v.path.node_ids[v.path_index + 1] == destination
 
-	func _board_passengers(q: Array) -> void:
+	func _clean_queues() -> void:
+		queue_a = queue_a.filter(func(v): return can_queue(v, node_a))
+		queue_b = queue_b.filter(func(v): return can_queue(v, node_b))
+
+	func _board_passengers(q: Array, dock: int) -> void:
 		while not q.is_empty():
-			var v: Vehicle = q[0]
-			if not is_instance_valid(v) or v.path == null:
+			var v = q[0]
+			if not can_queue(v, dock):
 				q.pop_front()
 				continue
 			var w: int = v.ferry_weight()
@@ -933,13 +1068,15 @@ class FerryVessel extends RefCounted:
 				v.waiting_at_ferry = false
 				v.current_node = dest_node
 				v.position = dest_pos
-				while v.path != null and v.path_index < v.path.edge_ids.size():
-					var eid: int = v.path.edge_ids[v.path_index]
-					var e: Edge = GraphManager.get_edge(eid)
-					if e != null and e.is_ferry:
-						v.path_index += 1
-					else:
-						break
+				var matching_leg := false
+				if v.path != null and v.path_index < v.path.edge_ids.size() and v.path_index + 1 < v.path.node_ids.size():
+					var edge := GraphManager.get_edge(v.path.edge_ids[v.path_index])
+					matching_leg = edge != null and edge.ferry_route_id == route_id and v.path.node_ids[v.path_index + 1] == dest_node
+				if matching_leg:
+					v.path_index += 1
+				else:
+					v.path = null
+					v.path_index = 0
 				v.visible = true
 				v.queue_redraw()
 		carried_vehicles.clear()
@@ -973,19 +1110,24 @@ class FerryVessel extends RefCounted:
 	func destroy() -> void:
 		for v in carried_vehicles:
 			if is_instance_valid(v):
+				v.position = RescueManager.stop_pos(v.current_node)
 				v.is_boarded_on_ferry = false
-				v.go_home()
+				v.waiting_at_ferry = false
+				v.path = null
+				v.path_index = 0
 		carried_vehicles.clear()
-		for v in queue_a:
-			if is_instance_valid(v):
-				v.waiting_at_ferry = false
-				v.go_home()
-		queue_a.clear()
-		for v in queue_b:
-			if is_instance_valid(v):
-				v.waiting_at_ferry = false
-				v.go_home()
-		queue_b.clear()
+		for dock in [node_a, node_b]:
+			var queue: Array = queue_a if dock == node_a else queue_b
+			for v in queue:
+				if is_instance_valid(v) and v.waiting_at_ferry and v.current_node == dock:
+					# Removal may already have cut the path. If a reroute selected
+					# another ferry, the old queue has no claim on the passenger.
+					if v.path != null and v.path_index < v.path.edge_ids.size() and v.path.edge_ids[v.path_index] != route_id:
+						continue
+					v.waiting_at_ferry = false
+					v.path = null
+					v.path_index = 0
+			queue.clear()
 
 # ===== MANAGER =====
 var path_provider: Callable = Callable()  # tùy chọn: hàm tìm đường giả cho scene thử
@@ -1066,6 +1208,29 @@ func set_spawning(enabled: bool) -> void:
 func _on_wave_ended(_index: int) -> void:
 	_spawning = false
 
+# A roundabout edit can replace a node under a moving vehicle. Preserve its
+# assignment and resume from the nearest legal anchor in the replacement graph.
+func remap_roundabout_vehicles(replaced: Array, anchors: Array) -> void:
+	for vehicle: Vehicle in _vehicles.values():
+		if not is_instance_valid(vehicle) or vehicle.type == Types.VehicleType.BOAT or not replaced.has(vehicle.current_node):
+			continue
+		var best := INF
+		var replacement: MapNode = null
+		for id in anchors:
+			var node := GraphManager.get_map_node(id)
+			var distance: float = vehicle.position.distance_squared_to(node.pos)
+			if distance < best:
+				best = distance
+				replacement = node
+		vehicle.current_node = replacement.id
+		vehicle.position = replacement.pos
+		vehicle.path = null
+		vehicle.path_index = 0
+		vehicle._curve_edge = -1
+		vehicle.current_speed = 0.0
+		vehicle.target_speed = 0.0
+
+
 func _on_edge_added(_edge_id: int) -> void:
 	_on_graph_changed()
 
@@ -1111,7 +1276,7 @@ var _grid := {}  # ô lưới -> các xe đang chạy hoặc đang dỡ hàng tr
 func _rebuild_grid() -> void:
 	_grid.clear()
 	for v in _vehicles.values():
-		if v.is_moving() or v.state_id == Types.VehicleState.DELIVERING:
+		if v.is_moving() or v.waiting_at_ferry or v.state_id == Types.VehicleState.DELIVERING:
 			var key := Vector2i((v.position / GRID_CELL).floor())
 			if not _grid.has(key):
 				_grid[key] = []
@@ -1159,15 +1324,9 @@ func junction_kind(node_id: int) -> int:
 	var edges: Array = g().get_edges_of(node_id)
 	if n.kind != Types.NodeKind.ROAD:
 		return JUNCTION_YIELD if edges.size() >= 3 else JUNCTION_NONE
-	var road_deg := 0
-	for eid in edges:
-		var e: Edge = g().get_edge(eid)
-		var other: MapNode = g().get_map_node(e.other_end(node_id)) if e != null else null
-		if other != null and other.kind == Types.NodeKind.ROAD:
-			road_deg += 1
-	if road_deg >= 4:
+	if g().has_method("has_traffic_light") and g().has_traffic_light(node_id):
 		return JUNCTION_LIGHT
-	return JUNCTION_YIELD if edges.size() >= 3 else JUNCTION_NONE  # ngã ba một ô: nhường theo khoảng cách
+	return JUNCTION_YIELD if edges.size() >= 3 else JUNCTION_NONE
 
 
 # Đèn ở nút node_id có xanh cho xe đi theo hướng heading không. Hai trục ngang, dọc luân phiên xanh
@@ -1197,11 +1356,13 @@ func _on_ring(u: Vehicle, ring: int) -> bool:
 #     chỗ nhập (RING_YIELD); xe trên vòng chạy tiếp;
 #   - đèn: trục của mình đang đỏ thì dừng (at_red); xanh thì vẫn nhường xe còn trong ngã tư đi cắt ngang.
 # others: danh sách xe để xét (test truyền vào); rỗng thì dùng mọi xe của RescueManager.
-func congestion_factor(v: Vehicle, others: Array = []) -> float:
+func congestion_factor(v: Vehicle, others: Array = [], brake_ahead := false) -> float:
 	v.at_red = false
+	v.traffic_stop_distance = INF
 	if not v.is_moving():
 		return 1.0
 	var list: Array = others if not others.is_empty() else _nearby(v.position)
+	var current: Edge = g().get_edge(v.path.edge_ids[v.path_index])
 	var f := 1.0
 	var nxt := v.next_node()
 	var kind := junction_kind(nxt) if nxt != -1 else JUNCTION_NONE
@@ -1211,29 +1372,41 @@ func congestion_factor(v: Vehicle, others: Array = []) -> float:
 	if kind != JUNCTION_NONE:
 		jpos = g().get_map_node(nxt).pos
 		dv = v.position.distance_to(jpos)
-		approaching = dv > JUNCTION_RADIUS and dv < JUNCTION_APPROACH
+		var anticipation: float = v.current_speed * v.current_speed / (2.0 * Config.BRAKING[v.type]) if brake_ahead else 0.0
+		approaching = dv >= JUNCTION_RADIUS - ARRIVE_EPSILON and dv <= JUNCTION_APPROACH + anticipation
 	var ring: int = g().ring_of(nxt) if kind == JUNCTION_RING else -1
 	var entering_ring: bool = ring != -1 and not g().is_ring_edge(v.path.edge_ids[v.path_index])  # từ ngoài nhập vào vòng
 	if approaching and kind == JUNCTION_LIGHT and not light_green(nxt, v.heading):
 		v.at_red = true
-		return 0.0
+		if not brake_ahead:
+			return 0.0
+		v.traffic_stop_distance = maxf(0.0, dv - JUNCTION_RADIUS)
 	for u in list:
-		if u == v:
+		if u == v or u.is_boarded_on_ferry:
+			continue
+		var other: Edge = g().get_edge(u.path.edge_ids[u.path_index]) if u.is_moving() else null
+		if current != null and current.is_highway and (other == null or other.id != current.id):
+			continue
+		if other != null and other.is_highway and (current == null or other.id != current.id):
 			continue
 		# Dỡ hàng lần lượt: xe đang dỡ hàng ở một SOS chặn các xe khác tới đúng SOS đó (xếp hàng chờ).
 		# Xe chỉ đi ngang khu đó không bị chặn.
 		if u.state_id == Types.VehicleState.DELIVERING and v.request != null and u.dest == v.dest and nxt == u.current_node:
 			var gap: float = v.position.distance_to(u.position)
-			if gap < FOLLOW_GAP:
+			if brake_ahead:
+				v.traffic_stop_distance = minf(v.traffic_stop_distance, maxf(0.0, gap - FOLLOW_GAP))
+			elif gap < FOLLOW_GAP:
 				return 0.0
 			continue
-		if not u.is_moving():
+		if not u.is_moving() and not u.waiting_at_ferry:
 			continue
 		var rel: Vector2 = u.position - v.position
 		var along := rel.dot(v.heading)
 		var ahead: bool = along > 0.0 or (rel.length() < 1.0 and u.id < v.id)  # cùng chỗ (vừa rời kho): xe mã nhỏ đi trước
 		if ahead and u.heading.dot(v.heading) > 0.7 and absf(rel.cross(v.heading)) < SAME_LANE:
-			if along < STOP_GAP:
+			if brake_ahead:
+				v.traffic_stop_distance = minf(v.traffic_stop_distance, maxf(0.0, along - STOP_GAP))
+			elif along < STOP_GAP:
 				return 0.0
 			if along < FOLLOW_GAP:
 				f = minf(f, FOLLOW_SLOW)
@@ -1256,10 +1429,13 @@ func congestion_factor(v: Vehicle, others: Array = []) -> float:
 					f = 0.0
 			JUNCTION_RING:
 				if entering_ring and _on_ring(u, ring) and u.position.distance_to(jpos) < RING_YIELD:
-					f = 0.0  # xe trên vòng được đi trước
+					f = 0.0
 			JUNCTION_LIGHT:
 				if inside and cross:
 					f = 0.0
+	if brake_ahead and f == 0.0:
+		v.traffic_stop_distance = minf(v.traffic_stop_distance, maxf(0.0, dv - JUNCTION_RADIUS))
+		f = 1.0
 	return f
 
 func _process(delta: float) -> void:
@@ -1311,14 +1487,15 @@ func _sync_ferry_vessels() -> void:
 	var routes: Array = g().get_ferry_routes()
 	var active_ids := {}
 	for r in routes:
-		var rid: int = r.get("edge_id", -1)
-		if rid == -1:
+		var rid: int = r.get("route_id", -1)
+		if rid == -1 or not r.get("open", false):
 			continue
 		active_ids[rid] = true
 		if not _ferry_vessels.has(rid):
 			_ferry_vessels[rid] = FerryVessel.new(r)
-		else:
-			_ferry_vessels[rid].update_route(r)
+		elif _ferry_vessels[rid].route_dict.route_nodes != r.route_nodes:
+			_ferry_vessels[rid].destroy()
+			_ferry_vessels[rid] = FerryVessel.new(r)
 	var to_remove := []
 	for rid in _ferry_vessels.keys():
 		if not active_ids.has(rid):
@@ -1332,19 +1509,20 @@ func _tick_ferry_vessels(delta: float) -> void:
 		fv.tick(delta)
 
 func register_ferry_passenger(v: Vehicle, dock_node: int) -> void:
-	if _ferry_vessels.is_empty():
-		_sync_ferry_vessels()
-	for fv in _ferry_vessels.values():
-		if fv.node_a == dock_node:
-			if not fv.queue_a.has(v):
-				fv.queue_a.append(v)
-			return
-		elif fv.node_b == dock_node:
-			if not fv.queue_b.has(v):
-				fv.queue_b.append(v)
-			return
+	if v.path == null or v.path_index >= v.path.edge_ids.size():
+		return
+	var edge: Edge = g().get_edge(v.path.edge_ids[v.path_index])
+	if edge == null:
+		return
+	var ferry: FerryVessel = _ferry_vessels.get(edge.ferry_route_id)
+	if ferry == null or not ferry.can_queue(v, dock_node):
+		return
+	var queue: Array = ferry.queue_a if ferry.node_a == dock_node else ferry.queue_b
+	if not queue.has(v):
+		queue.append(v)
 
-func has_approaching_vehicle_to_dock(dock_node: int, max_weight: int, max_eta: float) -> bool:
+
+func has_approaching_vehicle_to_dock(dock_node: int, max_weight: int, max_eta: float, route_id: int = -1) -> bool:
 	var dock_n = g().get_map_node(dock_node)
 	if dock_n == null:
 		return false
@@ -1355,9 +1533,16 @@ func has_approaching_vehicle_to_dock(dock_node: int, max_weight: int, max_eta: f
 			continue
 		for k in range(v.path_index, mini(v.path_index + 4, v.path.node_ids.size())):
 			if v.path.node_ids[k] == dock_node:
+				if route_id != -1:
+					var edge: Edge = g().get_edge(v.path.edge_ids[k]) if k < v.path.edge_ids.size() else null
+					if edge == null or edge.ferry_route_id != route_id:
+						continue
 				var dist: float = v.position.distance_to(dock_n.pos)
 				var speed: float = Config.base_speed(v.type)
-				if dist / maxf(1.0, speed) <= max_eta:
+				var acceleration: float = Config.ACCELERATION[v.type]
+				var ramp := clampf((speed - v.current_speed) / acceleration, 0.0, max_eta)
+				var reachable: float = (v.current_speed + acceleration * ramp * 0.5) * ramp + speed * (max_eta - ramp)
+				if dist <= reachable:
 					return true
 				break
 	return false
@@ -1512,7 +1697,7 @@ func _dock_slots(hub_id: int) -> Array[int]:
 	var h: MapNode = g().get_map_node(hub_id)
 	if h == null:
 		return out
-	var nodes: Array = g().get_dock_nodes(hub_id).filter(func(id: int) -> bool: return not g().is_flood_node(id))  # chỉ trên sông: vùng ngập thêm dần
+	var nodes: Array = g().get_dock_nodes(hub_id).filter(func(id: int) -> bool: return not g().is_flood_node(id))  # stable berths on permanent water
 	var dir := func(id: int) -> Vector2: return (g().get_map_node(id).pos - h.pos).normalized()
 	var ok := func(id: int) -> bool: return dir.call(id).y <= DOCK_MAX_DOWN  # không chĩa xuống chỗ tên kho, nhãn hàng
 	nodes = nodes.filter(ok)
@@ -1570,9 +1755,6 @@ func boat_stop_pos(v: Vehicle, node_id: int) -> Vector2:
 	var n: MapNode = g().get_map_node(node_id)
 	if n == null:
 		return Vector2.ZERO
-	var last: bool = v.path != null and v.path_index == v.path.edge_ids.size() - 1
-	if node_id == v.hub_id and v.slot >= 0 and last:
-		return slot_pos(v)
 	if n.kind == Types.NodeKind.HUB or n.kind == Types.NodeKind.DISTRICT:
 		var prev: int = v.path.node_ids[v.path_index] if v.path != null and v.path_index < v.path.node_ids.size() else -1
 		var w: MapNode = g().get_map_node(prev) if prev != -1 else null
@@ -1602,13 +1784,45 @@ func _boat_clear_point(point_id: int, w_id: int, before_id: int) -> Vector2:
 			return p
 	return b.pos
 
-# Ca-nô trong kho (bến đầy) nhận nhiệm vụ: ra thẳng nút nước nối bến đầu tiên trên đường, không chạy qua đất từ tâm kho.
-func _boat_depart(v: Vehicle) -> void:
-	if v.type != Types.VehicleType.BOAT or v.slot >= 0 or v.path == null or v.path.node_ids.size() < 2:
-		return
-	var w: MapNode = g().get_map_node(v.path.node_ids[1])
-	if w != null and w.kind == Types.NodeKind.WATER:
-		v.position = w.pos
+func _boat_segment_open(a: Vector2, b: Vector2) -> bool:
+	return not g().has_method("water_line") or g().water_line(a, b)
+
+
+func _boat_berth_waypoints(v: Vehicle) -> Array[Vector2]:
+	var berth := slot_pos(v)
+	if _boat_segment_open(v.position, berth):
+		return [berth]
+	var from: int = g().boat_node_at(g().cell_of(v.position))
+	var to: int = g().boat_node_at(g().cell_of(berth))
+	var path := find_path(from, to, Types.VehicleType.BOAT, v)
+	var points: Array[Vector2] = []
+	if path.found and _boat_segment_open(v.position, g().get_map_node(from).pos):
+		for id in path.node_ids:
+			points.append(g().get_map_node(id).pos)
+	return points
+
+
+# Launch a stored boat at its dock. A boat already on the river must reach the
+# destination from its actual water cell, even if the logical dock chose another berth.
+func _redirect_boat_departure(v: Vehicle, next_id: int) -> bool:
+	var from: MapNode = g().get_map_node(v.current_node)
+	var to: MapNode = g().get_map_node(next_id)
+	if from == null or to == null or from.kind == Types.NodeKind.WATER or to.kind != Types.NodeKind.WATER:
+		return false
+	if _boat_segment_open(v.position, to.pos):
+		return false
+	var anchor: int = g().boat_node_at(g().cell_of(v.position))
+	if anchor == -1 and from.kind == Types.NodeKind.HUB and v.position.is_equal_approx(from.pos):
+		v.position = to.pos
+		return false
+	var goal: int = v.path.node_ids.back()
+	v.path = PathResult.new()
+	v.path_index = 0
+	if anchor != -1:
+		v.current_node = anchor
+		v.plan(goal)
+	return true
+
 
 func _uses_gates() -> bool:
 	return g().has_method('uses_gates') and g().uses_gates()
@@ -1754,7 +1968,6 @@ func _assign(r: SosRequest, v: Vehicle, p: PathResult) -> void:
 	EventBus.stock_changed.emit(h.id, r.supply, h.stock[r.supply])
 	if v.type == Types.VehicleType.BOAT and g().has_method('smooth_boat_path'):
 		v.path = g().smooth_boat_path(v.path)  # đường từ cây điều phối: ca-nô lao thẳng trên nước thoáng
-	_boat_depart(v)
 	_leave_slot(v)
 	v.change_state(EnRouteState.new(), Types.VehicleState.EN_ROUTE)
 	EventBus.sos_assigned.emit(r.id, v.id)
@@ -1970,7 +2183,32 @@ func prioritize(req_id: int) -> bool:
 	_dirty = true
 	return true
 
-# Số phần hàng SOS còn thiếu (chưa giao), 0 nếu không còn SOS. Bong bóng SOS của D hiện số này.
+# Routeability for SOS eligibility. Busy fleet vehicles count; stock, deadlines and
+# assignment remain dispatch concerns. This query never creates vehicles or paths for them.
+func has_rescue_route(node_id: int) -> bool:
+	if GraphManager.get_map_node(node_id) == null:
+		return false
+	var checked := {}
+	for vehicle in _vehicles.values():
+		if not is_instance_valid(vehicle) or vehicle.is_fading():
+			continue
+		if vehicle.is_civilian:
+			if vehicle.home_id != node_id:
+				continue
+			for hub_id in _hubs:
+				if GraphManager.find_path(node_id, hub_id, vehicle.type).found and GraphManager.find_path(hub_id, node_id, vehicle.type).found:
+					return true
+			continue
+		var origin := Vector2i(vehicle.hub_id, vehicle.type)
+		if origin.x == node_id or checked.has(origin):
+			continue
+		checked[origin] = true
+		if GraphManager.find_path(origin.x, node_id, origin.y).found:
+			return true
+	return false
+
+
+# Số phần hàng SOS còn thiếu (chưa giao), 0 nếu không còn SOS.
 func get_units_left(req_id: int) -> int:
 	if not _requests.has(req_id):
 		return 0
