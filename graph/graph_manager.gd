@@ -192,7 +192,8 @@ func get_edge_ids() -> Array[int]:
 func get_edges_of(node_id: int) -> Array[int]:
 	var out: Array[int] = []
 	for k in _adj.get(node_id, []):
-		out.append(k)
+		if not _edges[k].suspended:
+			out.append(k)
 	return out
 
 func get_road_ids() -> Array[int]:
@@ -205,8 +206,8 @@ func get_road_ids() -> Array[int]:
 # Tất cả cạnh cùng đoạn với edge_id, theo thứ tự dọc đường.
 func get_segment_edges(edge_id: int) -> Array[int]:
 	var out: Array[int] = []
-	if _edges.has(edge_id):
-		out.assign(_segments[_edges[edge_id].segment])
+	if _edges.has(edge_id) and not _edges[edge_id].suspended:
+		out.assign(_segments.get(_edges[edge_id].segment, []))
 	return out
 
 # --- Lưới ---
@@ -987,10 +988,14 @@ func _remove_roundabout(junction_id: int) -> bool:
 	return true
 
 
+func can_start_highway(cell: Vector2i) -> bool:
+	return road_at(cell) != -1 and not _ring_footprint.has(cell)
+
+
 func can_place_highway(start: Vector2i, end: Vector2i) -> bool:
 	var a := road_at(start)
 	var b := road_at(end)
-	if a == -1 or b == -1 or a == b or _ring_footprint.has(start) or _ring_footprint.has(end):
+	if a == b or not can_start_highway(start) or not can_start_highway(end):
 		return false
 	for id in _highway_adj.get(a, []):
 		if get_edge(id).other_end(a) == b:
@@ -1055,6 +1060,20 @@ func get_highway_route(route_id: int) -> Dictionary:
 	return {route_id = route_id, node_a = edge.node_a, node_b = edge.node_b,
 		start = cell_of(_nodes[edge.node_a].pos), end = cell_of(_nodes[edge.node_b].pos),
 		points = edge.curve.duplicate(), length = edge.length}
+
+
+func highway_at_position(pos: Vector2) -> int:
+	var closest := -1
+	var distance := 13.0
+	for id in _highways:
+		var points: PackedVector2Array = _edges[id].curve
+		for i in range(1, points.size()):
+			var hit := Geometry2D.get_closest_point_to_segment(pos, points[i - 1], points[i])
+			var candidate := pos.distance_to(hit)
+			if candidate < distance:
+				distance = candidate
+				closest = id
+	return closest
 
 
 func remove_highway(route_id: int) -> bool:
@@ -1533,11 +1552,16 @@ func get_ferry_edge_ids() -> Array[int]:
 		out.append(k)
 	return out
 
+func can_start_ferry(cell: Vector2i) -> bool:
+	return _in_grid(cell) and road_at(cell) != -1 and not cell_is_water(cell) \
+		and not _point_cells.has(cell) and not _ring_footprint.has(cell) \
+		and _ferry_docks_open(cell, cell)
+
+
 func _ferry_plan(cell_a: Vector2i, cell_b: Vector2i) -> Dictionary:
-	if cell_a == cell_b or not _in_grid(cell_a) or not _in_grid(cell_b) or road_at(cell_a) == -1:
+	if cell_a == cell_b or not can_start_ferry(cell_a) or not _in_grid(cell_b):
 		return {}
-	if cell_is_water(cell_a) or cell_is_water(cell_b) or _point_cells.has(cell_a) or _point_cells.has(cell_b) \
-			or _lot_cells.has(cell_b) or _ring_footprint.has(cell_a) or _ring_footprint.has(cell_b):
+	if cell_is_water(cell_b) or _point_cells.has(cell_b) or _lot_cells.has(cell_b) or _ring_footprint.has(cell_b):
 		return {}
 	if not _ferry_docks_open(cell_a, cell_b) or (road_at(cell_b) == -1 and _roads >= _limit):
 		return {}
@@ -1732,7 +1756,7 @@ func _fallback_docks(start: int) -> Array[int]:
 		var id := pending[head]
 		head += 1
 		var cell := cell_of(_nodes[id].pos)
-		if not cell_is_water(cell) and FloodManager.depth_at(cell) < Config.SHALLOW_MAX \
+		if not cell_is_water(cell) and _ferry_docks_open(cell, cell) \
 				and _nearest_water_node_to_cell(cell, cell_center(cell)) != -1:
 			docks.append(id)
 		for eid in get_edges_of(id):

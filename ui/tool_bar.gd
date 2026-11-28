@@ -7,17 +7,17 @@ extends Control
 ## - Disable item khi count == 0; UI không tự trừ/refund count.
 
 # Hợp đồng ID dùng chung (docs/endless_gameplay_team_assignments.md mục 2)
-const TOOL_ROAD := 0
-const TOOL_FERRY := 1
-const TOOL_TRAFFIC_LIGHT := 2
-const TOOL_ROUNDABOUT := 3
-const TOOL_HIGHWAY := 4
-const TOOL_ERASE := 5
+const TOOL_ROAD := Types.ToolId.ROAD
+const TOOL_FERRY := Types.ToolId.FERRY
+const TOOL_TRAFFIC_LIGHT := Types.ToolId.TRAFFIC_LIGHT
+const TOOL_ROUNDABOUT := Types.ToolId.ROUNDABOUT
+const TOOL_HIGHWAY := Types.ToolId.HIGHWAY
+const TOOL_ERASE := Types.ToolId.ERASE
 
-const REWARD_TRAFFIC_LIGHT := 5
-const REWARD_ROUNDABOUT := 6
-const REWARD_HIGHWAY := 7
-const REWARD_FERRY := 8
+const REWARD_TRAFFIC_LIGHT := Types.Reward.TRAFFIC_LIGHT
+const REWARD_ROUNDABOUT := Types.Reward.ROUNDABOUT
+const REWARD_HIGHWAY := Types.Reward.HIGHWAY
+const REWARD_FERRY := Types.Reward.FERRY
 
 # Bảng màu đồng bộ với Card Draft (Owner: E)
 const COLOR_BG := Color("#121e2b")

@@ -1,8 +1,5 @@
 extends Node2D
-# Chủ sở hữu: E. Giữ chuột trái và kéo để tô đường từng ô, đi được 8 hướng; giữ chuột phải và rê,
-# hoặc rê chuột lên ô rồi nhấn Delete, để xóa ô.
-# Dùng _unhandled_input để nút giao diện nhận chuột trước. Sự kiện chuột được đổi về tọa độ
-# cục bộ (make_input_local), trùng tọa độ bản đồ của GraphManager dù scene cha có dịch đi.
+# Handles map input after the UI, using map-local coordinates even when zoomed.
 
 const NO_CELL := Vector2i(-1, -1)
 const PICK_RADIUS := 24.0
@@ -19,9 +16,8 @@ const REJECT_TIME := 0.4
 ## Scene thử tắt cờ này để chạy riêng, không cần GameManager.
 @export var only_in_round := true
 
-enum Tool { ROAD = 0, FERRY = 1 }
-var active_tool: int = Tool.ROAD
-var _ferry_start_cell := NO_CELL
+var active_tool: int = Types.ToolId.ROAD
+var _start_cell := NO_CELL
 
 var _painting := false
 var _erasing := false
@@ -41,7 +37,7 @@ func _ready() -> void:
 	_dots.show_behind_parent = true
 	_dots.draw.connect(_draw_dots)
 	add_child(_dots)
-	EventBus.game_started.connect(_cancel)
+	EventBus.game_started.connect(func() -> void: _on_tool_changed(Types.ToolId.ROAD))
 	EventBus.game_state_changed.connect(func(_s: int) -> void: _cancel())  # bỏ thao tác dở khi tạm dừng, kết thúc
 	EventBus.active_tool_changed.connect(_on_tool_changed)
 	set_process(false)
@@ -49,11 +45,7 @@ func _ready() -> void:
 
 func _on_tool_changed(tool_id: int) -> void:
 	active_tool = tool_id
-	_ferry_start_cell = NO_CELL
-	_painting = false
-	_erasing = false
-	_sync_dots()
-	queue_redraw()
+	_cancel()
 
 
 func _process(delta: float) -> void:
@@ -87,89 +79,101 @@ func _on_mouse_motion() -> void:
 	queue_redraw()
 
 
-func _on_mouse_button(mb: InputEventMouseButton) -> void:
-	if active_tool == Tool.FERRY:
-		_on_mouse_button_ferry(mb)
-		return
-
-	if mb.button_index == MOUSE_BUTTON_LEFT:
-		if mb.pressed:
-			_start_paint()
-		else:
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and not event.pressed:
+		if event.button_index == MOUSE_BUTTON_LEFT:
 			_painting = false
 			_stroke_cells.clear()
-	elif mb.button_index == MOUSE_BUTTON_RIGHT:
-		_erasing = mb.pressed
-		_stroke_cells.clear()
-		if _erasing:
-			_last_cell = _hover_cell
-			GraphManager.remove_road(_hover_cell)
-	else:
+		if event.button_index == MOUSE_BUTTON_LEFT or event.button_index == MOUSE_BUTTON_RIGHT:
+			_erasing = false
+		_sync_dots()
+
+
+func _on_mouse_button(mb: InputEventMouseButton) -> void:
+	if not mb.pressed or mb.button_index not in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
 		return
+	if mb.button_index == MOUSE_BUTTON_RIGHT and (_painting or _start_cell != NO_CELL):
+		_cancel()
+	elif active_tool == Types.ToolId.ERASE or (active_tool == Types.ToolId.ROAD and mb.button_index == MOUSE_BUTTON_RIGHT):
+		_last_cell = _hover_cell
+		if GameManager.is_in_play(_cursor) and not _erase_infrastructure(_hover_cell, _cursor):
+			_erasing = true
+			GraphManager.remove_road(_hover_cell)
+	elif mb.button_index == MOUSE_BUTTON_RIGHT:
+		_cancel()
+		EventBus.active_tool_changed.emit(Types.ToolId.ROAD)
+	elif active_tool == Types.ToolId.ROAD:
+		_start_paint()
+	else:
+		_place_item(_hover_cell)
 	_sync_dots()
 	queue_redraw()
 	get_viewport().set_input_as_handled()
 
 
-func _on_mouse_button_ferry(mb: InputEventMouseButton) -> void:
-	if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
-		var target_cell := _hover_cell
-		if _ferry_start_cell == NO_CELL:
-			if not GameManager.is_in_play(GraphManager.cell_center(target_cell)):
-				_reject(target_cell)
+func _place_item(cell: Vector2i) -> void:
+	if not GameManager.is_in_play(GraphManager.cell_center(cell)):
+		_reject(cell)
+		return
+	var placed := false
+	match active_tool:
+		Types.ToolId.TRAFFIC_LIGHT:
+			var junction := GraphManager.road_at(cell)
+			placed = GraphManager.can_place_traffic_light(junction) and GraphManager.place_traffic_light(junction)
+		Types.ToolId.ROUNDABOUT:
+			var junction := GraphManager.road_at(cell)
+			placed = _roundabout_in_play(cell) and GraphManager.can_place_roundabout(junction) and GraphManager.place_roundabout(junction)
+		Types.ToolId.FERRY, Types.ToolId.HIGHWAY:
+			if _start_cell == NO_CELL:
+				if _can_start_route(cell):
+					_start_cell = cell
+				else:
+					_reject(cell)
 				return
-			# Chỉ cho phép chọn điểm xuất phát Bến phà từ ô ĐÃ CÓ ĐƯỜNG
-			if GraphManager.road_at(target_cell) == -1:
-				_reject(target_cell)
-				return
-			_ferry_start_cell = target_cell
-			queue_redraw()
-		else:
-			if target_cell == _ferry_start_cell or not GameManager.is_in_play(GraphManager.cell_center(target_cell)):
-				_reject(target_cell)
-				return
-			if GraphManager.place_ferry(_ferry_start_cell, target_cell):
-				_ferry_start_cell = NO_CELL
-				if GraphManager.get_ferries_available() <= 0:
-					EventBus.active_tool_changed.emit(Tool.ROAD)
-			else:
-				_reject(target_cell)
-			queue_redraw()
-		get_viewport().set_input_as_handled()
-	elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
-		if _ferry_start_cell != NO_CELL:
-			_ferry_start_cell = NO_CELL
-			queue_redraw()
-		else:
-			if GraphManager.remove_ferry_at_cell(_hover_cell):
-				queue_redraw()
-			else:
-				EventBus.active_tool_changed.emit(Tool.ROAD)
-		get_viewport().set_input_as_handled()
+			if GameManager.is_in_play(GraphManager.cell_center(_start_cell)):
+				if active_tool == Types.ToolId.FERRY:
+					placed = GraphManager.can_place_ferry(_start_cell, cell) and GraphManager.place_ferry(_start_cell, cell)
+				else:
+					placed = GraphManager.can_place_highway(_start_cell, cell) and GraphManager.place_highway(_start_cell, cell) != -1
+	if not placed:
+		_reject(cell)
+		return
+	_start_cell = NO_CELL
+	if active_tool == Types.ToolId.FERRY and GameManager.get_inventory(Types.Reward.FERRY) == 0:
+		EventBus.active_tool_changed.emit(Types.ToolId.ROAD)
+
+
+func _can_start_route(cell: Vector2i) -> bool:
+	if active_tool == Types.ToolId.FERRY:
+		return GameManager.get_inventory(Types.Reward.FERRY) > 0 and GraphManager.can_start_ferry(cell)
+	return GameManager.get_inventory(Types.Reward.HIGHWAY) > 0 and GraphManager.can_start_highway(cell)
+
+
+func _roundabout_in_play(center: Vector2i) -> bool:
+	for y in range(-1, 2):
+		for x in range(-1, 2):
+			if not GameManager.is_in_play(GraphManager.cell_center(center + Vector2i(x, y))):
+				return false
+	return true
 
 
 func _on_key(key: InputEventKey) -> void:
 	if not key.pressed or key.echo:
 		return
 	if key.keycode == KEY_1:
-		EventBus.active_tool_changed.emit(Tool.ROAD)
-		get_viewport().set_input_as_handled()
-	elif key.keycode == KEY_2:
-		if GraphManager.get_ferries_available() > 0:
-			EventBus.active_tool_changed.emit(Tool.FERRY)
-			get_viewport().set_input_as_handled()
-	elif key.keycode == KEY_ESCAPE:
-		if active_tool == Tool.FERRY:
-			if _ferry_start_cell != NO_CELL:
-				_ferry_start_cell = NO_CELL
-			else:
-				EventBus.active_tool_changed.emit(Tool.ROAD)
-			queue_redraw()
-			get_viewport().set_input_as_handled()
-	elif key.keycode == KEY_DELETE:
-		if GraphManager.remove_ferry_at_cell(_hover_cell) or GraphManager.remove_road(_hover_cell):
-			queue_redraw()
-			get_viewport().set_input_as_handled()
+		EventBus.active_tool_changed.emit(Types.ToolId.ROAD)
+	elif key.keycode == KEY_2 and GameManager.get_inventory(Types.Reward.FERRY) > 0:
+		EventBus.active_tool_changed.emit(Types.ToolId.FERRY)
+	elif key.keycode == KEY_ESCAPE and (_painting or _erasing or active_tool != Types.ToolId.ROAD):
+		var pending := _start_cell != NO_CELL or _painting or _erasing
+		_cancel()
+		if not pending:
+			EventBus.active_tool_changed.emit(Types.ToolId.ROAD)
+	elif key.keycode == KEY_DELETE and _start_cell == NO_CELL and _hover_cell != NO_CELL and GameManager.is_in_play(_cursor):
+		_erase_at(_hover_cell, _cursor)
+	else:
+		return
+	get_viewport().set_input_as_handled()
 
 
 func _start_paint() -> void:
@@ -248,8 +252,30 @@ func _try_collapse_corner(to: Vector2i) -> bool:
 
 func _erase_to(to: Vector2i) -> void:
 	for cell in _cells_to(to):
-		GraphManager.remove_road(cell)
 		_last_cell = cell
+		var pos := _cursor if cell == to else GraphManager.cell_center(cell)
+		if not GameManager.is_in_play(pos):
+			continue
+		if _erase_infrastructure(cell, pos):
+			_erasing = false
+			_sync_dots()
+			return
+		GraphManager.remove_road(cell)
+
+
+func _erase_at(cell: Vector2i, position_on_map: Vector2) -> void:
+	if GameManager.is_in_play(position_on_map) and not _erase_infrastructure(cell, position_on_map):
+		GraphManager.remove_road(cell)
+
+
+func _erase_infrastructure(cell: Vector2i, position_on_map: Vector2) -> bool:
+	var highway := GraphManager.highway_at_position(position_on_map)
+	if highway != -1:
+		return GraphManager.remove_highway(highway)
+	var ring := GraphManager.roundabout_at_cell(cell)
+	if ring != -1:
+		return GraphManager.remove_roundabout(ring)
+	return GraphManager.remove_ferry_at_cell(cell)
 
 
 # Các ô từ _last_cell tới to, mỗi bước sang ô kề, để chuột lia nhanh không làm đứt đường.
@@ -268,31 +294,69 @@ func _paint_cell() -> Vector2i:
 
 
 func _draw() -> void:
-	if active_tool == Tool.FERRY:
+	if active_tool == Types.ToolId.FERRY:
 		_draw_ferry_preview()
-	else:
-		if _hover_cell != NO_CELL:
-			draw_rect(_cell_rect(_hover_cell), HOVER_COLOR, false, 2.0)
+	elif active_tool == Types.ToolId.HIGHWAY:
+		_draw_highway_preview()
+	elif _hover_cell != NO_CELL:
+		var outline := _cell_rect(_hover_cell)
+		var color := HOVER_COLOR
+		if active_tool == Types.ToolId.TRAFFIC_LIGHT:
+			color = _preview_color(GameManager.get_inventory(Types.Reward.TRAFFIC_LIGHT) > 0
+				and GameManager.is_in_play(GraphManager.cell_center(_hover_cell))
+				and GraphManager.can_place_traffic_light(GraphManager.road_at(_hover_cell)))
+		elif active_tool == Types.ToolId.ROUNDABOUT:
+			outline = outline.grow(Config.CELL_SIZE)
+			color = _preview_color(GameManager.get_inventory(Types.Reward.ROUNDABOUT) > 0
+				and _roundabout_in_play(_hover_cell)
+				and GraphManager.can_place_roundabout(GraphManager.road_at(_hover_cell)))
+		draw_rect(outline, color, false, 2.0)
 	if _reject_left > 0.0:
 		draw_rect(_cell_rect(_reject_cell), REJECT_COLOR)
+
+
+func _preview_color(valid: bool) -> Color:
+	return Color(0.25, 0.85, 1.0, 0.85) if valid else REJECT_COLOR
+
+
+func _draw_highway_preview() -> void:
+	if _start_cell == NO_CELL:
+		if _hover_cell != NO_CELL:
+			var valid := GameManager.is_in_play(GraphManager.cell_center(_hover_cell)) and _can_start_route(_hover_cell)
+			draw_rect(_cell_rect(_hover_cell), _preview_color(valid), false, 2.0)
+		return
+	var start := GraphManager.cell_center(_start_cell)
+	draw_circle(start, 7.0, _preview_color(true))
+	if _hover_cell == NO_CELL or _hover_cell == _start_cell:
+		return
+	var points := GraphManager.get_highway_preview_points(_start_cell, _hover_cell)
+	var valid := not points.is_empty() and GameManager.is_in_play(GraphManager.cell_center(_hover_cell)) \
+		and GameManager.is_in_play(start) and _can_start_route(_start_cell)
+	var color := _preview_color(valid)
+	if valid:
+		draw_polyline(points, color, 5.0, true)
+	else:
+		draw_dashed_line(start, GraphManager.cell_center(_hover_cell), color, 3.0, 8.0)
+	draw_rect(_cell_rect(_hover_cell), color, false, 2.0)
 
 
 func _draw_ferry_preview() -> void:
 	var time_sec := Time.get_ticks_msec() / 1000.0
 	var pulse := 0.8 + 0.2 * sin(time_sec * 5.0)
 
-	if _ferry_start_cell != NO_CELL:
-		var p_start: Vector2 = GraphManager.cell_center(_ferry_start_cell)
+	if _start_cell != NO_CELL:
+		var p_start: Vector2 = GraphManager.cell_center(_start_cell)
 		# Bến bờ A đã chọn
 		draw_circle(p_start, 13.0 * pulse, Color(0.15, 0.65, 0.85, 0.4))
 		draw_circle(p_start, 7.0, Color(0.2, 0.8, 1.0, 0.9))
-		draw_rect(_cell_rect(_ferry_start_cell), Color(0.2, 0.8, 1.0, 0.8), false, 2.5)
+		draw_rect(_cell_rect(_start_cell), Color(0.2, 0.8, 1.0, 0.8), false, 2.5)
 
 		# Đường nối preview sang bờ B / con trỏ
-		if _hover_cell != NO_CELL and _hover_cell != _ferry_start_cell:
+		if _hover_cell != NO_CELL and _hover_cell != _start_cell:
 			var p_hover: Vector2 = GraphManager.cell_center(_hover_cell)
-			var pts: PackedVector2Array = GraphManager.get_ferry_preview_points(_ferry_start_cell, _hover_cell)
-			var valid := not pts.is_empty() and GraphManager.can_place_ferry(_ferry_start_cell, _hover_cell)
+			var pts: PackedVector2Array = GraphManager.get_ferry_preview_points(_start_cell, _hover_cell)
+			var valid := GameManager.is_in_play(p_hover) and not pts.is_empty() \
+				and GameManager.is_in_play(p_start) and _can_start_route(_start_cell)
 			var col: Color = Color(0.25, 0.85, 1.0, 0.85) if valid else Color(1.0, 0.3, 0.2, 0.75)
 
 			if valid and pts.size() >= 2:
@@ -320,7 +384,7 @@ func _draw_ferry_preview() -> void:
 	else:
 		if _hover_cell != NO_CELL and GameManager.is_in_play(GraphManager.cell_center(_hover_cell)):
 			var p_hover: Vector2 = GraphManager.cell_center(_hover_cell)
-			var is_road: bool = (GraphManager.road_at(_hover_cell) != -1)
+			var is_road := _can_start_route(_hover_cell)
 			if is_road:
 				# Gợi ý ô đường hợp lệ để bắt đầu đặt bến phà
 				draw_rect(_cell_rect(_hover_cell), Color(0.2, 0.8, 1.0, 0.8 * pulse), false, 2.5)
@@ -356,7 +420,8 @@ func _cancel() -> void:
 	_stroke_cells.clear()
 	_sync_dots()
 	_hover_cell = NO_CELL
-	_ferry_start_cell = NO_CELL
+	_start_cell = NO_CELL
+	_reject_left = 0.0
 	queue_redraw()
 
 

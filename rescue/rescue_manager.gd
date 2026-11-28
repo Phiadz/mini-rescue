@@ -144,8 +144,13 @@ class Vehicle extends Node2D:
 	var type: int
 	var hub_id: int
 	var request: SosRequest
-	var path: PathResult
+	var path: PathResult:
+		set(value):
+			if value == null or value.edge_ids.is_empty() or value.edge_ids[0] != _entered_road_edge:
+				_entered_road_edge = -1
+			path = value
 	var path_index := 0
+	var _entered_road_edge := -1
 	var current_speed := 0.0
 	var target_speed := 0.0
 	var traffic_stop_distance := INF
@@ -371,9 +376,19 @@ class Vehicle extends Node2D:
 		var remaining := delta
 		while remaining > 0.0 and path_index < path.edge_ids.size():
 			var edge: Edge = RescueManager.g().get_edge(path.edge_ids[path_index])
-			if edge == null or (edge.speed_factor(type) <= 0.0 and (type == Types.VehicleType.BOAT or edge.suspended)):
+			if edge == null:
 				_cut()
 				return true
+			var factor := edge.speed_factor(type)
+			if factor <= 0.0:
+				if type == Types.VehicleType.BOAT or edge.suspended:
+					_cut()
+					return true
+				# Only a truck already moving along this edge may finish it after it floods.
+				if type == Types.VehicleType.TRUCK and edge.state == Types.EdgeState.DEEP and _entered_road_edge != edge.id:
+					_cut(false)
+					return true
+				factor = MIN_EDGE_SPEED_FACTOR
 			if edge.is_ferry:
 				current_speed = 0.0
 				target_speed = 0.0
@@ -414,9 +429,6 @@ class Vehicle extends Node2D:
 					i += direction
 			if position.distance_to(target) > ARRIVE_EPSILON:
 				heading = position.direction_to(target)
-			var factor := edge.speed_factor(type)
-			if factor <= 0.0:
-				factor = MIN_EDGE_SPEED_FACTOR
 			var jam := RescueManager.congestion_factor(self, [], true)
 			jam = settle_jam(jam, remaining)
 			var limit := Config.base_speed(type) * factor * jam
@@ -424,14 +436,18 @@ class Vehicle extends Node2D:
 			var approach_limit := _lookahead_speed_limit(ahead, brake, remaining)
 			var stop_limit := _approach_speed(0.0, traffic_stop_distance, brake, remaining)
 			limit = minf(limit, minf(approach_limit, stop_limit))
+			var previous_position := position
 			var leftover := _drive_to(target, limit, traffic_stop_distance, remaining)
 			if leftover < 0.0:
+				if type == Types.VehicleType.TRUCK and position != previous_position:
+					_entered_road_edge = edge.id
 				return false
 			remaining = leftover
 			if not last_point:
 				_curve_index += 1 if edge.node_a == current_node else -1
 				continue
 			_curve_edge = -1
+			_entered_road_edge = -1
 			current_node = next_id
 			path_index += 1
 			var next_edge: Edge = RescueManager.g().get_edge(path.edge_ids[path_index]) if path_index < path.edge_ids.size() else null
@@ -542,11 +558,11 @@ class Vehicle extends Node2D:
 
 	# Cạnh đang đi bị xóa: dịch về node vừa rời, đường rỗng để state tính lại.
 	# GraphManager xóa cạnh trước rồi mới xóa ô, nên lúc này node vẫn còn.
-	func _cut() -> void:
+	func _cut(snap_to_node := true) -> void:
 		if path != null and path_index < path.node_ids.size():
 			current_node = path.node_ids[path_index]
 			var node: MapNode = RescueManager.g().get_map_node(current_node)
-			if type != Types.VehicleType.BOAT or (node != null and node.kind == Types.NodeKind.WATER):
+			if snap_to_node and (type != Types.VehicleType.BOAT or (node != null and node.kind == Types.NodeKind.WATER)):
 				position = RescueManager.stop_pos(current_node)
 		path = PathResult.new()
 		path_index = 0
@@ -1567,7 +1583,7 @@ func _tick_spawn(delta: float) -> void:
 	_spawn_timer = 0.0
 	if _requests.size() >= w.sos_max:
 		return
-	var req := SosFactory.create(_next_req_id, _wave, _free_nodes())
+	var req := SosFactory.create(_next_req_id, _wave, _free_nodes().filter(has_rescue_route))
 	if req == null:
 		return
 	_next_req_id += 1
