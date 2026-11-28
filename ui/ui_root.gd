@@ -337,11 +337,15 @@ func _on_game_state_changed(state: int) -> void:
 	elif card_draft_state != -1 and state == card_draft_state:
 		_open_card_draft()
 	elif state == Types.GameState.PAUSED:
-		_show("pause")
+		# Keep the map visible; resume and speed controls stay in the compact HUD clock.
+		pause.visible = false
+		hud.set("enabled", false)
 	elif state == Types.GameState.PLAYING or state == Types.GameState.WAVE_BREAK:
 		_draft_has_offers = false
 		if current_view == "pause" or current_view == "reward":
 			_show("hud")
+		else:
+			hud.set("enabled", current_view in ["hud", "reward"])
 
 func _on_won(stats: Dictionary) -> void:
 	_draft_has_offers = false
