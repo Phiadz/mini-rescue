@@ -48,9 +48,14 @@ var _rails_ci: Node2D
 # _sunk nên ca-nô hiện trên đường chìm nhưng luồn dưới cầu (đường chưa ngập sâu trên mặt nước).
 const SUNK_Z := -8
 var _sunk: Node2D
+var _highway_layer: Node2D
 
 const CASING_WIDTH := 26.0  # đường chiếm khoảng nửa ô như Mini Motorways (trước 32/28, đè gần kín lô đất của nhà)
 const ROAD_WIDTH := 22.0
+const HIGHWAY_SHADOW := Color("#466170")
+const HIGHWAY_RAIL := Color("#344d61")
+const HIGHWAY_SURFACE := Color("#c1d7e8")
+const HIGHWAY_MARK := Color("#f6fbff")
 const MARK_WIDTH := 2.0
 const SHALLOW_MARK_WIDTH := 4.0
 const DASH := 8.0
@@ -60,6 +65,10 @@ const CURVE_STEPS := 6  # số đoạn thẳng xấp xỉ mỗi nửa đường 
 
 
 func _ready() -> void:
+	_highway_layer = Node2D.new()
+	_highway_layer.name = "Highways"
+	_highway_layer.draw.connect(_draw_highways)
+	add_child(_highway_layer)
 	_sunk = Node2D.new()
 	_sunk.name = 'Sunk'
 	_sunk.z_index = SUNK_Z
@@ -130,10 +139,25 @@ func _draw_sunk() -> void:
 	_draw_dashes(_sunk, Types.EdgeState.DEEP)
 
 
+func _draw_highways() -> void:
+	for route_id in GraphManager.get_highway_ids():
+		var points: PackedVector2Array = GraphManager.get_highway_route(route_id).points
+		var shadow := points.duplicate()
+		for i in shadow.size():
+			shadow[i] += Vector2(0.0, 4.0)
+		_highway_layer.draw_polyline(shadow, HIGHWAY_SHADOW, CASING_WIDTH, true)
+		_highway_layer.draw_polyline(points, HIGHWAY_RAIL, CASING_WIDTH, true)
+		_highway_layer.draw_polyline(points, HIGHWAY_SURFACE, ROAD_WIDTH - 3.0, true)
+		var markings := PackedVector2Array()
+		_dash_into(markings, points, DASH)
+		if not markings.is_empty():
+			_highway_layer.draw_multiline(markings, HIGHWAY_MARK, MARK_WIDTH, true)
+
+
 func _redraw() -> void:
 	_dirty = true
 	queue_redraw()
-	for ci in [_sunk, _casing_ci, _rails_ci]:
+	for ci in [_sunk, _casing_ci, _rails_ci, _highway_layer]:
 		if ci != null:
 			ci.queue_redraw()
 

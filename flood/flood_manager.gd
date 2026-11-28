@@ -359,11 +359,12 @@ func _limited_depth(i: int, surface: float, limit: float) -> float:
 
 
 # Mỗi cạnh ngập theo nước tại chính hai ô nó nối (độ sâu trung bình hai ô), nên đường đổi màu đúng chỗ
-# nước phủ. Cảnh báo trước 5 giây vẫn gom theo đoạn: mỗi đoạn chỉ cảnh báo một lần cho mỗi mức ngập.
+# nước phủ. Cảnh báo mỗi mức lấy cạnh sắp đổi trạng thái sớm nhất trong đoạn.
 func _update_edges() -> void:
 	if not has_node("/root/GraphManager"):
 		return
 	_ensure_hydraulic_distance()
+	var warnings := {}
 	for eid in GraphManager.get_edge_ids():
 		var e = GraphManager.get_edge(eid)
 		if e == null:
@@ -373,8 +374,12 @@ func _update_edges() -> void:
 		if e.state != state:
 			GraphManager.set_edge_state(eid, state)
 		var key: int = e.segment if e.segment >= 0 else -1 - eid
-		_check_warning(key, [eid], cells, state)
+		_collect_warning(warnings, key, eid, cells, state)
 	GraphManager.refresh_boat_depth()
+	for key in warnings:
+		_warned[key] = true
+		var warning: Dictionary = warnings[key]
+		EventBus.flood_warning.emit(warning.edge_id, warning.eta)
 
 
 func _mean_depth(cells: Array) -> float:
@@ -389,7 +394,7 @@ func _mean_depth(cells: Array) -> float:
 # Số giây tới khi cạnh sang trạng thái kế tiếp. Sang SHALLOW: ngay khi một trong các ô bắt đầu ngập.
 # Sang DEEP: khi độ sâu trung bình tới SHALLOW_MAX, theo tốc độ dâng trung bình của các ô.
 # Khóa cảnh báo theo đoạn (key), nên cả đoạn chỉ cảnh báo một lần cho mỗi mức.
-func _check_warning(key: int, edges: Array, cells: Array, state: int) -> void:
+func _collect_warning(warnings: Dictionary, key: int, edge_id: int, cells: Array, state: int) -> void:
 	if state >= Types.EdgeState.DEEP or _last_dt <= 0.0 or cells.is_empty():
 		return
 	var warn_key := Vector2i(key, state + 1)
@@ -401,10 +406,8 @@ func _check_warning(key: int, edges: Array, cells: Array, state: int) -> void:
 			eta = minf(eta, _eta(i, DRY_EPSILON))
 	else:
 		eta = _deep_warning_eta(cells)
-	if eta <= Config.WARNING_SECONDS:
-		_warned[warn_key] = true
-		if has_node("/root/EventBus"):
-			EventBus.flood_warning.emit(edges[0], maxf(eta, 0.0))
+	if eta <= Config.WARNING_SECONDS and (not warnings.has(warn_key) or eta < warnings[warn_key].eta):
+		warnings[warn_key] = {edge_id = edge_id, eta = maxf(eta, 0.0)}
 
 
 # Extrapolate each cell's effective depth at its current hydraulic limit.
