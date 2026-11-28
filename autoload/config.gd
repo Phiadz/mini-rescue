@@ -41,7 +41,7 @@ const FLOOD_DRAIN_RATE := 3.0
 const FLOOD_SEEP_RATE := 0.5
 
 # --- Đợt và ván chơi ---
-const WAVE_COUNT := 3
+const WAVE_COUNT := 3  # mốc sống sót mở endless (wave 1..3)
 const WAVE_DURATION := 120.0
 # Mỗi đợt: WAVE_RISE_TIME giây đầu mặt nước dâng tới đỉnh water_peak, thời gian còn lại rút RECEDE_RATIO phần vừa dâng,
 # nên mực nước nền vẫn tăng dần qua các đợt (25 -> rút còn ~14, 55 -> ~37, 90 -> ~66).
@@ -49,6 +49,105 @@ const WAVE_RISE_TIME := 80.0
 const RECEDE_RATIO := 0.45
 const BREAK_DURATION := 15.0
 const MAX_FAILED := 3
+
+# --- Endless & Card Draft ---
+const START_FERRIES := 1
+const CARD_CHOICES_COUNT := 4
+const ENDLESS_WATER_PEAK := 90.0
+const ENDLESS_SOS_INTERVAL_BASE := 3.8
+const ENDLESS_SOS_INTERVAL_STEP := 0.3
+const ENDLESS_SOS_INTERVAL_MIN := 2.0
+const ENDLESS_SOS_MAX_BASE := 10
+const ENDLESS_SOS_MAX_CAP := 16
+const ENDLESS_HOUSE_INTERVAL_BASE := 5.0
+const ENDLESS_HOUSE_INTERVAL_STEP := 0.25
+const ENDLESS_HOUSE_INTERVAL_MIN := 3.0
+const ENDLESS_FOOD_RATIO := 0.55
+const ENDLESS_DEADLINE_FOOD_BASE := 27.0
+const ENDLESS_DEADLINE_FOOD_MIN := 18.0
+const ENDLESS_DEADLINE_MEDICAL_BASE := 21.0
+const ENDLESS_DEADLINE_MEDICAL_MIN := 14.0
+
+const CARD_INFRA_WEIGHT_STEP := 0.15
+const CARD_INFRA_WEIGHT_MAX_MULT := 2.0
+const CARD_AMOUNT_SCALE_MAX := 3
+
+const CARD_CATALOG := [
+	{
+		'id': &'road_supply',
+		'title': '+20 Ô đường',
+		'icon_key': &'road_supply',
+		'base_weight': 20.0,
+		'rewards': [{'reward_id': Types.Reward.MORE_EDGES, 'amount': 20}],
+	},
+	{
+		'id': &'truck_fleet',
+		'title': '+2 Xe tải',
+		'icon_key': &'truck_fleet',
+		'base_weight': 10.0,
+		'rewards': [{'reward_id': Types.Reward.EXTRA_TRUCK, 'amount': 2}],
+	},
+	{
+		'id': &'boat_fleet_ferry',
+		'title': '+2 Ca-nô & +1 Phà',
+		'icon_key': &'boat_fleet_ferry',
+		'base_weight': 10.0,
+		'rewards': [
+			{'reward_id': Types.Reward.EXTRA_BOAT, 'amount': 2},
+			{'reward_id': Types.Reward.FERRY, 'amount': 1},
+		],
+	},
+	{
+		'id': &'junction_kit',
+		'title': 'Bộ nút giao',
+		'icon_key': &'junction_kit',
+		'base_weight': 15.0,
+		'rewards': [
+			{'reward_id': Types.Reward.TRAFFIC_LIGHT, 'amount': 1},
+			{'reward_id': Types.Reward.ROUNDABOUT, 'amount': 1},
+		],
+	},
+	{
+		'id': &'highway_ferry',
+		'title': 'Cao tốc & Phà',
+		'icon_key': &'highway_ferry',
+		'base_weight': 15.0,
+		'rewards': [
+			{'reward_id': Types.Reward.HIGHWAY, 'amount': 1},
+			{'reward_id': Types.Reward.FERRY, 'amount': 1},
+		],
+	},
+	{
+		'id': &'boat_capacity',
+		'title': 'Ca-nô 2 ngăn & Đường',
+		'icon_key': &'boat_capacity',
+		'base_weight': 10.0,
+		'rewards': [
+			{'reward_id': Types.Reward.MORE_EDGES, 'amount': 20},
+			{'reward_id': Types.Reward.UPGRADE_BOAT_CAP, 'amount': 1},
+		],
+	},
+	{
+		'id': &'truck_capacity',
+		'title': 'Xe tải 2 ngăn & Đường',
+		'icon_key': &'truck_capacity',
+		'base_weight': 10.0,
+		'rewards': [
+			{'reward_id': Types.Reward.MORE_EDGES, 'amount': 20},
+			{'reward_id': Types.Reward.UPGRADE_TRUCK_CAP, 'amount': 1},
+		],
+	},
+	{
+		'id': &'road_highway',
+		'title': 'Đường & Cao tốc',
+		'icon_key': &'road_highway',
+		'base_weight': 10.0,
+		'rewards': [
+			{'reward_id': Types.Reward.MORE_EDGES, 'amount': 20},
+			{'reward_id': Types.Reward.HIGHWAY, 'amount': 1},
+		],
+	},
+]
 
 # --- Giao hàng, kho, SOS ---
 const DELIVERY_TIME := 0.5
@@ -115,3 +214,28 @@ func base_speed(vehicle_type: int) -> float:
 		Types.VehicleType.MOTORBIKE: return MOTORBIKE_SPEED
 		Types.VehicleType.CAR: return CAR_SPEED
 	return TRUCK_SPEED
+
+
+# Tier áp lực cho wave endless (wave_number >= 4) và draft (draft trước wave 1..4 dùng tier 1).
+func get_pressure_tier(wave_number: int) -> int:
+	if wave_number < 4:
+		return 1
+	return floori(float(wave_number - 4) / 2.0) + 1
+
+
+# Cấu hình đợt theo chỉ số 1-based: wave 1..3 giữ nguyên WAVES; wave >= 4 sinh theo pressure_tier.
+func get_wave_profile(wave_number: int) -> Dictionary:
+	var n := maxi(wave_number, 1)
+	if n <= WAVES.size():
+		return WAVES[n - 1].duplicate()
+	var t := get_pressure_tier(n)
+	return {
+		'water_peak': ENDLESS_WATER_PEAK,
+		'sos_interval': maxf(ENDLESS_SOS_INTERVAL_MIN, ENDLESS_SOS_INTERVAL_BASE - ENDLESS_SOS_INTERVAL_STEP * float(t)),
+		'sos_max': mini(ENDLESS_SOS_MAX_CAP, ENDLESS_SOS_MAX_BASE + t),
+		'sos_units': 1,
+		'house_interval': maxf(ENDLESS_HOUSE_INTERVAL_MIN, ENDLESS_HOUSE_INTERVAL_BASE - ENDLESS_HOUSE_INTERVAL_STEP * float(t)),
+		'food_ratio': ENDLESS_FOOD_RATIO,
+		'deadline_food': maxf(ENDLESS_DEADLINE_FOOD_MIN, ENDLESS_DEADLINE_FOOD_BASE - float(t)),
+		'deadline_medical': maxf(ENDLESS_DEADLINE_MEDICAL_MIN, ENDLESS_DEADLINE_MEDICAL_BASE - float(t)),
+	}

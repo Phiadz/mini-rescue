@@ -1516,6 +1516,11 @@ func _emit_ferry_inventory() -> void:
 	EventBus.ferry_inventory_changed.emit(get_ferries_available(), get_ferries_total())
 
 
+func add_ferry_token(count := 1) -> void:
+	if has_node("/root/GameManager"):
+		GameManager.grant_reward(Types.Reward.FERRY, count)
+
+
 func get_ferry_routes() -> Array:
 	return _ferry_routes.duplicate(true)
 
@@ -1555,7 +1560,6 @@ func _ferry_plan(cell_a: Vector2i, cell_b: Vector2i) -> Dictionary:
 
 func can_place_ferry(cell_a: Vector2i, cell_b: Vector2i) -> bool:
 	return not _ferry_plan(cell_a, cell_b).is_empty()
-
 
 func place_ferry(cell_a: Vector2i, cell_b: Vector2i) -> bool:
 	return can_place_ferry(cell_a, cell_b) and _place_item(ITEM_FERRY, _commit_ferry.bind(cell_a, cell_b)) != -1
@@ -1674,7 +1678,6 @@ func _ferry_water_open(route: Dictionary) -> bool:
 		if i > 1 and not water_line(get_map_node(nodes[i - 1]).pos, pos):
 			return false
 	return true
-
 
 func _update_ferry_fallbacks() -> void:
 	if _editing_infrastructure:

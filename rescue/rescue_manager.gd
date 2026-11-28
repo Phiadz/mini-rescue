@@ -106,7 +106,7 @@ class SosFactory extends RefCounted:
 	static func create(req_id: int, wave_index: int, free_node_ids: Array) -> SosRequest:
 		if free_node_ids.is_empty():
 			return null
-		var w: Dictionary = Config.WAVES[wave_index]
+		var w: Dictionary = Config.get_wave_profile(wave_index + 1)
 		var req := SosRequest.new()
 		req.id = req_id
 		req.node_id = free_node_ids[randi() % free_node_ids.size()]
@@ -1560,7 +1560,7 @@ func _tick_requests(delta: float) -> void:
 			EventBus.sos_failed.emit(rid)
 
 func _tick_spawn(delta: float) -> void:
-	var w: Dictionary = Config.WAVES[_wave]
+	var w: Dictionary = Config.get_wave_profile(_wave + 1)
 	_spawn_timer += delta
 	if _spawn_timer < w.sos_interval:
 		return
@@ -1832,7 +1832,7 @@ func _tick_houses(delta: float) -> void:
 	if not _uses_gates():
 		return
 	_house_timer += delta
-	if _house_timer < float(Config.WAVES[_wave].get('house_interval', INF)):
+	if _house_timer < float(Config.get_wave_profile(_wave + 1).get('house_interval', INF)):
 		return
 	_house_timer = 0.0
 	try_spawn_house()
